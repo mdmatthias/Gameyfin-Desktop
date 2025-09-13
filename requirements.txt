@@ -1,0 +1,2 @@
+PyQT6==6.9.1
+PyQt6-WebEngine==6.9.0
