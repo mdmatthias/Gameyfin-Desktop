@@ -4,6 +4,8 @@ To be used together with Gameyfin https://github.com/gameyfin/gameyfin
 This app loads Gameyfin in a QT app instead of a browser tab.
 Downloads will start in the app itself. External links will open in browser.
 
+Note: the download progress is an estimation, the size is based on the actual files and not on the zip file that's downloading. 
+See https://github.com/gameyfin/gameyfin/issues/707#issuecomment-3289234269
 
 ![preview.png](preview.png)
 # Requirements
