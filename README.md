@@ -16,22 +16,21 @@ PyQt6-WebEngine >= 6.9.0
 ```
 
 # Environment variables
-To connect to your Gameyfin server, set this env var with your Gameyfin url:
-
-```
-GF_URL=http://localhost:8080
-```
-
-Other env vars
-```
-GF_START_MINIMIZED=1 # Useful if you autostart the app on boot
-GF_ICON_PATH=/some/path/to/other/tray-icon.png
-```
+| Environment Variable | Description                                                                                                              |
+| :--- |:-------------------------------------------------------------------------------------------------------------------------|
+| `GF_URL` | The URL of the application, for example: `http://localhost:8080`.                                                        |
+| `GF_SSO_PROVIDER_HOST` | **Required for SSO.** Sets the SSO provider host, for example: `sso.host.com` |
+| `GF_START_MINIMIZED` | Set to `1` to start the application minimized. This is useful if you autostart the app on boot.                          |
+| `GF_ICON_PATH` | The file path to a custom tray icon, for example: `/some/path/to/other/tray-icon.png`.                                   |
 
 # Running the app
 
 ```commandline
 GF_URL=http://192.168.1.100:8080 python gameyfin_qt.py &
+```
+If SSO is enabled:
+```commandline
+GF_URL=http://192.168.1.100:8080 GF_SSO_PROVIDER_HOST=sso.host.com python gameyfin_qt.py &
 ```
 If you want to start it minimized:
 ```commandline

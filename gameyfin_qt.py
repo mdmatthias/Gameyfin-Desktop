@@ -24,6 +24,13 @@ class CustomWebEnginePage(QWebEnginePage):
     def __init__(self, base_url, parent=None):
         super().__init__(parent)
         self.base_url = base_url
+        self.allowed_hosts = {self.base_url.host()}
+        sso_provider_host = getenv("GF_SSO_PROVIDER_HOST", None)
+        if sso_provider_host:
+            # parse only the host, https://sso.host.com -> sso.host.com
+            sso_host = QUrl(sso_provider_host).host()
+            if sso_host:
+                self.allowed_hosts.add(sso_host)
 
     def createWindow(self, _type):
         return UrlCatchingPage(self)
@@ -31,9 +38,7 @@ class CustomWebEnginePage(QWebEnginePage):
     def acceptNavigationRequest(self, url, nav_type, is_main_frame):
         if is_main_frame:
             requested_host = url.host()
-            base_host = self.base_url.host()
-
-            if requested_host != base_host and requested_host != "":
+            if requested_host and requested_host not in self.allowed_hosts:
                 QDesktopServices.openUrl(url)
                 return False
 
@@ -49,7 +54,7 @@ class GameyfinWindow(QMainWindow):
 
         self.browser = QWebEngineView()
 
-        base_url = QUrl(getenv("GF_URL", "http://10.69.69.159:8090"))
+        base_url = QUrl(getenv("GF_URL", "http://localhost:8080"))
         self.custom_page = CustomWebEnginePage(base_url, self.browser)
         self.browser.setPage(self.custom_page)
 
