@@ -28,7 +28,7 @@ class CustomWebEnginePage(QWebEnginePage):
         sso_provider_host = getenv("GF_SSO_PROVIDER_HOST", None)
         if sso_provider_host:
             # parse only the host, https://sso.host.com -> sso.host.com
-            sso_host = QUrl(sso_provider_host).host()
+            sso_host = QUrl(sso_provider_host).host() or sso_provider_host
             if sso_host:
                 self.allowed_hosts.add(sso_host)
 
