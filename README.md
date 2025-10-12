@@ -58,12 +58,12 @@ The application is configured using environment variables. You can either pass t
 
 * **Basic command:**
     ```
-    GF_URL=[http://192.168.1.100:8080](http://192.168.1.100:8080) python gameyfin_qt.py &
+    GF_URL=http://192.168.1.100:8080 python gameyfin_qt.py &
     ```
 
 * **With SSO enabled:**
     ```
-    GF_URL=[http://192.168.1.100:8080](http://192.168.1.100:8080) GF_SSO_PROVIDER_HOST=sso.host.com python gameyfin_qt.py &
+    GF_URL=http://192.168.1.100:8080 GF_SSO_PROVIDER_HOST=sso.host.com python gameyfin_qt.py &
     ```
 
 * **Using a `.env` file (Recommended):**
