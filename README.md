@@ -13,6 +13,7 @@ See https://github.com/gameyfin/gameyfin/issues/707#issuecomment-3289234269
 Python >= 3.9
 PyQT6 >= 6.9.1
 PyQt6-WebEngine >= 6.9.0
+dotenv >= 0.9.9
 ```
 
 # Environment variables
