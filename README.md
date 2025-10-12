@@ -1,48 +1,81 @@
-# Gameyfin Desktop
-To be used together with Gameyfin https://github.com/gameyfin/gameyfin
+# 🖥️ Gameyfin Desktop
 
-This app loads Gameyfin in a QT app instead of a browser tab.
-Downloads will start in the app itself. External links will open in browser.
+A dedicated desktop client for [Gameyfin](https://github.com/gameyfin/gameyfin) that wraps the web interface in a standalone application for a more integrated experience.
 
-Note: the download progress is an estimation, the size is based on the actual files and not on the zip file that's downloading. 
-See https://github.com/gameyfin/gameyfin/issues/707#issuecomment-3289234269
+<img src="preview.png" alt="App preview" width="800">
+<img src="preview2.png" alt="App preview" width="800">
 
-![preview.png](preview.png)
-# Requirements
+---
+### ✨ Features
+
+* **🖥️ Dedicated Desktop Application:** Runs Gameyfin in its own window, separate from your web browser.
+* **🔑 Persistent SSO Login:** Supports persistent logins with SSO providers. The application saves your session data, so you only have to log in once. (*Note: This requires the "remember me" feature to be enabled in your SSO provider's settings.*)
+* **⚙️ System Tray Integration:** Includes an icon in the system tray for quickly showing, hiding, or quitting the application.
+* **📥 Integrated Downloader:** Handles file downloads with a native progress dialog.
+
+---
+### 🗓️ Planned Features
+
+I'm planning to add more features in future updates, including:
+
+* **Advanced Download Manager:** A dedicated panel to view and manage active and historical downloads.
+* **Direct `umu-launcher` Integration (Linux):** An integration to install games directly from the Gameyfin interface using `umu-launcher`.
+
+---
+### 📋 Requirements
+
+* Python
+* PyQt6
+* PyQt6-WebEngine
+* dotenv 
+
+You can install the required packages using one of the methods below.
+
+#### Pip
+
+```bash
+pip install -r requirements.txt
 ```
-Python >= 3.9
-PyQT6 >= 6.9.1
-PyQt6-WebEngine >= 6.9.0
-dotenv >= 0.9.9
-```
 
-# Environment variables
-| Environment Variable | Description                                                                                                              |
-| :--- |:-------------------------------------------------------------------------------------------------------------------------|
-| `GF_URL` | The URL of the application, for example: `http://localhost:8080`.                                                        |
-| `GF_SSO_PROVIDER_HOST` | **Required for SSO.** Sets the SSO provider host, for example: `sso.host.com` |
-| `GF_START_MINIMIZED` | Set to `1` to start the application minimized. This is useful if you autostart the app on boot.                          |
-| `GF_ICON_PATH` | The file path to a custom tray icon, for example: `/some/path/to/other/tray-icon.png`.                                   |
+#### Pacman
+```bash
+pacman -Syu python-pyqt6 python-pyqt6-webengine python-dotenv
+```
+---
+### 🛠️ Configuration
 
-# Persistent browser storage
-The application saves all browsing data from Gameyfin (cookies, local storage, cache, etc.) to a QWebEngineProfile stored in a .gameyfin-app-data folder next to the script. 
-This allows your login session to persist between launches, just like a regular web browser.
-If you need to clear it for any reason, you can just delete the .gameyfin-app-data folder.
+The application is configured using environment variables. You can either pass them directly via the command line or create a `.env` file in the same directory as the script (see `.env.example`).
 
-# Running the app
+| Environment Variable | Description |
+| :--- |:---|
+| `GF_URL` | **(Required)** The URL of your Gameyfin instance, e.g., `http://localhost:8080`. |
+| `GF_SSO_PROVIDER_HOST` | The host of your SSO provider, e.g., `sso.host.com`. **Required if using SSO.** |
+| `GF_START_MINIMIZED` | Set to `1` to start the application minimized to the tray. Useful for autostarting on boot. |
+| `GF_ICON_PATH` | The absolute file path to a custom tray icon, e.g., `/path/to/icon.png`. |
 
-```commandline
-GF_URL=http://192.168.1.100:8080 python gameyfin_qt.py &
-```
-If SSO is enabled:
-```commandline
-GF_URL=http://192.168.1.100:8080 GF_SSO_PROVIDER_HOST=sso.host.com python gameyfin_qt.py &
-```
-If you want to start it minimized:
-```commandline
-GF_START_MINIMIZED=1 GF_URL=http://192.168.1.100:8080 python gameyfin_qt.py &
-```
-You can also create a .env file (see .env.example) next to the script and just run:
-```commandline
-python gameyfin_qt.py &
-```
+---
+### ▶️ How to Run
+
+* **Basic command:**
+    ```
+    GF_URL=[http://192.168.1.100:8080](http://192.168.1.100:8080) python gameyfin_qt.py &
+    ```
+
+* **With SSO enabled:**
+    ```
+    GF_URL=[http://192.168.1.100:8080](http://192.168.1.100:8080) GF_SSO_PROVIDER_HOST=sso.host.com python gameyfin_qt.py &
+    ```
+
+* **Using a `.env` file (Recommended):**
+    Create a `.env` file in the root directory and add your variables there. Then, simply run:
+    ```
+    python gameyfin_qt.py &
+    ```
+---
+### 📝 Notes
+
+#### Data Persistence
+The application saves all browser data (cookies, local storage, cache, etc.) to a profile stored in a `.gameyfin-app-data` folder within the application's directory. This allows your login session to persist between launches. To clear your session and all stored data, simply delete this folder.
+
+#### Download Progress
+The download progress bar provides an estimation. The total size is calculated based on the uncompressed files within the archive, not the size of the `.zip` file being downloaded. See [this issue](https://github.com/gameyfin/gameyfin/issues/707#issuecomment-2038166299) for more details.
