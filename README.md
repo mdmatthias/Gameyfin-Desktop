@@ -1,4 +1,4 @@
-# Gameyfin-PyQT
+# Gameyfin Desktop
 To be used together with Gameyfin https://github.com/gameyfin/gameyfin
 
 This app loads Gameyfin in a QT app instead of a browser tab.
