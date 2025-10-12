@@ -2,8 +2,8 @@
 
 A dedicated desktop client for [Gameyfin](https://github.com/gameyfin/gameyfin) that wraps the web interface in a standalone application for a more integrated experience.
 
-<img src="preview.png" alt="App preview" width="800">
 <img src="preview2.png" alt="App preview" width="800">
+<img src="preview.png" alt="App preview" width="800">
 
 ---
 ### ✨ Features
