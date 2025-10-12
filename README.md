@@ -36,3 +36,7 @@ If you want to start it minimized:
 ```commandline
 GF_START_MINIMIZED=1 GF_URL=http://192.168.1.100:8080 python gameyfin_qt.py &
 ```
+You can also create a .env file (see .env.example) next to the script and just run:
+```commandline
+python gameyfin_qt.py &
+```

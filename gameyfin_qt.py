@@ -11,7 +11,8 @@ from PyQt6.QtGui import QIcon, QAction, QDesktopServices
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtCore import QUrl
 from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineScript, QWebEngineDownloadRequest
-
+from dotenv import load_dotenv
+load_dotenv()
 
 class UrlCatchingPage(QWebEnginePage):
     def acceptNavigationRequest(self, url, _type, _is_main_frame):
