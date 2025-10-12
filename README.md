@@ -23,6 +23,11 @@ PyQt6-WebEngine >= 6.9.0
 | `GF_START_MINIMIZED` | Set to `1` to start the application minimized. This is useful if you autostart the app on boot.                          |
 | `GF_ICON_PATH` | The file path to a custom tray icon, for example: `/some/path/to/other/tray-icon.png`.                                   |
 
+# Persistent browser storage
+The application saves all browsing data from Gameyfin (cookies, local storage, cache, etc.) to a QWebEngineProfile stored in a .gameyfin-app-data folder next to the script. 
+This allows your login session to persist between launches, just like a regular web browser.
+If you need to clear it for any reason, you can just delete the .gameyfin-app-data folder.
+
 # Running the app
 
 ```commandline

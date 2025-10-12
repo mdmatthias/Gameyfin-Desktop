@@ -7,10 +7,11 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QSystemTrayIcon, QMenu,
     QFileDialog, QProgressDialog, QMessageBox
 )
-from PyQt6.QtGui import QIcon, QAction, QDesktopServices
+from PyQt6.QtGui import QIcon, QAction, QDesktopServices, QCloseEvent
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtCore import QUrl
-from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineScript, QWebEngineDownloadRequest
+from PyQt6.QtWebEngineCore import (QWebEnginePage, QWebEngineScript,
+                                   QWebEngineDownloadRequest, QWebEngineProfile, QWebEngineSettings)
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -22,8 +23,8 @@ class UrlCatchingPage(QWebEnginePage):
 
 
 class CustomWebEnginePage(QWebEnginePage):
-    def __init__(self, base_url, parent=None):
-        super().__init__(parent)
+    def __init__(self, base_url, profile, parent=None):
+        super().__init__(profile, parent)
         self.base_url = base_url
         self.allowed_hosts = {self.base_url.host()}
         sso_provider_host = getenv("GF_SSO_PROVIDER_HOST", None)
@@ -49,14 +50,24 @@ class CustomWebEnginePage(QWebEnginePage):
 class GameyfinWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.expected_total = 0
         self.setWindowTitle("Gameyfin")
         self.setGeometry(0, 0, 1420, 920)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        profile_path = os.path.join(script_dir, ".gameyfin-app-data")
+
+        self.profile = QWebEngineProfile("gameyfin-profile", self)
+        self.profile.setPersistentStoragePath(profile_path)
+        self.profile.setHttpCacheType(QWebEngineProfile.HttpCacheType.DiskHttpCache)
+        self.profile.setPersistentCookiesPolicy(
+            QWebEngineProfile.PersistentCookiesPolicy.AllowPersistentCookies
+        )
+        settings = self.profile.settings()
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalStorageEnabled, True)
 
         self.browser = QWebEngineView()
 
         base_url = QUrl(getenv("GF_URL", "http://localhost:8080"))
-        self.custom_page = CustomWebEnginePage(base_url, self.browser)
+        self.custom_page = CustomWebEnginePage(base_url, self.profile, self.browser)
         self.browser.setPage(self.custom_page)
 
         self.browser.setUrl(base_url)
@@ -73,6 +84,11 @@ class GameyfinWindow(QMainWindow):
         self.browser.page().scripts().insert(script)
 
         self.browser.page().profile().downloadRequested.connect(self.on_download_requested)
+
+    def closeEvent(self, event: QCloseEvent):
+        self.browser.setPage(None)
+        self.browser.deleteLater()
+        event.accept()
 
     def on_download_requested(self, download: QWebEngineDownloadRequest):
         suggested_path = os.path.join(
@@ -206,11 +222,12 @@ class GameyfinTray:
 
     def quit_app(self):
         self.tray.hide()
-        self.app.quit()
+        self.window.close()
 
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(True)
     window = GameyfinWindow()
     tray_app = GameyfinTray(app, window)
     if int(getenv("GF_START_MINIMIZED", 0)) == 0:
