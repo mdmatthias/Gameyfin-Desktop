@@ -11,15 +11,14 @@ A dedicated desktop client for [Gameyfin](https://github.com/gameyfin/gameyfin) 
 * **🖥️ Dedicated Desktop Application:** Runs Gameyfin in its own window, separate from your web browser.
 * **🔑 Persistent SSO Login:** Supports persistent logins with SSO providers. The application saves your session data, so you only have to log in once. (*Note: This requires the "remember me" feature to be enabled in your SSO provider's settings.*)
 * **⚙️ System Tray Integration:** Includes an icon in the system tray for quickly showing, hiding, or quitting the application.
-* **📥 Integrated Downloader:** Handles file downloads with a native progress dialog.
+* **📥 Download Manager:** All file downloads are managed in a persistent "Downloads" tab, showing progress, speed, and a complete download history.
 
 ---
 ### 🗓️ Planned Features
 
 I'm planning to add more features in future updates, including:
-
-* **Advanced Download Manager:** A dedicated panel to view and manage active and historical downloads.
 * **Direct `umu-launcher` Integration (Linux):** An integration to install games directly from the Gameyfin interface using `umu-launcher`.
+* **Other ideas?:** Create a new issue/merge request and I will look into it.
 
 ---
 ### 📋 Requirements
