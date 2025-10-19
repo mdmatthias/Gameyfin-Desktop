@@ -10,6 +10,9 @@ from PyQt6.QtWebEngineCore import (QWebEngineScript,
 from .download_manager import DownloadManagerWidget
 
 class UrlCatchingPage(QWebEnginePage):
+    def __init__(self, profile, parent=None):
+        super().__init__(profile, parent)
+
     def acceptNavigationRequest(self, url, _type, _is_main_frame):
         QDesktopServices.openUrl(url)
         self.deleteLater()
@@ -28,7 +31,7 @@ class CustomWebEnginePage(QWebEnginePage):
                 self.allowed_hosts.add(sso_host)
 
     def createWindow(self, _type):
-        return UrlCatchingPage(self)
+        return UrlCatchingPage(self.profile(), self)
 
     def acceptNavigationRequest(self, url, nav_type, is_main_frame):
         if is_main_frame:
