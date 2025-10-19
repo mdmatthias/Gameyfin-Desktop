@@ -1,6 +1,6 @@
 .idea
 .venv
 .env
-.gameyfin-app-data
+gameyfin_frontend/.gameyfin-app-data
 __pycache__
 gameyfin_frontend/__pycache__
