@@ -2,3 +2,5 @@
 .venv
 .env
 .gameyfin-app-data
+__pycache__
+gameyfin_frontend/__pycache__
