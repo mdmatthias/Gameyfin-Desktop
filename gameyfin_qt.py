@@ -9,7 +9,6 @@ load_dotenv()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    app.setQuitOnLastWindowClosed(True)
     window = GameyfinWindow()
     tray_app = GameyfinTray(app, window)
     if int(getenv("GF_START_MINIMIZED", 0)) == 0:

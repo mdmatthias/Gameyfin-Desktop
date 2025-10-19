@@ -40,4 +40,6 @@ class GameyfinTray:
 
     def quit_app(self):
         self.tray.hide()
+        self.window.is_really_quitting = True
         self.window.close()
+        self.app.exit()

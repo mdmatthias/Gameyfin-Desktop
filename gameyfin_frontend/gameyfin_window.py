@@ -43,8 +43,8 @@ class GameyfinWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Gameyfin")
-        self.setGeometry(0, 0, 1420, 920)
-
+        self.setGeometry(0, 0, int(getenv("GF_WINDOW_WIDTH", 1420)), int(getenv("GF_WINDOW_HEIGHT", 940)))
+        self.is_really_quitting = False
         script_dir = os.path.dirname(os.path.abspath(__file__))
 
         icon_path = os.path.join(script_dir, "icon.png")
@@ -118,10 +118,16 @@ class GameyfinWindow(QMainWindow):
             return 0
 
     def closeEvent(self, event: QCloseEvent):
-        self.download_manager.close()
-        self.browser.setPage(None)
-        self.browser.deleteLater()
-        event.accept()
+        if self.is_really_quitting:
+            # This is a real quit, run cleanup
+            self.download_manager.close()
+            self.browser.setPage(None)
+            self.browser.deleteLater()
+            event.accept() # Accept the event and close
+        else:
+            # This is just the 'X' button, so hide
+            event.ignore()
+            self.hide()
 
     def on_download_requested(self, download: QWebEngineDownloadRequest):
         suggested_path = os.path.join(
