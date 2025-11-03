@@ -1,26 +1,82 @@
 import json
 import os
 import time
+import zipfile
 
-from PyQt6.QtCore import QUrl, pyqtSignal
+from PyQt6.QtCore import QUrl, pyqtSignal, QObject, QThread, pyqtSlot, QProcess, QProcessEnvironment
 from PyQt6.QtGui import QCloseEvent, QDesktopServices
 from PyQt6.QtWebEngineCore import QWebEngineDownloadRequest
 from PyQt6.QtWidgets import QGridLayout, QWidget, QScrollArea, QVBoxLayout, QStyle, QStackedLayout, QHBoxLayout, \
-    QPushButton, QLabel, QProgressBar
+    QPushButton, QLabel, QProgressBar, QProgressDialog
+
+
+class UnzipWorker(QObject):
+    """
+    Runs the zip extraction in a separate thread to avoid freezing the UI.
+    """
+    # Signals
+    progress = pyqtSignal(int)  # Current percentage (0-100)
+    current_file = pyqtSignal(str)  # Name of file being extracted
+    finished = pyqtSignal()  # Emitted on success
+    error = pyqtSignal(str)  # Emitted on failure
+
+    def __init__(self, zip_path: str, target_dir: str):
+        super().__init__()
+        self.zip_path = zip_path
+        self.target_dir = target_dir
+        self._is_running = True
+
+    @pyqtSlot()
+    def run(self):
+        """Starts the extraction process."""
+        try:
+            with zipfile.ZipFile(self.zip_path, 'r') as zip_ref:
+                file_list = zip_ref.infolist()
+                total_files = len(file_list)
+
+                if total_files == 0:
+                    self.finished.emit()
+                    return
+
+                for i, member in enumerate(file_list):
+                    if not self._is_running:
+                        self.error.emit("Extraction cancelled by user.")
+                        return
+
+                    # Extract the single file
+                    zip_ref.extract(member, path=self.target_dir)
+
+                    # Calculate and emit progress
+                    percentage = int(((i + 1) / total_files) * 100)
+                    self.progress.emit(percentage)
+                    self.current_file.emit(f"Extracting: {member.filename}")
+
+                self.finished.emit()
+
+        except Exception as e:
+            self.error.emit(str(e))
+
+    def stop(self):
+        """Flags the worker to stop."""
+        self._is_running = False
 
 
 class DownloadItemWidget(QWidget):
     remove_requested = pyqtSignal(QWidget)
     finished = pyqtSignal(dict)
 
-    def __init__(self, download_item: QWebEngineDownloadRequest = None, record: dict = None, initial_total_size: int = 0, parent=None):
+    def __init__(self, download_item: QWebEngineDownloadRequest = None, record: dict = None,
+                 initial_total_size: int = 0, parent=None):
         super().__init__(parent)
         self.download_item = download_item
         self.record = record or {}
         self.last_time = time.time()
         self.last_bytes = 0
 
-        # --- 1. Create All UI Elements (NO LAYOUT) ---
+        self.thread = None
+        self.worker = None
+        self.progress_dialog = None
+
         self.icon_label = QLabel()
         self.filename_label = QLabel()
         self.progress_bar = QProgressBar()
@@ -31,6 +87,7 @@ class DownloadItemWidget(QWidget):
         self.open_folder_button = QPushButton("Open Folder")
         self.remove_button = QPushButton("Remove")
         self.remove_button_failed = QPushButton("Remove")
+        self.install_button = QPushButton("Install")
 
         # --- Create Button Containers ---
         self.active_button_widget = QWidget()
@@ -42,6 +99,7 @@ class DownloadItemWidget(QWidget):
         completed_layout = QHBoxLayout(self.completed_button_widget)
         completed_layout.setContentsMargins(0, 0, 0, 0)
         completed_layout.addWidget(self.remove_button)
+        completed_layout.addWidget(self.install_button)
         completed_layout.addWidget(self.open_button)
         completed_layout.addWidget(self.open_folder_button)
 
@@ -52,9 +110,9 @@ class DownloadItemWidget(QWidget):
 
         # --- Create the Stacked Layout for buttons ---
         self.button_stack = QStackedLayout()
-        self.button_stack.addWidget(self.active_button_widget)      # Index 0
-        self.button_stack.addWidget(self.completed_button_widget)   # Index 1
-        self.button_stack.addWidget(self.failed_button_widget)      # Index 2
+        self.button_stack.addWidget(self.active_button_widget)  # Index 0
+        self.button_stack.addWidget(self.completed_button_widget)  # Index 1
+        self.button_stack.addWidget(self.failed_button_widget)  # Index 2
 
         # This is the main widget that goes into the grid
         self.button_container = QWidget()
@@ -65,12 +123,13 @@ class DownloadItemWidget(QWidget):
         self.icon_label.setFixedWidth(font_metrics.height())
         self.status_label.setMinimumWidth(font_metrics.horizontalAdvance("Completed (999.99 MB)") + 10)
         self.progress_bar.setMinimumWidth(100)
-        self.progress_bar.setMaximumHeight(font_metrics.height() + 4) # Make pbar slimmer
+        self.progress_bar.setMaximumHeight(font_metrics.height() + 4)  # Make pbar slimmer
 
         # --- 3. Connect Button Signals ---
         self.cancel_button.clicked.connect(self.cancel_download)
         self.open_button.clicked.connect(self.open_file)
         self.open_folder_button.clicked.connect(self.open_folder)
+        self.install_button.clicked.connect(self.install_package)
         self.remove_button.clicked.connect(lambda: self.remove_requested.emit(self))
         self.remove_button_failed.clicked.connect(lambda: self.remove_requested.emit(self))
 
@@ -90,9 +149,17 @@ class DownloadItemWidget(QWidget):
             self.filename_label.setText(os.path.basename(self.record["path"]))
             self.update_ui_for_historic_state()
 
+        self._update_install_button_visibility()
+
     def get_widgets_for_grid(self) -> list[QWidget]:
         """Returns all widgets to be placed in the grid layout."""
         return [self.icon_label, self.filename_label, self.progress_bar, self.status_label, self.button_container]
+
+    def _update_install_button_visibility(self):
+        """Hides or shows the install button based on file type."""
+        path = self.record.get("path", "")
+        is_zip = path.lower().endswith(".zip")
+        self.install_button.setVisible(is_zip)
 
     def update_ui_for_historic_state(self):
         status = self.record.get("status", "Failed")
@@ -102,19 +169,22 @@ class DownloadItemWidget(QWidget):
             self.progress_bar.setValue(100)
             size = self.record.get("total_bytes", 0)
             self.status_label.setText(f"Completed ({self.format_size(size)})")
-            self.button_stack.setCurrentIndex(1) # Show completed buttons
+            self.button_stack.setCurrentIndex(1)  # Show completed buttons
+            self._update_install_button_visibility()
 
             if not os.path.exists(self.record["path"]):
                 self.status_label.setText("File not found")
                 self.status_label.setStyleSheet("color: red; font-weight: bold;")
                 self.open_button.setEnabled(False)
+                self.install_button.setEnabled(False)
                 icon = self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning)
                 self.icon_label.setPixmap(icon.pixmap(self.icon_label.sizeHint()))
 
         elif status in ("Cancelled", "Failed"):
             self.progress_bar.hide()
             self.status_label.setText(status)
-            self.button_stack.setCurrentIndex(2) # Show failed buttons
+            self.button_stack.setCurrentIndex(2)  # Show failed buttons
+            self._update_install_button_visibility()  # Hide for failed
 
     def cancel_download(self):
         if self.download_item:
@@ -126,9 +196,157 @@ class DownloadItemWidget(QWidget):
     def open_folder(self):
         QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(self.record["path"])))
 
+    def install_package(self):
+        """
+        Sets up the QProgressDialog and starts the UnzipWorker in a new thread.
+        """
+        zip_path = self.record.get("path")
+        if not zip_path or not zip_path.lower().endswith(".zip") or not os.path.exists(zip_path):
+            self.status_label.setText("Install failed: File not found")
+            self.status_label.setStyleSheet("color: red;")
+            return
+
+        # Create target directory (e.g., 'C:/downloads/my-file.zip' -> 'C:/downloads/my-file')
+        target_dir = os.path.splitext(zip_path)[0]
+        os.makedirs(target_dir, exist_ok=True)
+
+        self.install_button.setEnabled(False)  # Disable button during install
+
+        # --- 1. Set up the Progress Dialog ---
+        self.progress_dialog = QProgressDialog("Unzipping package...", "Cancel", 0, 100, self.parentWidget())
+        self.progress_dialog.setWindowTitle("Installing")
+        self.progress_dialog.setLabelText("Starting extraction...")
+        self.progress_dialog.setModal(True)
+        self.progress_dialog.canceled.connect(self.cancel_unzip)  # Connect cancel button
+        self.progress_dialog.show()
+
+        # --- 2. Set up the Thread and Worker ---
+        self.thread = QThread()
+        self.worker = UnzipWorker(zip_path, target_dir)
+        self.worker.moveToThread(self.thread)
+
+        # --- 3. Connect signals from worker to UI ---
+        self.worker.progress.connect(self.progress_dialog.setValue)
+        self.worker.current_file.connect(self.progress_dialog.setLabelText)
+        self.worker.finished.connect(self.on_unzip_finished)
+        self.worker.error.connect(self.on_unzip_error)
+
+        # --- 4. Connect thread management signals ---
+        self.thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+
+        # --- 5. Start the thread ---
+        self.thread.start()
+
+    @pyqtSlot()
+    def on_unzip_finished(self):
+        """
+        Called when the worker successfully finishes.
+        Searches for the first .exe, sets env vars, and runs it with 'umu-run'.
+        """
+        self.progress_dialog.close()
+        self.install_button.setEnabled(True)
+
+        target_dir = os.path.splitext(self.record["path"])[0]
+        launcher_path = None
+        launcher_dir = None  # Store the exe's directory
+
+        # --- Search for the first .exe launcher ---
+        try:
+            for root, dirs, files in os.walk(target_dir):
+                for file in files:
+                    if file.lower().endswith(".exe"):
+                        launcher_path = os.path.join(root, file)
+                        launcher_dir = root  # Set the working directory
+                        break
+                if launcher_path:
+                    break
+        except Exception as e:
+            print(f"Error searching for launcher: {e}")
+            self.on_unzip_error(f"Install OK, but failed to find launcher: {e}")
+            return
+        # --- END SEARCH ---
+
+        if launcher_path:
+            # 1. Get user's home directory
+            home_dir = os.path.expanduser("~")
+
+            # 2. Get lower-case folder name
+            folder_name = os.path.basename(target_dir)
+            pfx_name = f"{folder_name.lower()}_pfx"
+
+            # 3. Construct WINEPREFIX
+            wine_prefix_path = os.path.join(home_dir, ".config", "gameyfin", "prefixes", pfx_name)
+
+            # 4. Create QProcess and set environment
+            process = QProcess()
+            env = QProcessEnvironment.systemEnvironment()  # Get current env
+
+            env.insert("PROTONPATH", "GE-Proton")
+            env.insert("WINEPREFIX", wine_prefix_path)
+
+            process.setProcessEnvironment(env)
+            process.setWorkingDirectory(launcher_dir)  # Set working directory
+
+            # --- 5. Set program/args on instance ---
+            process.setProgram("umu-run")
+            process.setArguments([launcher_path])
+
+            # --- 6. Launch detached ---
+            success = process.startDetached()
+
+            if success:
+                size = self.record.get("total_bytes", 0)
+                self.status_label.setText(f"Completed ({self.format_size(size)})")
+                self.status_label.setStyleSheet("")
+            else:
+                self.status_label.setText("Launch failed. Is 'umu-run' installed?")
+                self.status_label.setStyleSheet("color: red;")
+                QDesktopServices.openUrl(QUrl.fromLocalFile(target_dir))
+
+        else:
+            # --- Fallback to opening folder ---
+            self.status_label.setText("Install complete, no .exe found.")
+            self.status_label.setStyleSheet("color: #E67E22;")
+            QDesktopServices.openUrl(QUrl.fromLocalFile(target_dir))
+
+        self.thread = None
+        self.worker = None
+
+    @pyqtSlot(str)
+    def on_unzip_error(self, message: str):
+        """Called when the worker reports an error."""
+        if self.progress_dialog:
+            self.progress_dialog.close()
+        self.install_button.setEnabled(True)
+        self.status_label.setText(f"Install failed: {message}")
+        self.status_label.setStyleSheet("color: red;")
+
+        self.thread = None
+        self.worker = None
+
+    @pyqtSlot()
+    def cancel_unzip(self):
+        """Called when the 'Cancel' button on the dialog is clicked."""
+        if self.worker:
+            self.worker.stop()  # Tell worker to stop
+        if self.thread:
+            self.thread.quit()  # Ask thread to quit
+            self.thread.wait(500)  # Wait 500ms
+
+        self.status_label.setText("Install cancelled")
+        self.install_button.setEnabled(True)
+
+        self.thread = None
+        self.worker = None
+
+    # --- END OF NEW/UPDATED METHODS ---
+
     def format_size(self, nbytes: int) -> str:
-        if nbytes >= 1024**3: return f"{nbytes / 1024**3:.2f} GB"
-        if nbytes >= 1024**2: return f"{nbytes / 1024**2:.2f} MB"
+        if nbytes >= 1024 ** 3: return f"{nbytes / 1024 ** 3:.2f} GB"
+        if nbytes >= 1024 ** 2: return f"{nbytes / 1024 ** 2:.2f} MB"
         if nbytes >= 1024: return f"{nbytes / 1024:.2f} KB"
         return f"{nbytes} B"
 
@@ -163,11 +381,12 @@ class DownloadItemWidget(QWidget):
             total_bytes = self.record.get("total_bytes", 0)
 
         self.progress_bar.show()
+        self._update_install_button_visibility()
 
         if state == QWebEngineDownloadRequest.DownloadState.DownloadInProgress:
             self.record["status"] = "Downloading"
             self.status_label.setText("Downloading...")
-            self.button_stack.setCurrentIndex(0) # Show active (Cancel)
+            self.button_stack.setCurrentIndex(0)  # Show active (Cancel)
             self.update_progress()
 
         elif state == QWebEngineDownloadRequest.DownloadState.DownloadCompleted:
@@ -175,21 +394,22 @@ class DownloadItemWidget(QWidget):
             self.record["total_bytes"] = self.download_item.totalBytes()
             self.progress_bar.setValue(100)
             self.status_label.setText(f"Completed ({self.format_size(self.record['total_bytes'])})")
-            self.button_stack.setCurrentIndex(1) # Show completed buttons
+            self.button_stack.setCurrentIndex(1)  # Show completed buttons
+            self._update_install_button_visibility()
             self.finished.emit(self.record)
 
         elif state == QWebEngineDownloadRequest.DownloadState.DownloadCancelled:
             self.record["status"] = "Cancelled"
             self.status_label.setText("Cancelled")
             self.progress_bar.hide()
-            self.button_stack.setCurrentIndex(2) # Show failed (Remove)
+            self.button_stack.setCurrentIndex(2)  # Show failed (Remove)
             self.finished.emit(self.record)
 
         elif state == QWebEngineDownloadRequest.DownloadState.DownloadInterrupted:
             self.record["status"] = "Failed"
             self.status_label.setText("Failed")
             self.progress_bar.hide()
-            self.button_stack.setCurrentIndex(2) # Show failed (Remove)
+            self.button_stack.setCurrentIndex(2)  # Show failed (Remove)
             self.finished.emit(self.record)
 
 
