@@ -6,8 +6,11 @@ import zipfile
 from PyQt6.QtCore import QUrl, pyqtSignal, QObject, QThread, pyqtSlot, QProcess, QProcessEnvironment
 from PyQt6.QtGui import QCloseEvent, QDesktopServices
 from PyQt6.QtWebEngineCore import QWebEngineDownloadRequest
-from PyQt6.QtWidgets import QGridLayout, QWidget, QScrollArea, QVBoxLayout, QStyle, QStackedLayout, QHBoxLayout, \
-    QPushButton, QLabel, QProgressBar, QProgressDialog
+from PyQt6.QtWidgets import (QGridLayout, QWidget, QScrollArea, QVBoxLayout, QStyle,
+                             QStackedLayout, QHBoxLayout, QPushButton, QLabel,
+                             QProgressBar, QProgressDialog, QDialog, QFormLayout,
+                             QLineEdit, QComboBox, QCheckBox, QPlainTextEdit,
+                             QDialogButtonBox)
 
 
 class UnzipWorker(QObject):
@@ -61,6 +64,85 @@ class UnzipWorker(QObject):
         self._is_running = False
 
 
+class InstallConfigDialog(QDialog):
+    """
+    A dialog to configure environment variables before installation.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Installation Configuration")
+        self.setMinimumWidth(400)
+
+        # --- Layouts ---
+        main_layout = QVBoxLayout(self)
+        form_layout = QFormLayout()
+
+        # --- Widgets ---
+        self.wayland_checkbox = QCheckBox("Enable Wayland support (PROTON_ENABLE_WAYLAND)")
+
+        self.gameid_input = QLineEdit()
+        self.gameid_input.setText("umu-default")
+
+        self.store_combo = QComboBox()
+        stores = ["none", "gog", "amazon", "battlenet", "ea", "egs",
+                  "humble", "itchio", "steam", "ubisoft", "zoomplatform"]
+        self.store_combo.addItems(stores)
+
+        self.extra_vars_input = QPlainTextEdit()
+        self.extra_vars_input.setPlaceholderText("KEY1=VALUE1\nKEY2=VALUE2")
+
+        # --- Button Box ---
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
+                                      QDialogButtonBox.StandardButton.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+
+        # --- Assemble Layout ---
+        main_layout.addWidget(self.wayland_checkbox)
+
+        form_layout.addRow("Umu protonfix:", self.gameid_input)
+        form_layout.addRow("Store:", self.store_combo)
+        main_layout.addLayout(form_layout)
+
+        main_layout.addWidget(QLabel("Additional Environment Variables (one per line):"))
+        main_layout.addWidget(self.extra_vars_input)
+
+        main_layout.addWidget(button_box)
+
+    def get_config(self) -> dict:
+        """
+        Returns the configured environment variables as a dictionary.
+        """
+        config = {}
+
+        # 1. Wayland
+        config["PROTON_ENABLE_WAYLAND"] = "1" if self.wayland_checkbox.isChecked() else "0"
+
+        # 2. Game ID
+        game_id = self.gameid_input.text().strip()
+        if game_id:
+            config["GAMEID"] = game_id
+
+        # 3. Store
+        store = self.store_combo.currentText()
+        if store and store != "none":  # no store is default
+            config["STORE"] = store
+
+        # 4. Extra Vars
+        extra_vars_text = self.extra_vars_input.toPlainText().strip()
+        if extra_vars_text:
+            for line in extra_vars_text.splitlines():
+                if "=" in line:
+                    parts = line.split("=", 1)
+                    key = parts[0].strip()
+                    value = parts[1].strip()
+                    if key:
+                        config[key] = value
+
+        return config
+
+
 class DownloadItemWidget(QWidget):
     remove_requested = pyqtSignal(QWidget)
     finished = pyqtSignal(dict)
@@ -76,6 +158,7 @@ class DownloadItemWidget(QWidget):
         self.thread = None
         self.worker = None
         self.progress_dialog = None
+        self.current_install_config = None
 
         self.icon_label = QLabel()
         self.filename_label = QLabel()
@@ -198,13 +281,25 @@ class DownloadItemWidget(QWidget):
 
     def install_package(self):
         """
-        Sets up the QProgressDialog and starts the UnzipWorker in a new thread.
+        Shows config dialog, then sets up the QProgressDialog
+        and starts the UnzipWorker in a new thread.
         """
         zip_path = self.record.get("path")
         if not zip_path or not zip_path.lower().endswith(".zip") or not os.path.exists(zip_path):
             self.status_label.setText("Install failed: File not found")
             self.status_label.setStyleSheet("color: red;")
             return
+
+        # --- Show Configuration Dialog ---
+        dialog = InstallConfigDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            self.status_label.setText("Install cancelled by user.")
+            self.status_label.setStyleSheet("")
+            return  # User cancelled
+
+        # Store the config for on_unzip_finished
+        self.current_install_config = dialog.get_config()
+        # --- End Dialog Logic ---
 
         # Create target directory (e.g., 'C:/downloads/my-file.zip' -> 'C:/downloads/my-file')
         target_dir = os.path.splitext(zip_path)[0]
@@ -246,6 +341,11 @@ class DownloadItemWidget(QWidget):
         Called when the worker successfully finishes.
         Searches for the first .exe, sets env vars, and runs it with 'umu-run'.
         """
+        # --- Get the config from the dialog ---
+        config = self.current_install_config or {}
+        self.current_install_config = None  # Clean up
+        # ---
+
         self.progress_dialog.close()
         self.install_button.setEnabled(True)
 
@@ -284,8 +384,16 @@ class DownloadItemWidget(QWidget):
             process = QProcess()
             env = QProcessEnvironment.systemEnvironment()  # Get current env
 
-            env.insert("PROTONPATH", "GE-Proton")
+            # --- Apply base environment ---
+            env.insert("PROTONPATH", os.getenv("PROTONPATH", "GE-Proton"))
             env.insert("WINEPREFIX", wine_prefix_path)
+
+            # --- Apply user config from dialog ---
+            print("[Install] Applying user environment configuration:")
+            for key, value in config.items():
+                print(f"  {key}={value}")
+                env.insert(key, value)
+            # --- End applying config ---
 
             process.setProcessEnvironment(env)
             process.setWorkingDirectory(launcher_dir)  # Set working directory
@@ -324,6 +432,7 @@ class DownloadItemWidget(QWidget):
         self.status_label.setText(f"Install failed: {message}")
         self.status_label.setStyleSheet("color: red;")
 
+        self.current_install_config = None  # Clean up
         self.thread = None
         self.worker = None
 
@@ -339,6 +448,7 @@ class DownloadItemWidget(QWidget):
         self.status_label.setText("Install cancelled")
         self.install_button.setEnabled(True)
 
+        self.current_install_config = None  # Clean up
         self.thread = None
         self.worker = None
 
@@ -429,10 +539,10 @@ class DownloadManagerWidget(QWidget):
         self.downloads_layout = QGridLayout(self.scroll_content)
 
         # Set proportional stretch factors for each column
-        self.downloads_layout.setColumnStretch(1, 4) # Filename
-        self.downloads_layout.setColumnStretch(2, 2) # Progress Bar
-        self.downloads_layout.setColumnStretch(3, 2) # Status Label
-        self.downloads_layout.setColumnStretch(4, 1) # Buttons
+        self.downloads_layout.setColumnStretch(1, 4)  # Filename
+        self.downloads_layout.setColumnStretch(2, 2)  # Progress Bar
+        self.downloads_layout.setColumnStretch(3, 2)  # Status Label
+        self.downloads_layout.setColumnStretch(4, 1)  # Buttons
 
         self.scroll_area.setWidget(self.scroll_content)
         self.main_layout.addWidget(self.scroll_area)
