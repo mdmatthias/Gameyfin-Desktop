@@ -2,13 +2,6 @@
 
 A dedicated desktop client for [Gameyfin](https://github.com/gameyfin/gameyfin) that wraps the web interface in a standalone application for a more integrated experience.
 
-<img src="preview2.png" alt="SSO" width="800">
-<img src="preview6.png" alt="Gameyfin" width="800">
-<img src="preview.png" alt="Download manager" width="800">
-<img src="preview3.png" alt="Wineprefix config" width="800">
-<img src="preview4.png" alt="Unzip" width="800">
-<img src="preview5.png" alt="Install" width="800">
-
 ---
 ### ✨ Features
 
@@ -28,6 +21,7 @@ A dedicated desktop client for [Gameyfin](https://github.com/gameyfin/gameyfin) 
 ### 🗓️ Planned Features
 * **Autodetect GameID:** To apply protonfixes without having to look up the GameID.
 * **Desktop shortcuts:** Automatically add desktop shortcut (and/or play button in the download manager) to launch the game with the same umu-launcher config as chosen during the installation.
+* **Protonfixes and Winecfg button:** To manually configure your Wineprefix if needed.
 * **Other ideas?:** Create a new issue/merge request and I will look into it.
 
 ---
@@ -100,3 +94,12 @@ The download progress bar provides an estimation. The total size is calculated b
 
 #### Installer
 Currently only tested with GOG games, but should work with any installer.
+
+### 🖼️ Screenshots
+
+<img src="preview2.png" alt="SSO" width="800">
+<img src="preview6.png" alt="Gameyfin" width="800">
+<img src="preview.png" alt="Download manager" width="800">
+<img src="preview3.png" alt="Wineprefix config" width="800">
+<img src="preview4.png" alt="Unzip" width="800">
+<img src="preview5.png" alt="Install" width="800">
