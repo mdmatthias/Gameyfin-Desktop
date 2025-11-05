@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (QGridLayout, QWidget, QScrollArea, QVBoxLayout, QSt
                              QStackedLayout, QHBoxLayout, QPushButton, QLabel,
                              QProgressBar, QProgressDialog, QDialog, QFormLayout,
                              QLineEdit, QComboBox, QCheckBox, QPlainTextEdit,
-                             QDialogButtonBox, QListWidget)  # Added QListWidget
+                             QDialogButtonBox, QListWidget)
 
 
 class UnzipWorker(QObject):
@@ -79,7 +79,7 @@ class InstallConfigDialog(QDialog):
         form_layout = QFormLayout()
 
         # --- Widgets ---
-        self.wayland_checkbox = QCheckBox("Enable Wayland support (PROTON_ENABLE_WAYLAND)")
+        self.wayland_checkbox = QCheckBox("Enable Wayland support")
 
         self.gameid_input = QLineEdit()
         self.gameid_input.setText("umu-default")
@@ -522,8 +522,6 @@ class DownloadItemWidget(QWidget):
         self.current_install_config = None  # Clean up
         self.thread = None
         self.worker = None
-
-    # --- END OF NEW/UPDATED METHODS ---
 
     def format_size(self, nbytes: int) -> str:
         if nbytes >= 1024 ** 3: return f"{nbytes / 1024 ** 3:.2f} GB"
