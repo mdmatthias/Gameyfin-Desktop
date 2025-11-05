@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (QGridLayout, QWidget, QScrollArea, QVBoxLayout, QSt
                              QStackedLayout, QHBoxLayout, QPushButton, QLabel,
                              QProgressBar, QProgressDialog, QDialog, QFormLayout,
                              QLineEdit, QComboBox, QCheckBox, QPlainTextEdit,
-                             QDialogButtonBox)
+                             QDialogButtonBox, QListWidget)  # Added QListWidget
 
 
 class UnzipWorker(QObject):
@@ -114,10 +114,9 @@ class InstallConfigDialog(QDialog):
         """
         Returns the configured environment variables as a dictionary.
         """
-        config = {}
+        config = {"PROTON_ENABLE_WAYLAND": "1" if self.wayland_checkbox.isChecked() else "0"}
 
         # 1. Wayland
-        config["PROTON_ENABLE_WAYLAND"] = "1" if self.wayland_checkbox.isChecked() else "0"
 
         # 2. Game ID
         game_id = self.gameid_input.text().strip()
@@ -141,6 +140,55 @@ class InstallConfigDialog(QDialog):
                         config[key] = value
 
         return config
+
+
+class SelectLauncherDialog(QDialog):
+    """
+    A dialog to select an executable when multiple are found.
+    """
+
+    def __init__(self, target_dir: str, exe_paths: list[str], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Launcher")
+        self.setMinimumWidth(450)
+        self.exe_map = {}  # Maps relative path (display) to full path (actual)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.addWidget(QLabel("Multiple executables found. Please select one to launch:"))
+
+        self.list_widget = QListWidget()
+        for full_path in exe_paths:
+            # Create a relative path for display
+            relative_path = os.path.relpath(full_path, target_dir)
+            self.exe_map[relative_path] = full_path
+            self.list_widget.addItem(relative_path)
+
+        main_layout.addWidget(self.list_widget)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
+                                      QDialogButtonBox.StandardButton.Cancel)
+
+        self.ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
+        self.ok_button.setEnabled(False)  # Disable OK until one is selected
+
+        self.list_widget.currentItemChanged.connect(self.on_selection_changed)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+
+        main_layout.addWidget(button_box)
+
+    def on_selection_changed(self, current_item, previous_item):
+        """Enables the OK button when an item is selected."""
+        self.ok_button.setEnabled(current_item is not None)
+
+    def get_selected_launcher(self) -> str | None:
+        """Returns the full path of the selected executable."""
+        item = self.list_widget.currentItem()
+        if not item:
+            return None
+
+        relative_path = item.text()
+        return self.exe_map.get(relative_path)
 
 
 class DownloadItemWidget(QWidget):
@@ -339,87 +387,110 @@ class DownloadItemWidget(QWidget):
     def on_unzip_finished(self):
         """
         Called when the worker successfully finishes.
-        Searches for the first .exe, sets env vars, and runs it with 'umu-run'.
+        Searches for .exe files, prompts user if > 1, then runs with 'umu-run'.
         """
         # --- Get the config from the dialog ---
         config = self.current_install_config or {}
-        self.current_install_config = None  # Clean up
         # ---
 
         self.progress_dialog.close()
         self.install_button.setEnabled(True)
 
         target_dir = os.path.splitext(self.record["path"])[0]
-        launcher_path = None
-        launcher_dir = None  # Store the exe's directory
+        launcher_paths = []
+        launcher_to_run = None
 
-        # --- Search for the first .exe launcher ---
+        # --- Search for ALL .exe launchers ---
         try:
             for root, dirs, files in os.walk(target_dir):
                 for file in files:
                     if file.lower().endswith(".exe"):
-                        launcher_path = os.path.join(root, file)
-                        launcher_dir = root  # Set the working directory
-                        break
-                if launcher_path:
-                    break
+                        launcher_paths.append(os.path.join(root, file))
         except Exception as e:
             print(f"Error searching for launcher: {e}")
             self.on_unzip_error(f"Install OK, but failed to find launcher: {e}")
             return
         # --- END SEARCH ---
 
-        if launcher_path:
-            # 1. Get user's home directory
-            home_dir = os.path.expanduser("~")
-
-            # 2. Get lower-case folder name
-            folder_name = os.path.basename(target_dir)
-            pfx_name = f"{folder_name.lower()}_pfx"
-
-            # 3. Construct WINEPREFIX
-            wine_prefix_path = os.path.join(home_dir, ".config", "gameyfin", "prefixes", pfx_name)
-
-            # 4. Create QProcess and set environment
-            process = QProcess()
-            env = QProcessEnvironment.systemEnvironment()  # Get current env
-
-            # --- Apply base environment ---
-            env.insert("PROTONPATH", os.getenv("PROTONPATH", "GE-Proton"))
-            env.insert("WINEPREFIX", wine_prefix_path)
-
-            # --- Apply user config from dialog ---
-            print("[Install] Applying user environment configuration:")
-            for key, value in config.items():
-                print(f"  {key}={value}")
-                env.insert(key, value)
-            # --- End applying config ---
-
-            process.setProcessEnvironment(env)
-            process.setWorkingDirectory(launcher_dir)  # Set working directory
-
-            # --- 5. Set program/args on instance ---
-            process.setProgram("umu-run")
-            process.setArguments([launcher_path])
-
-            # --- 6. Launch detached ---
-            success = process.startDetached()
-
-            if success:
-                size = self.record.get("total_bytes", 0)
-                self.status_label.setText(f"Completed ({self.format_size(size)})")
-                self.status_label.setStyleSheet("")
-            else:
-                self.status_label.setText("Launch failed. Is 'umu-run' installed?")
-                self.status_label.setStyleSheet("color: red;")
-                QDesktopServices.openUrl(QUrl.fromLocalFile(target_dir))
-
-        else:
-            # --- Fallback to opening folder ---
+        # --- Decide which launcher to run (if any) ---
+        if not launcher_paths:
+            # Case 1: No .exe found
             self.status_label.setText("Install complete, no .exe found.")
             self.status_label.setStyleSheet("color: #E67E22;")
             QDesktopServices.openUrl(QUrl.fromLocalFile(target_dir))
 
+        elif len(launcher_paths) == 1:
+            # Case 2: Exactly one .exe found
+            launcher_to_run = launcher_paths[0]
+
+        else:
+            # Case 3: Multiple .exe found
+            dialog = SelectLauncherDialog(target_dir, launcher_paths, self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                launcher_to_run = dialog.get_selected_launcher()
+                if not launcher_to_run:
+                    self.status_label.setText("Install complete, no launcher selected.")
+                    self.status_label.setStyleSheet("color: #E67E22;")
+            else:
+                # User cancelled
+                self.status_label.setText("Install complete, launch cancelled.")
+                self.status_label.setStyleSheet("")
+
+        # --- Launch the selected .exe (if one was selected) ---
+        if launcher_to_run:
+            try:
+                # 1. Get user's home directory
+                home_dir = os.path.expanduser("~")
+
+                # 2. Get lower-case folder name
+                folder_name = os.path.basename(target_dir)
+                pfx_name = f"{folder_name.lower()}_pfx"
+
+                # 3. Construct WINEPREFIX
+                wine_prefix_path = os.path.join(home_dir, ".config", "gameyfin", "prefixes", pfx_name)
+
+                # 4. Create QProcess and set environment
+                process = QProcess()
+                env = QProcessEnvironment.systemEnvironment()  # Get current env
+
+                # --- Apply base environment ---
+                env.insert("PROTONPATH", os.getenv("PROTONPATH", "GE-Proton"))
+                env.insert("WINEPREFIX", wine_prefix_path)
+
+                # --- Apply user config from dialog ---
+                print("[Install] Applying user environment configuration:")
+                for key, value in config.items():
+                    print(f"  {key}={value}")
+                    env.insert(key, value)
+                # --- End applying config ---
+
+                process.setProcessEnvironment(env)
+                launcher_dir = os.path.dirname(launcher_to_run)
+                process.setWorkingDirectory(launcher_dir)  # Set working directory
+
+                # --- 5. Set program/args on instance ---
+                process.setProgram("umu-run")
+                process.setArguments([launcher_to_run])
+
+                # --- 6. Launch detached ---
+                success = process.startDetached()
+
+                if success:
+                    size = self.record.get("total_bytes", 0)
+                    self.status_label.setText(f"Completed ({self.format_size(size)})")
+                    self.status_label.setStyleSheet("")
+                else:
+                    self.status_label.setText("Launch failed. Is 'umu-run' installed?")
+                    self.status_label.setStyleSheet("color: red;")
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(target_dir))
+
+            except Exception as e:
+                self.status_label.setText(f"Launch failed: {e}")
+                self.status_label.setStyleSheet("color: red;")
+                QDesktopServices.openUrl(QUrl.fromLocalFile(target_dir))
+
+        # --- Final Cleanup ---
+        self.current_install_config = None  # Clean up config
         self.thread = None
         self.worker = None
 
