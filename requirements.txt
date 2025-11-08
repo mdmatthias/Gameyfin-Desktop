@@ -2,3 +2,4 @@ pyqt6~=6.0
 PyQt6-WebEngine~=6.0
 dotenv~=0.1
 requests~=2.0
+frozendict~=2.4
