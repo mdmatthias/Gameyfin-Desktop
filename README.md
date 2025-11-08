@@ -32,6 +32,7 @@ A dedicated desktop client for [Gameyfin](https://github.com/gameyfin/gameyfin) 
 * PyQt6
 * PyQt6-WebEngine
 * dotenv
+* requests
 
 You can install the required packages using one of the methods below.
 
@@ -42,7 +43,7 @@ pip install -r requirements.txt
 
 #### Pacman
 ```bash
-pacman -Syu python-pyqt6 python-pyqt6-webengine python-dotenv
+pacman -Syu python-pyqt6 python-pyqt6-webengine python-dotenv python-requests
 ```
 ---
 **External Dependencies (for Installer):**
