@@ -16,10 +16,10 @@ A dedicated desktop client for [Gameyfin](https://github.com/gameyfin/gameyfin) 
         * Extracts the archive to its own folder.
         * Detects `.exe` files. If multiple are found, it asks you to choose which one to launch.
         * Automatically creates a wineprefix and launches the installer using `umu-run`.
+        * Autodetect/search umu-id: Automatically lookup the umu-id for proton fixes by codename, folder name or manual search entry.
 
 ---
 ### 🗓️ Planned Features
-* **Autodetect GameID:** To apply protonfixes without having to look up the GameID.
 * **Desktop shortcuts:** Automatically add desktop shortcut (and/or play button in the download manager) to launch the game with the same umu-launcher config as chosen during the installation.
 * **Protonfixes and Winecfg button:** To manually configure your Wineprefix if needed.
 * **Other ideas?:** Create a new issue/merge request and I will look into it.
