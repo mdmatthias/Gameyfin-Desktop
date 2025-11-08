@@ -1,3 +1,5 @@
+from typing import List
+
 import requests
 from os import getenv
 
@@ -47,7 +49,7 @@ class UmuDatabase:
         """
         return self._try_request(params={"store": store.lower(), "codename": codename.lower()})
 
-    def get_game_by_codename(self, codename: str):
+    def get_game_by_codename(self, codename: str) -> List:
         """
         Get ALL GAME VALUES based on CODENAME
         API: /umu_api.php?codename=SOME-CODENAME-OR-APP-ID

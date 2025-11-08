@@ -2,6 +2,7 @@ import json
 import os
 import time
 import zipfile
+import glob
 
 from PyQt6.QtCore import QUrl, pyqtSignal, QObject, QThread, pyqtSlot, QProcess, QProcessEnvironment
 from PyQt6.QtGui import QCloseEvent, QDesktopServices
@@ -11,6 +12,8 @@ from PyQt6.QtWidgets import (QGridLayout, QWidget, QScrollArea, QVBoxLayout, QSt
                              QProgressBar, QProgressDialog, QDialog, QFormLayout,
                              QLineEdit, QComboBox, QCheckBox, QPlainTextEdit,
                              QDialogButtonBox, QListWidget)
+
+from gameyfin_frontend.umu_database import UmuDatabase
 
 
 class UnzipWorker(QObject):
@@ -69,7 +72,8 @@ class InstallConfigDialog(QDialog):
     A dialog to configure environment variables before installation.
     """
 
-    def __init__(self, parent=None):
+    # --- Modified __init__ ---
+    def __init__(self, parent=None, default_game_id="umu-default", default_store="none"):
         super().__init__(parent)
         self.setWindowTitle("Installation Configuration")
         self.setMinimumWidth(400)
@@ -82,12 +86,13 @@ class InstallConfigDialog(QDialog):
         self.wayland_checkbox = QCheckBox("Enable Wayland support")
 
         self.gameid_input = QLineEdit()
-        self.gameid_input.setText("umu-default")
+        self.gameid_input.setText(default_game_id)  # <-- Set default
 
         self.store_combo = QComboBox()
         stores = ["none", "gog", "amazon", "battlenet", "ea", "egs",
                   "humble", "itchio", "steam", "ubisoft", "zoomplatform"]
         self.store_combo.addItems(stores)
+        self.store_combo.setCurrentText(default_store)  # <-- Set default
 
         self.extra_vars_input = QPlainTextEdit()
         self.extra_vars_input.setPlaceholderText("KEY1=VALUE1\nKEY2=VALUE2")
@@ -190,6 +195,60 @@ class SelectLauncherDialog(QDialog):
         relative_path = item.text()
         return self.exe_map.get(relative_path)
 
+
+#
+# --- New Dialog (Added) ---
+#
+class SelectUmuIdDialog(QDialog):
+    """
+    A dialog to select a UMU entry when multiple match a codename.
+    """
+
+    def __init__(self, results: list[dict], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Game Entry")
+        self.setMinimumWidth(450)
+        self.results = results  # Store the raw results list
+
+        main_layout = QVBoxLayout(self)
+        main_layout.addWidget(QLabel("Multiple game entries found. Please select one:"))
+
+        self.list_widget = QListWidget()
+        for entry in self.results:
+            # Create a user-friendly string
+            title = entry.get('title', 'No Title')
+            store = entry.get('store', 'unknown')
+            umu_id = entry.get('umu_id', 'no-id')
+            display_text = f"{title} ({store}) - {umu_id}"
+            self.list_widget.addItem(display_text)
+
+        main_layout.addWidget(self.list_widget)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
+                                      QDialogButtonBox.StandardButton.Cancel)
+
+        self.ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
+        self.ok_button.setEnabled(False)  # Disable OK until one is selected
+
+        self.list_widget.currentItemChanged.connect(self.on_selection_changed)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+
+        main_layout.addWidget(button_box)
+
+    def on_selection_changed(self, current_item, previous_item):
+        """Enables the OK button when an item is selected."""
+        self.ok_button.setEnabled(current_item is not None)
+
+    def get_selected_entry(self) -> dict | None:
+        """Returns the full dictionary of the selected entry."""
+        current_row = self.list_widget.currentRow()
+        if current_row < 0 or current_row >= len(self.results):
+            return None
+        return self.results[current_row]
+
+
+# --- Download Item Widget ---
 
 class DownloadItemWidget(QWidget):
     remove_requested = pyqtSignal(QWidget)
@@ -338,17 +397,6 @@ class DownloadItemWidget(QWidget):
             self.status_label.setStyleSheet("color: red;")
             return
 
-        # --- Show Configuration Dialog ---
-        dialog = InstallConfigDialog(self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            self.status_label.setText("Install cancelled by user.")
-            self.status_label.setStyleSheet("")
-            return  # User cancelled
-
-        # Store the config for on_unzip_finished
-        self.current_install_config = dialog.get_config()
-        # --- End Dialog Logic ---
-
         # Create target directory (e.g., 'C:/downloads/my-file.zip' -> 'C:/downloads/my-file')
         target_dir = os.path.splitext(zip_path)[0]
         os.makedirs(target_dir, exist_ok=True)
@@ -389,14 +437,71 @@ class DownloadItemWidget(QWidget):
         Called when the worker successfully finishes.
         Searches for .exe files, prompts user if > 1, then runs with 'umu-run'.
         """
-        # --- Get the config from the dialog ---
-        config = self.current_install_config or {}
-        # ---
-
         self.progress_dialog.close()
         self.install_button.setEnabled(True)
 
         target_dir = os.path.splitext(self.record["path"])[0]
+
+        default_game_id = "umu-default"
+        default_store = "none"
+
+        try:
+            # 1. Find product_*.json
+            json_files = glob.glob(os.path.join(target_dir, "product_*.json"))
+            if json_files:
+                product_json_path = json_files[0]  # Use the first one found
+                print(f"Found product info: {product_json_path}")
+
+                # 2. Parse JSON and get ID
+                with open(product_json_path, 'r') as f:
+                    product_data = json.load(f)
+
+                codename = product_data.get("id")
+
+                if codename:
+                    print(f"Found codename: {codename}")
+                    # 3. Call UMU API
+                    db = UmuDatabase()
+                    results = db.get_game_by_codename(str(codename))  # API expects string
+                    print(f"API results: {results}")
+
+                    selected_entry = None
+                    if isinstance(results, list) and len(results) > 0:
+                        if len(results) == 1:
+                            # 3a. Case 1: One result
+                            selected_entry = results[0]
+                            print("One matching entry found.")
+                        else:
+                            # 3b. Case 2: Multiple results
+                            print("Multiple matching entries found, showing dialog.")
+                            umu_dialog = SelectUmuIdDialog(results, self)
+                            if umu_dialog.exec() == QDialog.DialogCode.Accepted:
+                                selected_entry = umu_dialog.get_selected_entry()
+                            else:
+                                print("User cancelled UMU ID selection.")
+
+                        if selected_entry:
+                            default_game_id = selected_entry.get("umu_id", default_game_id)
+                            default_store = selected_entry.get("store", default_store)
+                            print(f"Using: umu_id={default_game_id}, store={default_store}")
+
+        except Exception as e:
+            print(f"Error during UMU auto-detection: {e}")
+            # Non-fatal error, just proceed with defaults
+
+        dialog = InstallConfigDialog(
+            self,
+            default_game_id=default_game_id,
+            default_store=default_store
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            self.status_label.setText("Install cancelled by user.")
+            self.status_label.setStyleSheet("")
+            return  # User cancelled
+
+        # Store the config for launch
+        self.current_install_config = dialog.get_config()
+
         launcher_paths = []
         launcher_to_run = None
 
@@ -439,6 +544,10 @@ class DownloadItemWidget(QWidget):
         # --- Launch the selected .exe (if one was selected) ---
         if launcher_to_run:
             try:
+                # --- Get the config from the dialog ---
+                config = self.current_install_config or {}
+                # ---
+
                 # 1. Get user's home directory
                 home_dir = os.path.expanduser("~")
 
@@ -642,7 +751,8 @@ class DownloadManagerWidget(QWidget):
             self.remove_download_item(existing_controller)
 
         self.insert_row_at(0, controller)
-        self.download_records.append(controller.record)
+        if controller.record not in self.download_records:
+            self.download_records.insert(0, controller.record)
 
         self.save_history()
 
@@ -672,7 +782,25 @@ class DownloadManagerWidget(QWidget):
 
     def save_history(self):
         try:
+            # Rebuild records from widget_map to ensure correct order
             self.download_records = [c.record for c in self.widget_map.keys()]
+            # Ensure they are saved in the order they appear (newest first)
+
+            # A simple map-based rebuild might mess up the order.
+            # Let's get them from the layout instead.
+            records = []
+            for row in range(self.downloads_layout.rowCount() - 1):  # -1 to skip stretch
+                item = self.downloads_layout.itemAtPosition(row, 1)  # Get filename label
+                if item:
+                    filename = item.widget().text()
+                    # Find the controller associated with this filename
+                    for controller in self.widget_map.keys():
+                        if os.path.basename(controller.record["path"]) == filename:
+                            records.append(controller.record)
+                            break
+
+            self.download_records = records
+
             with open(self.json_path, 'w') as f:
                 json.dump(self.download_records, f, indent=4)
         except Exception as e:
@@ -693,13 +821,13 @@ class DownloadManagerWidget(QWidget):
             return
 
         # Remove the old stretch row (it's at the last index)
-        self.downloads_layout.setRowStretch(self.downloads_layout.rowCount() - 1, 0)
+        current_row_count = self.downloads_layout.rowCount()
+        self.downloads_layout.setRowStretch(current_row_count - 1, 0)
 
         widgets_to_remove = self.widget_map.pop(controller)
-        controller.deleteLater()
 
         row_to_remove = -1
-        for i in range(self.downloads_layout.rowCount()):
+        for i in range(current_row_count):
             item = self.downloads_layout.itemAtPosition(i, 0)
             if item and item.widget() == widgets_to_remove[0]:
                 row_to_remove = i
@@ -708,6 +836,8 @@ class DownloadManagerWidget(QWidget):
         if row_to_remove == -1:
             # Item not found, re-add stretch and exit
             self.downloads_layout.setRowStretch(self.downloads_layout.rowCount(), 1)
+            controller.deleteLater()  # Still delete the controller
+            self.save_history()  # Re-save
             return
 
         # Remove all widgets from the specified row
@@ -724,21 +854,25 @@ class DownloadManagerWidget(QWidget):
             for col in range(self.downloads_layout.columnCount()):
                 item = self.downloads_layout.itemAtPosition(row, col)
                 if item:
+                    # Take the item from its current position
                     taken_item = self.downloads_layout.takeAt(self.downloads_layout.indexOf(item))
                     if taken_item:
+                        # Add it to the row above
                         self.downloads_layout.addItem(taken_item, row - 1, col)
 
-        # Re-add the stretch row at the new bottom
-        self.downloads_layout.setRowStretch(self.downloads_layout.rowCount(), 1)
+        self.downloads_layout.setRowStretch(self.downloads_layout.rowCount() - 1, 1)
 
+        controller.deleteLater()
         self.save_history()
 
     def insert_row_at(self, row_index: int, controller: DownloadItemWidget):
         # Remove the old stretch row
-        self.downloads_layout.setRowStretch(self.downloads_layout.rowCount() - 1, 0)
+        current_row_count = self.downloads_layout.rowCount()
+        if current_row_count > 0:
+            self.downloads_layout.setRowStretch(current_row_count - 1, 0)
 
         # Shift all existing rows down by one
-        for row in range(self.downloads_layout.rowCount() - 1, row_index - 1, -1):
+        for row in range(current_row_count - 2, row_index - 1, -1):  # (end, start, step)
             for col in range(self.downloads_layout.columnCount()):
                 item = self.downloads_layout.itemAtPosition(row, col)
                 if item:
