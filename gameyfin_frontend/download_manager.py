@@ -172,15 +172,10 @@ class InstallConfigDialog(QDialog):
                 return
 
             selected_entry = None
-            if len(all_results) == 1:
-                # 1 result
-                selected_entry = all_results[0]
-            else:
-                # Multiple results, use SelectUmuIdDialog
-                # This dialog will now get the correct title and store
-                dialog = SelectUmuIdDialog(all_results, self)
-                if dialog.exec() == QDialog.DialogCode.Accepted:
-                    selected_entry = dialog.get_selected_entry()
+            # This dialog will now get the correct title and store
+            dialog = SelectUmuIdDialog(all_results, self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                selected_entry = dialog.get_selected_entry()
 
             # Set the values if an entry was selected
             if selected_entry:
@@ -530,7 +525,7 @@ class DownloadItemWidget(QWidget):
                 if codename:
                     print(f"Found codename: {codename}")
                     # Call UMU API
-                    results = UMU_DATABASE.get_game_by_codename(str("152"))
+                    results = UMU_DATABASE.get_game_by_codename(str(codename))
                     print(f"API results (by codename): {results}")
 
             # --- ATTEMPT 2: Fallback to search by zip name ---
