@@ -680,6 +680,42 @@ class DownloadItemWidget(QWidget):
 
                     entry = config_parser['Desktop Entry']
 
+                    # --- NEW: Fix the Icon Path ---
+                    icon_name = entry.get('Icon')
+                    if icon_name:
+                        # The icon_name is just a basename, e.g., "arx_fatalis"
+                        # We find the icon folder relative to the .desktop file
+                        shortcuts_dir = os.path.dirname(original_path)
+                        icons_base_dir = os.path.join(shortcuts_dir, "icons")
+
+                        # As per your info: .../proton_shortcuts/icons/[SIZE]/apps/[icon_name].png
+
+                        # Let's find the best one, starting with highest res
+                        sizes_to_check = ["256x256", "128x128", "64x64", "48x48", "32x32"]
+                        found_icon_path = None
+
+                        for size in sizes_to_check:
+                            # Check for common names like "icon_name.png"
+                            path_with_png = os.path.join(icons_base_dir, size, "apps", f"{icon_name}.png")
+                            # Check for names that might already have an extension, like "icon_name.ico"
+                            path_as_is = os.path.join(icons_base_dir, size, "apps", icon_name)
+
+                            if os.path.exists(path_with_png):
+                                found_icon_path = path_with_png
+                                break  # Stop at the first (highest-res) one we find
+                            elif os.path.exists(path_as_is):
+                                found_icon_path = path_as_is
+                                break  # Stop at the first (highest-res) one we find
+
+                        if found_icon_path:
+                            # We found it! Update the parser to use the FULL, ABSOLUTE path.
+                            # This makes the .desktop file self-contained.
+                            config_parser.set('Desktop Entry', 'Icon', found_icon_path)
+                            print(f"Updated icon path to: {found_icon_path}")
+                        else:
+                            print(f"Warning: Could not find icon '{icon_name}' in {icons_base_dir}")
+                    # --- END NEW CODE ---
+
                     # 2. Extract the CRITICAL information
                     working_dir = entry.get('Path')
                     # Use StartupWMClass as the .exe name. Fallback to guessing from Name.
@@ -710,7 +746,8 @@ class DownloadItemWidget(QWidget):
                     # 4. Update the parser with the new Exec line
                     config_parser.set('Desktop Entry', 'Exec', new_exec)
                     # Ensure Type is set
-                    config_parser.set('Desktop Entry', 'Type', 'Game')
+                    config_parser.set('Desktop Entry', 'Type', 'Application')
+                    config_parser.set('Desktop Entry', 'Categories', 'Application;Game;')
 
                     # 5. Write the new, fixed file to the user's Desktop
                     new_file_name = os.path.basename(original_path)
@@ -797,7 +834,6 @@ class DownloadItemWidget(QWidget):
             self.finished.emit(self.record)
 
 
-# noinspection PyUnresolvedReferences
 class DownloadManagerWidget(QWidget):
 
     def __init__(self, data_path: str, umu_database: UmuDatabase, parent=None):
