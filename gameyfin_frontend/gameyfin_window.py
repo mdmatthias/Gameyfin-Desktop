@@ -43,7 +43,6 @@ class CustomWebEnginePage(QWebEnginePage):
         return super().acceptNavigationRequest(url, nav_type, is_main_frame)
 
 
-# noinspection PyUnresolvedReferences
 class GameyfinWindow(QMainWindow):
     def __init__(self, umu_database):
         super().__init__()

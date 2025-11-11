@@ -11,9 +11,11 @@ from PyQt6.QtGui import QCloseEvent, QDesktopServices
 from PyQt6.QtWebEngineCore import QWebEngineDownloadRequest
 from PyQt6.QtWidgets import (QGridLayout, QWidget, QScrollArea, QVBoxLayout, QStyle,
                              QStackedLayout, QHBoxLayout, QPushButton, QLabel,
-                             QProgressBar, QProgressDialog, QDialog)
+                             QProgressBar, QProgressDialog, QDialog, QCheckBox,  # Added QCheckBox
+                             QDialogButtonBox)  # Added QDialogButtonBox
 
-from gameyfin_frontend.dialogs import SelectUmuIdDialog, InstallConfigDialog, SelectLauncherDialog
+from gameyfin_frontend.dialogs import SelectUmuIdDialog, InstallConfigDialog, SelectLauncherDialog, \
+    SelectShortcutsDialog
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.workers import UnzipWorker
 
@@ -80,6 +82,8 @@ def get_xdg_user_dir(dir_name: str) -> Path:
     # If the key (e.g., XDG_DESKTOP_DIR) wasn't found in the file
     return fallback_dir
 
+
+
 class ProcessMonitorWorker(QThread):
     """Monitors a process by its PID and emits when it's finished."""
     finished = pyqtSignal()
@@ -119,7 +123,6 @@ class ProcessMonitorWorker(QThread):
         self._running = False
 
 
-# noinspection PyUnresolvedReferences
 class DownloadItemWidget(QWidget):
     remove_requested = pyqtSignal(QWidget)
     finished = pyqtSignal(dict)
@@ -608,10 +611,24 @@ class DownloadItemWidget(QWidget):
             if os.path.isdir(shortcuts_dir):
                 desktop_files = glob.glob(os.path.join(shortcuts_dir, "*.desktop"))
 
-                # --- NEW: Create working shortcuts on desktop ---
+                # --- NEW: Show dialog before creating shortcuts ---
                 if desktop_files:
-                    print(f"Found {len(desktop_files)} .desktop files. Processing...")
-                    self.create_desktop_shortcuts(desktop_files)
+                    print(f"Found {len(desktop_files)} potential .desktop files.")
+
+                    # --- Show selection dialog ---
+                    dialog = SelectShortcutsDialog(desktop_files, self.parentWidget())
+                    if dialog.exec() == QDialog.DialogCode.Accepted:
+                        selected_files = dialog.get_selected_files()
+
+                        if selected_files:
+                            print(f"User selected {len(selected_files)} shortcuts to create. Processing...")
+                            self.create_desktop_shortcuts(selected_files)
+                        else:
+                            print("User selected no shortcuts.")
+                    else:
+                        print("User cancelled shortcut creation.")
+                    # --- End dialog ---
+
                 else:
                     print("No .desktop files found in proton_shortcuts.")
             else:

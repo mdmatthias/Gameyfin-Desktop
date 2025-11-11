@@ -1,16 +1,17 @@
+import configparser
+import os
 from os import getenv
 from os.path import relpath
 
 from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtWidgets import QVBoxLayout, QFormLayout, QCheckBox, QLineEdit, QPushButton, QStyle, QHBoxLayout, QWidget, \
-    QComboBox, QPlainTextEdit, QDialogButtonBox, QLabel, QInputDialog, QDialog, QMessageBox, QListWidget
+    QComboBox, QPlainTextEdit, QDialogButtonBox, QLabel, QInputDialog, QDialog, QMessageBox, QListWidget, QScrollArea
 
 from gameyfin_frontend.umu_database import UmuDatabase
 
 UMU_DATABASE = UmuDatabase()
 
 
-# noinspection PyUnresolvedReferences
 class InstallConfigDialog(QDialog):
     """
     A dialog to configure environment variables before installation.
@@ -160,7 +161,6 @@ class InstallConfigDialog(QDialog):
         return config
 
 
-# noinspection PyUnresolvedReferences
 class SelectLauncherDialog(QDialog):
     """
     A dialog to select an executable when multiple are found.
@@ -209,7 +209,6 @@ class SelectLauncherDialog(QDialog):
         return self.exe_map.get(relative_path)
 
 
-# noinspection PyUnresolvedReferences
 class SelectUmuIdDialog(QDialog):
     """
     A dialog to select a UMU entry when multiple match a codename.
@@ -256,3 +255,93 @@ class SelectUmuIdDialog(QDialog):
         if current_row < 0 or current_row >= len(self.results):
             return None
         return self.results[current_row]
+
+class SelectShortcutsDialog(QDialog):
+    """
+    A dialog that shows a list of .desktop files and lets the user
+    select which ones to create shortcuts for.
+    """
+
+    def __init__(self, desktop_files: list, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Create Shortcuts")
+        self.setMinimumWidth(400)
+        self.setModal(True)
+
+        self.main_layout = QVBoxLayout(self)
+
+        # --- Checkbox Area ---
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_content = QWidget()
+        self.checkbox_layout = QVBoxLayout(self.scroll_content)
+        self.scroll_area.setWidget(self.scroll_content)
+
+        self.main_layout.addWidget(QLabel("Select which shortcuts to create:"))
+        self.main_layout.addWidget(self.scroll_area)
+
+        self.checkboxes = []  # Stores tuples of (QCheckBox, file_path)
+
+        for file_path in desktop_files:
+            name = self.parse_desktop_name(file_path)
+            checkbox = QCheckBox(name)
+            checkbox.setChecked(True)  # Default to checked
+            self.checkbox_layout.addWidget(checkbox)
+            self.checkboxes.append((checkbox, file_path))
+
+        # --- Button Bar (Select/Deselect) ---
+        self.select_button_layout = QHBoxLayout()
+        self.select_all_button = QPushButton("Select All")
+        self.select_all_button.clicked.connect(self.select_all)
+        self.deselect_all_button = QPushButton("Deselect All")
+        self.deselect_all_button.clicked.connect(self.deselect_all)
+
+        self.select_button_layout.addStretch(1)
+        self.select_button_layout.addWidget(self.select_all_button)
+        self.select_button_layout.addWidget(self.deselect_all_button)
+        self.main_layout.addLayout(self.select_button_layout)
+
+        # --- OK/Cancel Buttons ---
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        self.main_layout.addWidget(self.button_box)
+
+    @staticmethod
+    def parse_desktop_name(file_path: str) -> str:
+        """Reads a .desktop file and gets its 'Name' entry."""
+        try:
+            # configparser needs a section header
+            with open(file_path, 'r') as f:
+                content = f.read()
+            if not content.strip().startswith('[Desktop Entry]'):
+                content = '[Desktop Entry]\n' + content
+
+            config_parser = configparser.ConfigParser(strict=False)
+            config_parser.optionxform = str
+            config_parser.read_string(content)
+
+            if 'Desktop Entry' in config_parser:
+                return config_parser['Desktop Entry'].get('Name', os.path.basename(file_path))
+
+        except Exception as e:
+            print(f"Error parsing {file_path} for name: {e}")
+
+        return os.path.basename(file_path)  # Fallback
+
+    def select_all(self):
+        for checkbox, _ in self.checkboxes:
+            checkbox.setChecked(True)
+
+    def deselect_all(self):
+        for checkbox, _ in self.checkboxes:
+            checkbox.setChecked(False)
+
+    def get_selected_files(self) -> list:
+        """Returns a list of file paths for the checked items."""
+        selected = []
+        for checkbox, file_path in self.checkboxes:
+            if checkbox.isChecked():
+                selected.append(file_path)
+        return selected
+

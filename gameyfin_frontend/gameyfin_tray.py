@@ -4,7 +4,6 @@ from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QIcon, QAction
 
 
-# noinspection PyUnresolvedReferences
 class GameyfinTray:
     def __init__(self, app, window):
         self.app = app
