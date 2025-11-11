@@ -2,6 +2,7 @@ import configparser
 import glob
 import json
 import os
+import sys
 import time
 
 from PyQt6.QtCore import pyqtSlot, QProcess, QUrl, QThread, pyqtSignal
@@ -210,7 +211,8 @@ class DownloadItemWidget(QWidget):
     def on_unzip_finished(self):
         """
         Called when the worker successfully finishes.
-        Searches for .exe files, prompts user if > 1, then runs with 'umu-run'.
+        Finds game metadata, gets user config, finds the launcher,
+        and then delegates to a platform-specific installer method.
         """
         self.progress_dialog.close()
         self.install_button.setEnabled(True)
@@ -315,69 +317,76 @@ class DownloadItemWidget(QWidget):
                 self.status_label.setStyleSheet("")
 
         if launcher_to_run:
-            try:
-                config = self.current_install_config or {}
+            if sys.platform == "linux":
+                self._start_linux_installation(launcher_to_run, target_dir, self.current_install_config)
+            else:
+                raise NotImplementedError("Other platforms not yet implemented.")
 
-                home_dir = os.path.expanduser("~")
-                folder_name = os.path.basename(target_dir)
-                pfx_name = f"{folder_name.lower()}_pfx"
-                wine_prefix_path = os.path.join(home_dir, ".config", "gameyfin", "prefixes", pfx_name)
 
-                self.current_wine_prefix = wine_prefix_path
+    def _start_linux_installation(self, launcher_to_run: str, target_dir: str, install_config: dict):
+        """
+        Handles the Linux-specific install/run process using umu-run,
+        Proton, and WINE prefixes.
+        """
+        try:
+            config = install_config or {}
 
-                self.run_process = QProcess()
-                launcher_dir = os.path.dirname(launcher_to_run)
-                self.run_process.setWorkingDirectory(launcher_dir)
+            home_dir = os.path.expanduser("~")
+            folder_name = os.path.basename(target_dir)
+            pfx_name = f"{folder_name.lower()}_pfx"
+            wine_prefix_path = os.path.join(home_dir, ".config", "gameyfin", "prefixes", pfx_name)
 
-                proton_path = os.getenv("PROTONPATH", "GE-Proton")
-                env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{wine_prefix_path}\" "
+            self.current_wine_prefix = wine_prefix_path
 
-                print("[Install] Applying user environment configuration:")
-                for key, value in config.items():
-                    print(f"  {key}={value}")
-                    env_prefix += f"{key}=\"{value}\" "
+            self.run_process = QProcess()
+            launcher_dir = os.path.dirname(launcher_to_run)
+            self.run_process.setWorkingDirectory(launcher_dir)
 
-                command_string = f"{env_prefix} umu-run \"{launcher_to_run}\""
-                print(f"Executing command: /bin/sh -c \"{command_string}\"")
+            proton_path = os.getenv("PROTONPATH", "GE-Proton")
+            env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{wine_prefix_path}\" "
 
-                success, pid = self.run_process.startDetached("/bin/sh", ["-c", command_string])
+            print("[Install] Applying user environment configuration:")
+            for key, value in config.items():
+                print(f"  {key}={value}")
+                env_prefix += f"{key}=\"{value}\" "
 
-                if success and pid > 0:
-                    print(f"Launch successful. Monitoring PID: {pid}")
-                    size = self.record.get("total_bytes", 0)
-                    self.status_label.setText(f"Running... ({self.format_size(size)})")
-                    self.status_label.setStyleSheet("color: #3498DB;")
+            command_string = f"{env_prefix} umu-run \"{launcher_to_run}\""
+            print(f"Executing command: /bin/sh -c \"{command_string}\"")
 
-                    self.monitor_thread = QThread()
-                    self.monitor_worker = ProcessMonitorWorker(pid)
-                    self.monitor_worker.moveToThread(self.monitor_thread)
+            success, pid = self.run_process.startDetached("/bin/sh", ["-c", command_string])
 
-                    self.monitor_worker.finished.connect(self.on_run_finished)
+            if success and pid > 0:
+                print(f"Launch successful. Monitoring PID: {pid}")
+                size = self.record.get("total_bytes", 0)
+                self.status_label.setText(f"Running... ({self.format_size(size)})")
+                self.status_label.setStyleSheet("color: #3498DB;")
 
-                    self.monitor_thread.started.connect(self.monitor_worker.run)
-                    self.monitor_worker.finished.connect(self.monitor_thread.quit)
-                    self.monitor_worker.finished.connect(self.monitor_worker.deleteLater)
-                    self.monitor_thread.finished.connect(self.monitor_thread.deleteLater)
+                self.monitor_thread = QThread()
+                self.monitor_worker = ProcessMonitorWorker(pid)
+                self.monitor_worker.moveToThread(self.monitor_thread)
 
-                    self.monitor_worker.destroyed.connect(self.on_monitor_worker_deleted)
-                    self.monitor_thread.destroyed.connect(self.on_monitor_thread_deleted)
+                self.monitor_worker.finished.connect(self.on_run_finished)
 
-                    self.monitor_thread.start()
+                self.monitor_thread.started.connect(self.monitor_worker.run)
+                self.monitor_worker.finished.connect(self.monitor_thread.quit)
+                self.monitor_worker.finished.connect(self.monitor_worker.deleteLater)
+                self.monitor_thread.finished.connect(self.monitor_thread.deleteLater)
 
-                else:
-                    print(f"Launch failed (startDetached returned {success}, PID: {pid}).")
-                    self.status_label.setText("Launch failed. Is 'umu-run' installed?")
-                    self.status_label.setStyleSheet("color: red;")
-                    self.current_wine_prefix = None
+                self.monitor_worker.destroyed.connect(self.on_monitor_worker_deleted)
+                self.monitor_thread.destroyed.connect(self.on_monitor_thread_deleted)
 
-            except Exception as e:
-                self.status_label.setText(f"Launch failed: {e}")
+                self.monitor_thread.start()
+
+            else:
+                print(f"Launch failed (startDetached returned {success}, PID: {pid}).")
+                self.status_label.setText("Launch failed. Is 'umu-run' installed?")
                 self.status_label.setStyleSheet("color: red;")
                 self.current_wine_prefix = None
 
-        if self.run_process:
-            self.run_process.deleteLater()
-            self.run_process = None
+        except Exception as e:
+            self.status_label.setText(f"Launch failed: {e}")
+            self.status_label.setStyleSheet("color: red;")
+            self.current_wine_prefix = None
 
     @pyqtSlot(str)
     def on_unzip_error(self, message: str):
