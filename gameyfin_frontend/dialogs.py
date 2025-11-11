@@ -9,16 +9,15 @@ from PyQt6.QtWidgets import QVBoxLayout, QFormLayout, QCheckBox, QLineEdit, QPus
 
 from gameyfin_frontend.umu_database import UmuDatabase
 
-UMU_DATABASE = UmuDatabase()
-
 
 class InstallConfigDialog(QDialog):
     """
     A dialog to configure environment variables before installation.
     """
 
-    def __init__(self, parent=None, default_game_id="umu-default", default_store="none"):
+    def __init__(self, umu_database: UmuDatabase, parent=None, default_game_id="umu-default", default_store="none"):
         super().__init__(parent)
+        self.umu_database = umu_database
         self.setWindowTitle("Installation Configuration")
         self.setMinimumWidth(400)
 
@@ -88,7 +87,7 @@ class InstallConfigDialog(QDialog):
         try:
             print(f"Searching all stores for title: {search_title}...")
 
-            results = UMU_DATABASE.search_by_partial_title(search_title)
+            results = self.umu_database.search_by_partial_title(search_title)
 
             processed_list = []
             if isinstance(results, list):

@@ -272,7 +272,8 @@ class DownloadItemWidget(QWidget):
             print(f"Error during UMU auto-detection: {e}")
 
         dialog = InstallConfigDialog(
-            self,
+            umu_database=self.umu_database,
+            parent=self,
             default_game_id=default_game_id,
             default_store=default_store
         )
