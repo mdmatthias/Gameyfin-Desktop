@@ -36,8 +36,10 @@ class GameyfinTray:
 
     def icon_clicked(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            if self.window.isVisible(): self.window.hide()
-            else: self.window.show()
+            if self.window.isVisible():
+                self.window.hide()
+            else:
+                self.window.show()
 
     def quit_app(self):
         self.tray.hide()

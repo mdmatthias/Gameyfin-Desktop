@@ -51,7 +51,7 @@ class InstallConfigDialog(QDialog):
 
         self.store_combo = QComboBox()
         stores = getenv("GF_UMU_DB_STORES", ["none", "gog", "amazon", "battlenet", "ea", "egs",
-                  "humble", "itchio", "steam", "ubisoft", "zoomplatform"])
+                                             "humble", "itchio", "steam", "ubisoft", "zoomplatform"])
         self.store_combo.addItems(stores)
         self.store_combo.setCurrentText(default_store)
 
@@ -108,7 +108,6 @@ class InstallConfigDialog(QDialog):
             for entry in processed_list:
                 if entry.get("umu_id"):
                     all_results.append(entry)
-
 
             if not all_results:
                 QMessageBox.information(self, "No Results",
@@ -256,6 +255,7 @@ class SelectUmuIdDialog(QDialog):
             return None
         return self.results[current_row]
 
+
 class SelectShortcutsDialog(QDialog):
     """
     A dialog that shows a list of .desktop files and lets the user
@@ -344,4 +344,3 @@ class SelectShortcutsDialog(QDialog):
             if checkbox.isChecked():
                 selected.append(file_path)
         return selected
-
