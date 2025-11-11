@@ -2,7 +2,7 @@ import glob
 import json
 import os
 import time
-import configparser  # Import configparser
+import configparser
 from pathlib import Path
 
 from PyQt6.QtCore import (QUrl, pyqtSignal, QThread, pyqtSlot, QProcess,
@@ -11,8 +11,8 @@ from PyQt6.QtGui import QCloseEvent, QDesktopServices
 from PyQt6.QtWebEngineCore import QWebEngineDownloadRequest
 from PyQt6.QtWidgets import (QGridLayout, QWidget, QScrollArea, QVBoxLayout, QStyle,
                              QStackedLayout, QHBoxLayout, QPushButton, QLabel,
-                             QProgressBar, QProgressDialog, QDialog, QCheckBox,  # Added QCheckBox
-                             QDialogButtonBox)  # Added QDialogButtonBox
+                             QProgressBar, QProgressDialog, QDialog, QCheckBox,
+                             QDialogButtonBox)
 
 from gameyfin_frontend.dialogs import SelectUmuIdDialog, InstallConfigDialog, SelectLauncherDialog, \
     SelectShortcutsDialog
@@ -37,11 +37,10 @@ class DownloadManagerWidget(QWidget):
 
         self.downloads_layout = QGridLayout(self.scroll_content)
 
-        # Set proportional stretch factors for each column
-        self.downloads_layout.setColumnStretch(1, 4)  # Filename
-        self.downloads_layout.setColumnStretch(2, 2)  # Progress Bar
-        self.downloads_layout.setColumnStretch(3, 2)  # Status Label
-        self.downloads_layout.setColumnStretch(4, 1)  # Buttons
+        self.downloads_layout.setColumnStretch(1, 4)
+        self.downloads_layout.setColumnStretch(2, 2)
+        self.downloads_layout.setColumnStretch(3, 2)
+        self.downloads_layout.setColumnStretch(4, 1)
 
         self.scroll_area.setWidget(self.scroll_content)
         self.main_layout.addWidget(self.scroll_area)
@@ -195,7 +194,7 @@ class DownloadManagerWidget(QWidget):
             self.downloads_layout.setRowStretch(current_row_count - 1, 0)
 
         # Shift all existing rows down by one
-        for row in range(current_row_count - 2, row_index - 1, -1):  # (end, start, step)
+        for row in range(current_row_count - 2, row_index - 1, -1):
             for col in range(self.downloads_layout.columnCount()):
                 item = self.downloads_layout.itemAtPosition(row, col)
                 if item:
@@ -203,7 +202,6 @@ class DownloadManagerWidget(QWidget):
                     if taken_item:
                         self.downloads_layout.addItem(taken_item, row + 1, col)
 
-        # Add the new row
         widgets = controller.get_widgets_for_grid()
         self.downloads_layout.addWidget(widgets[0], row_index, 0)
         self.downloads_layout.addWidget(widgets[1], row_index, 1)
@@ -214,5 +212,4 @@ class DownloadManagerWidget(QWidget):
         # Re-add the stretch row at the new bottom
         self.downloads_layout.setRowStretch(self.downloads_layout.rowCount(), 1)
 
-        # Store controller and its widgets
         self.widget_map[controller] = widgets

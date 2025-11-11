@@ -22,26 +22,22 @@ class InstallConfigDialog(QDialog):
         self.setWindowTitle("Installation Configuration")
         self.setMinimumWidth(400)
 
-        # --- Layouts ---
         main_layout = QVBoxLayout(self)
         form_layout = QFormLayout()
 
-        # --- Widgets ---
         self.wayland_checkbox = QCheckBox("Enable Wayland support")
 
-        # --- UMU ID Input + Search Button ---
         self.gameid_input = QLineEdit()
-        self.gameid_input.setText(default_game_id)  # <-- Set default
+        self.gameid_input.setText(default_game_id)
 
-        self.search_button = QPushButton()  # <-- New search button
+        self.search_button = QPushButton()
         icon = self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView)
         self.search_button.setIcon(icon)
         self.search_button.setToolTip("Search for game by name")
-        # Make it square, matching the line edit's height
+
         button_size = self.gameid_input.sizeHint().height()
         self.search_button.setFixedSize(button_size, button_size)
 
-        # Create a horizontal layout for the input and button
         self.gameid_layout = QHBoxLayout()
         self.gameid_layout.setContentsMargins(0, 0, 0, 0)
         self.gameid_layout.addWidget(self.gameid_input)
@@ -58,13 +54,11 @@ class InstallConfigDialog(QDialog):
         self.extra_vars_input = QPlainTextEdit()
         self.extra_vars_input.setPlaceholderText("KEY1=VALUE1\nKEY2=VALUE2")
 
-        # --- Button Box ---
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
                                       QDialogButtonBox.StandardButton.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
 
-        # --- Assemble Layout ---
         main_layout.addWidget(self.wayland_checkbox)
 
         form_layout.addRow("Umu protonfix:", self.gameid_widget)
@@ -84,19 +78,16 @@ class InstallConfigDialog(QDialog):
         Opens a dialog to search for a game by title, checks ALL stores,
         and populates the umu_id and store fields from the results.
         """
-        # Get search term from user
         text, ok = QInputDialog.getText(self, "Search UMU", "Enter game title to search:")
         if not ok or not text.strip():
-            return  # User cancelled or entered nothing
+            return
 
         search_title = text.strip()
 
         all_results = []
         try:
-
             print(f"Searching all stores for title: {search_title}...")
 
-            # Call the UMU database
             results = UMU_DATABASE.search_by_partial_title(search_title)
 
             processed_list = []
@@ -115,12 +106,10 @@ class InstallConfigDialog(QDialog):
                 return
 
             selected_entry = None
-            # This dialog will now get the correct title and store
             dialog = SelectUmuIdDialog(all_results, self)
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 selected_entry = dialog.get_selected_entry()
 
-            # Set the values if an entry was selected
             if selected_entry:
                 umu_id = selected_entry.get("umu_id")
                 store = selected_entry.get("store")
@@ -144,7 +133,7 @@ class InstallConfigDialog(QDialog):
             config["GAMEID"] = game_id
 
         store = self.store_combo.currentText()
-        if store and store != "none":  # no store is default
+        if store and store != "none":
             config["STORE"] = store
 
         extra_vars_text = self.extra_vars_input.toPlainText().strip()
@@ -186,7 +175,7 @@ class SelectLauncherDialog(QDialog):
                                       QDialogButtonBox.StandardButton.Cancel)
 
         self.ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
-        self.ok_button.setEnabled(False)  # Disable OK until one is selected
+        self.ok_button.setEnabled(False)
 
         self.list_widget.currentItemChanged.connect(self.on_selection_changed)
         button_box.accepted.connect(self.accept)
@@ -236,7 +225,7 @@ class SelectUmuIdDialog(QDialog):
                                       QDialogButtonBox.StandardButton.Cancel)
 
         self.ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
-        self.ok_button.setEnabled(False)  # Disable OK until one is selected
+        self.ok_button.setEnabled(False)
 
         self.list_widget.currentItemChanged.connect(self.on_selection_changed)
         button_box.accepted.connect(self.accept)
@@ -270,7 +259,6 @@ class SelectShortcutsDialog(QDialog):
 
         self.main_layout = QVBoxLayout(self)
 
-        # --- Checkbox Area ---
         self.scroll_area = QScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
         self.scroll_content = QWidget()
@@ -280,16 +268,15 @@ class SelectShortcutsDialog(QDialog):
         self.main_layout.addWidget(QLabel("Select which shortcuts to create:"))
         self.main_layout.addWidget(self.scroll_area)
 
-        self.checkboxes = []  # Stores tuples of (QCheckBox, file_path)
+        self.checkboxes = []
 
         for file_path in desktop_files:
             name = self.parse_desktop_name(file_path)
             checkbox = QCheckBox(name)
-            checkbox.setChecked(True)  # Default to checked
+            checkbox.setChecked(True)
             self.checkbox_layout.addWidget(checkbox)
             self.checkboxes.append((checkbox, file_path))
 
-        # --- Button Bar (Select/Deselect) ---
         self.select_button_layout = QHBoxLayout()
         self.select_all_button = QPushButton("Select All")
         self.select_all_button.clicked.connect(self.select_all)
@@ -301,7 +288,6 @@ class SelectShortcutsDialog(QDialog):
         self.select_button_layout.addWidget(self.deselect_all_button)
         self.main_layout.addLayout(self.select_button_layout)
 
-        # --- OK/Cancel Buttons ---
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)

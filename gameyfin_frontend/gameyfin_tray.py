@@ -12,12 +12,11 @@ class GameyfinTray:
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
         self.tray.setIcon(QIcon(getenv("GF_ICON_PATH", icon_path)))
         self.menu = QMenu()
-        # Add tray buttons
+
         self.show_action = QAction("Show")
         self.downloads_action = QAction("Show Downloads")
         self.quit_action = QAction("Quit")
 
-        # Link actions to buttons
         self.menu.addAction(self.show_action)
         self.menu.addAction(self.downloads_action)
         self.menu.addSeparator()

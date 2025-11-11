@@ -58,7 +58,6 @@ class GameyfinWindow(QMainWindow):
         profile_path = os.path.join(script_dir, ".gameyfin-app-data")
         os.makedirs(profile_path, exist_ok=True)
 
-        # --- Profile setup ---
         self.profile = QWebEngineProfile("gameyfin-profile", self)
         self.profile.setPersistentStoragePath(profile_path)
         self.profile.setHttpCacheType(QWebEngineProfile.HttpCacheType.DiskHttpCache)
@@ -68,17 +67,14 @@ class GameyfinWindow(QMainWindow):
         settings = self.profile.settings()
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalStorageEnabled, True)
 
-        # --- Browser Setup ---
         self.browser = QWebEngineView()
         base_url = QUrl(getenv("GF_URL", "http://localhost:8080"))
         self.custom_page = CustomWebEnginePage(base_url, self.profile, self.browser)
         self.browser.setPage(self.custom_page)
         self.browser.setUrl(base_url)
 
-        # --- Download Manager Setup ---
         self.download_manager = DownloadManagerWidget(profile_path, umu_database, self)
 
-        # --- Tab Widget Setup ---
         self.tab_widget = QTabWidget()
 
         # Add the Gameyfin tab with an empty string for the label
@@ -86,15 +82,12 @@ class GameyfinWindow(QMainWindow):
         # Set the icon for that tab
         self.tab_widget.setTabIcon(gameyfin_tab_index, QIcon(icon_path))
 
-        # Add the Downloads tab
         self.tab_widget.addTab(self.download_manager, "Downloads")
 
         self.setCentralWidget(self.tab_widget)
 
-        # --- Connect Signals ---
         self.browser.page().profile().downloadRequested.connect(self.on_download_requested)
 
-        # --- Scrollbar Script ---
         script = QWebEngineScript()
         script.setSourceCode("""
             document.documentElement.style.overflowX = 'hidden';
@@ -129,7 +122,7 @@ class GameyfinWindow(QMainWindow):
             self.download_manager.close()
             self.browser.setPage(None)
             self.browser.deleteLater()
-            event.accept()  # Accept the event and close
+            event.accept()
         else:
             # This is just the 'X' button, so hide
             event.ignore()

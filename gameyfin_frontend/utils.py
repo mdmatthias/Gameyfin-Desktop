@@ -12,17 +12,12 @@ def get_xdg_user_dir(dir_name: str) -> Path:
         dir_name: The internal name of the directory (e.g., "DESKTOP",
                   "DOCUMENTS", "DOWNLOAD").
     """
-
-    # 1. The key we are looking for in the file
     key_to_find = f"XDG_{dir_name.upper()}_DIR"
 
-    # 2. Determine the config file path
-    # It's almost always in ~/.config/user-dirs.dirs
     config_home = os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")
     config_file_path = Path(config_home) / "user-dirs.dirs"
 
-    # 3. Set a sensible fallback (e.g., $HOME/Desktop)
-    # This is used if the file or key doesn't exist
+    # Set a sensible fallback (e.g., $HOME/Desktop)
     fallback_dir = Path.home() / dir_name.capitalize()
 
     if not config_file_path.is_file():
@@ -33,33 +28,27 @@ def get_xdg_user_dir(dir_name: str) -> Path:
             for line in f:
                 line = line.strip()
 
-                # Skip comments or empty lines
                 if not line or line.startswith("#"):
                     continue
 
-                # Check if this is the line we want
                 if line.startswith(key_to_find):
                     try:
-                        # Line looks like: XDG_DESKTOP_DIR="$HOME/Bureaublad"
-                        # Split at '=', get the second part
+                        # Line looks like: XDG_DESKTOP_DIR="$HOME/Desktop"
                         value = line.split("=", 1)[1]
-
-                        # Remove surrounding quotes (e.g., "...")
                         value = value.strip('"')
 
-                        # IMPORTANT: Expand variables like $HOME
+                        # Expand variables like $HOME
                         path = os.path.expandvars(value)
 
                         return Path(path)
 
                     except Exception:
-                        # Found the key but the line was malformed, use fallback
+                        # Found the key but the line was malformed
                         return fallback_dir
 
     except Exception as e:
         print(f"Error reading {config_file_path}: {e}")
-        # Fallback in case of permissions errors, etc.
         return fallback_dir
 
-    # If the key (e.g., XDG_DESKTOP_DIR) wasn't found in the file
+    # Key wasn't found in the file
     return fallback_dir

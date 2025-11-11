@@ -8,11 +8,10 @@ class UnzipWorker(QObject):
     """
     Runs the zip extraction in a separate thread to avoid freezing the UI.
     """
-    # Signals
-    progress = pyqtSignal(int)  # Current percentage (0-100)
-    current_file = pyqtSignal(str)  # Name of file being extracted
-    finished = pyqtSignal()  # Emitted on success
-    error = pyqtSignal(str)  # Emitted on failure
+    progress = pyqtSignal(int)
+    current_file = pyqtSignal(str)
+    finished = pyqtSignal()
+    error = pyqtSignal(str)
 
     def __init__(self, zip_path: str, target_dir: str):
         super().__init__()
@@ -37,10 +36,8 @@ class UnzipWorker(QObject):
                         self.error.emit("Extraction cancelled by user.")
                         return
 
-                    # Extract the single file
                     zip_ref.extract(member, path=self.target_dir)
 
-                    # Calculate and emit progress
                     percentage = int(((i + 1) / total_files) * 100)
                     self.progress.emit(percentage)
                     self.current_file.emit(f"Extracting: {member.filename}")
@@ -72,19 +69,16 @@ class ProcessMonitorWorker(QThread):
         self._running = True
         while self._running:
             try:
-                # os.kill(pid, 0) checks if process exists
                 os.kill(self.pid, 0)
             except OSError:
-                # Process does not exist
                 print(f"ProcessMonitor: PID {self.pid} finished.")
                 self._running = False
                 self.finished.emit()
-                break  # Exit loop
+                break
             else:
-                # Process exists, sleep and check again
                 if not self._running:
-                    break  # Stop requested
-                self.msleep(1000)  # Check every second
+                    break
+                self.msleep(1000)
 
         print(f"ProcessMonitor: Stopping monitor for {self.pid}")
 

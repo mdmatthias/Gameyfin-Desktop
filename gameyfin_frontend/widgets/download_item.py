@@ -35,11 +35,11 @@ class DownloadItemWidget(QWidget):
         self.progress_dialog = None
         self.current_install_config = None
 
-        self.run_process = None  # Holds the QProcess for setup
-        self.current_wine_prefix = None  # Stores the WINEPREFIX path
+        self.run_process = None
+        self.current_wine_prefix = None
 
-        self.monitor_thread = None  # Thread for monitoring the game PID
-        self.monitor_worker = None  # Worker for monitoring the game PID
+        self.monitor_thread = None
+        self.monitor_worker = None
 
         self.icon_label = QLabel()
         self.filename_label = QLabel()
@@ -53,7 +53,6 @@ class DownloadItemWidget(QWidget):
         self.remove_button_failed = QPushButton("Remove")
         self.install_button = QPushButton("Install")
 
-        # --- Create Button Containers ---
         self.active_button_widget = QWidget()
         active_layout = QHBoxLayout(self.active_button_widget)
         active_layout.setContentsMargins(0, 0, 0, 0)
@@ -72,24 +71,20 @@ class DownloadItemWidget(QWidget):
         failed_layout.setContentsMargins(0, 0, 0, 0)
         failed_layout.addWidget(self.remove_button_failed)
 
-        # --- Create the Stacked Layout for buttons ---
         self.button_stack = QStackedLayout()
-        self.button_stack.addWidget(self.active_button_widget)  # Index 0
-        self.button_stack.addWidget(self.completed_button_widget)  # Index 1
-        self.button_stack.addWidget(self.failed_button_widget)  # Index 2
+        self.button_stack.addWidget(self.active_button_widget)
+        self.button_stack.addWidget(self.completed_button_widget)
+        self.button_stack.addWidget(self.failed_button_widget)
 
-        # This is the main widget that goes into the grid
         self.button_container = QWidget()
         self.button_container.setLayout(self.button_stack)
 
-        # --- 2. Set Sizing Hints ---
         font_metrics = self.fontMetrics()
         self.icon_label.setFixedWidth(font_metrics.height())
         self.status_label.setMinimumWidth(font_metrics.horizontalAdvance("Completed (999.99 MB)") + 10)
         self.progress_bar.setMinimumWidth(100)
         self.progress_bar.setMaximumHeight(font_metrics.height() + 4)  # Make pbar slimmer
 
-        # --- 3. Connect Button Signals ---
         self.cancel_button.clicked.connect(self.cancel_download)
         self.open_button.clicked.connect(self.open_file)
         self.open_folder_button.clicked.connect(self.open_folder)
@@ -97,7 +92,6 @@ class DownloadItemWidget(QWidget):
         self.remove_button.clicked.connect(lambda: self.remove_requested.emit(self))
         self.remove_button_failed.clicked.connect(lambda: self.remove_requested.emit(self))
 
-        # --- 4. Configure based on type (Active vs. Historic) ---
         if self.download_item:
             self.record = {
                 "path": self.download_item.downloadFileName(),
@@ -133,7 +127,7 @@ class DownloadItemWidget(QWidget):
             self.progress_bar.setValue(100)
             size = self.record.get("total_bytes", 0)
             self.status_label.setText(f"Completed ({self.format_size(size)})")
-            self.button_stack.setCurrentIndex(1)  # Show completed buttons
+            self.button_stack.setCurrentIndex(1)
             self._update_install_button_visibility()
 
             if not os.path.exists(self.record["path"]):
@@ -147,8 +141,8 @@ class DownloadItemWidget(QWidget):
         elif status in ("Cancelled", "Failed"):
             self.progress_bar.hide()
             self.status_label.setText(status)
-            self.button_stack.setCurrentIndex(2)  # Show failed buttons
-            self._update_install_button_visibility()  # Hide for failed
+            self.button_stack.setCurrentIndex(2)
+            self._update_install_button_visibility()
 
     def cancel_download(self):
         if self.download_item:
@@ -171,42 +165,35 @@ class DownloadItemWidget(QWidget):
             self.status_label.setStyleSheet("color: red;")
             return
 
-        # Create target directory (e.g., 'C:/downloads/my-file.zip' -> 'C:/downloads/my-file')
         target_dir = os.path.splitext(zip_path)[0]
         os.makedirs(target_dir, exist_ok=True)
 
-        self.install_button.setEnabled(False)  # Disable button during install
+        self.install_button.setEnabled(False)
 
-        # --- 1. Set up the Progress Dialog ---
         self.progress_dialog = QProgressDialog("Unzipping package...", "Cancel", 0, 100, self.parentWidget())
         self.progress_dialog.setWindowTitle("Installing")
         self.progress_dialog.setLabelText("Starting extraction...")
         self.progress_dialog.setModal(True)
-        self.progress_dialog.canceled.connect(self.cancel_unzip)  # Connect cancel button
+        self.progress_dialog.canceled.connect(self.cancel_unzip)
         self.progress_dialog.show()
 
-        # --- 2. Set up the Thread and Worker ---
         self.thread = QThread()
         self.worker = UnzipWorker(zip_path, target_dir)
         self.worker.moveToThread(self.thread)
 
-        # --- 3. Connect signals from worker to UI ---
         self.worker.progress.connect(self.progress_dialog.setValue)
         self.worker.current_file.connect(self.progress_dialog.setLabelText)
         self.worker.finished.connect(self.on_unzip_finished)
         self.worker.error.connect(self.on_unzip_error)
 
-        # --- 4. Connect thread management signals ---
         self.thread.started.connect(self.worker.run)
         self.worker.finished.connect(self.thread.quit)
         self.worker.finished.connect(self.worker.deleteLater)
         self.thread.finished.connect(self.thread.deleteLater)
 
-        # --- 4b. Connect destroyed signals for safe cleanup ---
         self.worker.destroyed.connect(self.on_unzip_worker_deleted)
         self.thread.destroyed.connect(self.on_unzip_thread_deleted)
 
-        # --- 5. Start the thread ---
         self.thread.start()
 
     @pyqtSlot()
@@ -235,13 +222,12 @@ class DownloadItemWidget(QWidget):
         results = []
 
         try:
-            # --- ATTEMPT 1: Search by product.json codename ---
+            # Attempt 1: Search by product.json codename
             json_files = glob.glob(os.path.join(target_dir, "product_*.json"))
             if json_files:
-                product_json_path = json_files[0]  # Use the first one found
+                product_json_path = json_files[0]
                 print(f"Found product info: {product_json_path}")
 
-                # Parse JSON and get ID
                 with open(product_json_path, 'r') as f:
                     product_data = json.load(f)
 
@@ -249,20 +235,16 @@ class DownloadItemWidget(QWidget):
 
                 if codename:
                     print(f"Found codename: {codename}")
-                    # Call UMU API
                     results = self.umu_database.get_game_by_codename(str(codename))
                     print(f"API results (by codename): {results}")
 
-            # --- ATTEMPT 2: Fallback to search by zip name ---
-            if not results:  # This runs if no json, no codename, or codename search failed
-                # Get base name of zip, e.g., /path/to/my_game.zip -> my_game
+            # Attempt 2: Fallback to search by zip name
+            if not results:
                 zip_name_base = os.path.basename(os.path.splitext(self.record["path"])[0])
-                # Clean it up to be a better search term, e.g., "my_game" -> "my game"
                 search_title = zip_name_base.replace('_', ' ').replace('-', ' ').strip()
 
                 if search_title:
                     print(f"No results from codename. Fallback: searching by title: '{search_title}'")
-                    # Call UMU API
                     results = self.umu_database.search_by_partial_title(search_title)
                     print(f"API results (by title): {results}")
                 else:
@@ -271,11 +253,9 @@ class DownloadItemWidget(QWidget):
             selected_entry = None
             if isinstance(results, list) and len(results) > 0:
                 if len(results) == 1:
-                    # 1 result
                     selected_entry = results[0]
                     print("One matching entry found.")
                 else:
-                    # Multiple results
                     print("Multiple matching entries found, showing dialog.")
                     umu_dialog = SelectUmuIdDialog(results, self)
                     if umu_dialog.exec() == QDialog.DialogCode.Accepted:
@@ -290,7 +270,6 @@ class DownloadItemWidget(QWidget):
 
         except Exception as e:
             print(f"Error during UMU auto-detection: {e}")
-            # Non-fatal error, just proceed with defaults
 
         dialog = InstallConfigDialog(
             self,
@@ -300,16 +279,13 @@ class DownloadItemWidget(QWidget):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             self.status_label.setText("Install cancelled by user.")
             self.status_label.setStyleSheet("")
-            # Unzip thread/worker will be cleaned up by their signals
-            return  # User cancelled
+            return
 
-        # Store the config for launch
         self.current_install_config = dialog.get_config()
 
         launcher_paths = []
         launcher_to_run = None
 
-        # --- Search for ALL .exe launchers ---
         try:
             for root, dirs, files in os.walk(target_dir):
                 for file in files:
@@ -319,20 +295,14 @@ class DownloadItemWidget(QWidget):
             print(f"Error searching for launcher: {e}")
             self.on_unzip_error(f"Install OK, but failed to find launcher: {e}")
             return
-        # --- END SEARCH ---
 
-        # --- Decide which launcher to run (if any) ---
         if not launcher_paths:
-            # Case 1: No .exe found
             self.status_label.setText("Install complete, no .exe found.")
             self.status_label.setStyleSheet("color: #E67E22;")
             QDesktopServices.openUrl(QUrl.fromLocalFile(target_dir))
-            # Unzip thread/worker will be cleaned up by their signals
         elif len(launcher_paths) == 1:
-            # Case 2: Exactly one .exe found
             launcher_to_run = launcher_paths[0]
         else:
-            # Case 3: Multiple .exe found
             dialog = SelectLauncherDialog(target_dir, launcher_paths, self)
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 launcher_to_run = dialog.get_selected_launcher()
@@ -340,81 +310,54 @@ class DownloadItemWidget(QWidget):
                     self.status_label.setText("Install complete, no launcher selected.")
                     self.status_label.setStyleSheet("color: #E67E22;")
             else:
-                # User cancelled
                 self.status_label.setText("Install complete, launch cancelled.")
                 self.status_label.setStyleSheet("")
 
-        # --- Launch the selected .exe (if one was selected) ---
         if launcher_to_run:
             try:
-                # --- Get the config from the dialog ---
                 config = self.current_install_config or {}
-                # ---
 
-                # 1. Get user's home directory
                 home_dir = os.path.expanduser("~")
-
-                # 2. Get lower-case folder name
                 folder_name = os.path.basename(target_dir)
                 pfx_name = f"{folder_name.lower()}_pfx"
-
-                # 3. Construct WINEPREFIX
                 wine_prefix_path = os.path.join(home_dir, ".config", "gameyfin", "prefixes", pfx_name)
 
-                # --- Store WINEPREFIX for the 'finished' slot ---
                 self.current_wine_prefix = wine_prefix_path
 
-                # 4. Create QProcess
-                self.run_process = QProcess()  # Use the instance variable
+                self.run_process = QProcess()
                 launcher_dir = os.path.dirname(launcher_to_run)
-                self.run_process.setWorkingDirectory(launcher_dir)  # Set working directory
+                self.run_process.setWorkingDirectory(launcher_dir)
 
-                # --- 5. Build the command string (MOST ROBUST WAY) ---
-                # This injects the env vars directly into the shell command
-
-                # --- Apply base environment ---
                 proton_path = os.getenv("PROTONPATH", "GE-Proton")
-                # We must quote paths in case they have spaces
                 env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{wine_prefix_path}\" "
 
-                # --- Apply user config from dialog ---
                 print("[Install] Applying user environment configuration:")
                 for key, value in config.items():
                     print(f"  {key}={value}")
-                    # Add to the prefix, quoting the value
                     env_prefix += f"{key}=\"{value}\" "
 
-                # --- Build full command ---
-                # The environment prefix goes BEFORE the command
-                # We must quote the launcher path
                 command_string = f"{env_prefix} umu-run \"{launcher_to_run}\""
                 print(f"Executing command: /bin/sh -c \"{command_string}\"")
 
-                # --- 6. Launch using startDetached to get PID ---
                 success, pid = self.run_process.startDetached("/bin/sh", ["-c", command_string])
 
-                # --- 7. Check success and start monitor ---
                 if success and pid > 0:
                     print(f"Launch successful. Monitoring PID: {pid}")
                     size = self.record.get("total_bytes", 0)
                     self.status_label.setText(f"Running... ({self.format_size(size)})")
                     self.status_label.setStyleSheet("color: #3498DB;")
 
-                    # --- 8. Set up PID monitor ---
                     self.monitor_thread = QThread()
                     self.monitor_worker = ProcessMonitorWorker(pid)
                     self.monitor_worker.moveToThread(self.monitor_thread)
 
-                    # Connect worker finish to our handler
                     self.monitor_worker.finished.connect(self.on_run_finished)
 
-                    # Connect thread management
                     self.monitor_thread.started.connect(self.monitor_worker.run)
                     self.monitor_worker.finished.connect(self.monitor_thread.quit)
                     self.monitor_worker.finished.connect(self.monitor_worker.deleteLater)
                     self.monitor_thread.finished.connect(self.monitor_thread.deleteLater)
 
-                    # --- 8b. Connect destroyed signals for safe cleanup ---
                     self.monitor_worker.destroyed.connect(self.on_monitor_worker_deleted)
                     self.monitor_thread.destroyed.connect(self.on_monitor_thread_deleted)
 
@@ -424,20 +367,13 @@ class DownloadItemWidget(QWidget):
                     print(f"Launch failed (startDetached returned {success}, PID: {pid}).")
                     self.status_label.setText("Launch failed. Is 'umu-run' installed?")
                     self.status_label.setStyleSheet("color: red;")
-                    self.current_wine_prefix = None  # Clear prefix if launch failed
-                    # Unzip thread/worker will be cleaned up by their signals
+                    self.current_wine_prefix = None
 
             except Exception as e:
                 self.status_label.setText(f"Launch failed: {e}")
                 self.status_label.setStyleSheet("color: red;")
-                self.current_wine_prefix = None  # Clear prefix on exception
-                # Unzip thread/worker will be cleaned up by their signals
+                self.current_wine_prefix = None
 
-        # --- Final Cleanup (Partial) ---
-        # We NO LONGER clear self.current_install_config here.
-        # It's needed in on_run_finished.
-
-        # We clean up self.run_process now as it's not needed
         if self.run_process:
             self.run_process.deleteLater()
             self.run_process = None
@@ -451,34 +387,29 @@ class DownloadItemWidget(QWidget):
         self.status_label.setText(f"Install failed: {message}")
         self.status_label.setStyleSheet("color: red;")
 
-        self.current_install_config = None  # Clean up
-        # self.thread and self.worker are cleaned up by destroyed signals
+        self.current_install_config = None
 
     @pyqtSlot()
     def cancel_unzip(self):
         """Called when the 'Cancel' button on the dialog is clicked."""
         if self.worker:
-            self.worker.stop()  # Tell worker to stop
+            self.worker.stop()
         if self.thread:
-            self.thread.quit()  # Ask thread to quit
+            self.thread.quit()
 
-        # Also stop the monitor if it's running
         if self.monitor_worker:
             self.monitor_worker.stop()
         if self.monitor_thread:
-            self.monitor_thread.quit()  # Ask to quit
+            self.monitor_thread.quit()
 
         self.status_label.setText("Install cancelled")
         self.install_button.setEnabled(True)
 
-        self.current_install_config = None  # Clean up
+        self.current_install_config = None
 
         if self.run_process:
             self.run_process.deleteLater()
             self.run_process = None
-
-        # All threads/workers will be nulled by their
-        # 'destroyed' signal handlers.
 
     @pyqtSlot()
     def on_monitor_worker_deleted(self):
@@ -497,7 +428,6 @@ class DownloadItemWidget(QWidget):
         """
         print(f"umu-run process finished.")
 
-        # --- Check for .desktop files ---
         if self.current_wine_prefix and os.path.isdir(self.current_wine_prefix):
             shortcuts_dir = os.path.join(self.current_wine_prefix, "drive_c", "proton_shortcuts")
             print(f"Checking for shortcuts in: {shortcuts_dir}")
@@ -505,11 +435,9 @@ class DownloadItemWidget(QWidget):
             if os.path.isdir(shortcuts_dir):
                 desktop_files = glob.glob(os.path.join(shortcuts_dir, "*.desktop"))
 
-                # --- NEW: Show dialog before creating shortcuts ---
                 if desktop_files:
                     print(f"Found {len(desktop_files)} potential .desktop files.")
 
-                    # --- Show selection dialog ---
                     dialog = SelectShortcutsDialog(desktop_files, self.parentWidget())
                     if dialog.exec() == QDialog.DialogCode.Accepted:
                         selected_files = dialog.get_selected_files()
@@ -521,7 +449,6 @@ class DownloadItemWidget(QWidget):
                             print("User selected no shortcuts.")
                     else:
                         print("User cancelled shortcut creation.")
-                    # --- End dialog ---
 
                 else:
                     print("No .desktop files found in proton_shortcuts.")
@@ -530,20 +457,12 @@ class DownloadItemWidget(QWidget):
         else:
             print("WINEPREFIX path not set or does not exist, skipping shortcut check.")
 
-        # --- Final Status Update ---
-        # We assume normal exit since we can't get an exit code
         size = self.record.get("total_bytes", 0)
         self.status_label.setText(f"Completed ({self.format_size(size)})")
         self.status_label.setStyleSheet("")
 
-        # --- Final Cleanup ---
-        self.current_install_config = None  # Now we can clear this
+        self.current_install_config = None
         self.current_wine_prefix = None
-
-        # self.thread and self.worker (unzip) are already cleaned up
-        # self.monitor_thread and self.monitor_worker are
-        # currently being cleaned up and will be nulled by their
-        # 'destroyed' signal handlers.
 
     def create_desktop_shortcuts(self, desktop_files: list):
         """
@@ -551,9 +470,8 @@ class DownloadItemWidget(QWidget):
         to the user's ~/Desktop directory.
         """
         if not self.current_install_config:
-            # This should not happen, but as a safeguard
             print("Error: Install config was cleared too early. Cannot create shortcuts.")
-            self.current_install_config = {}  # Use empty config
+            self.current_install_config = {}
         dirs = list()
         desktop_dir = os.path.join(os.path.expanduser("~"), get_xdg_user_dir("DESKTOP"))
         applications_dir = os.path.join(os.path.expanduser("~"), ".local/share/applications")
@@ -567,8 +485,6 @@ class DownloadItemWidget(QWidget):
                 try:
                     print(f"Processing: {os.path.basename(original_path)}")
 
-                    # 1. Read and Parse the original .desktop file
-
                     # configparser needs a section header
                     with open(original_path, 'r') as f:
                         content = f.read()
@@ -578,10 +494,8 @@ class DownloadItemWidget(QWidget):
                     # Use strict=False to allow duplicate keys
                     config_parser = configparser.ConfigParser(strict=False)
 
-                    # --- THIS IS THE FIX ---
                     # Tell configparser to preserve key case (e.g., 'Type' not 'type')
                     config_parser.optionxform = str
-                    # --- END FIX ---
 
                     config_parser.read_string(content)
 
@@ -591,45 +505,32 @@ class DownloadItemWidget(QWidget):
 
                     entry = config_parser['Desktop Entry']
 
-                    # --- NEW: Fix the Icon Path ---
                     icon_name = entry.get('Icon')
                     if icon_name:
-                        # The icon_name is just a basename, e.g., "arx_fatalis"
-                        # We find the icon folder relative to the .desktop file
                         shortcuts_dir = os.path.dirname(original_path)
                         icons_base_dir = os.path.join(shortcuts_dir, "icons")
 
-                        # As per your info: .../proton_shortcuts/icons/[SIZE]/apps/[icon_name].png
-
-                        # Let's find the best one, starting with highest res
                         sizes_to_check = ["256x256", "128x128", "64x64", "48x48", "32x32"]
                         found_icon_path = None
 
                         for size in sizes_to_check:
-                            # Check for common names like "icon_name.png"
                             path_with_png = os.path.join(icons_base_dir, size, "apps", f"{icon_name}.png")
-                            # Check for names that might already have an extension, like "icon_name.ico"
                             path_as_is = os.path.join(icons_base_dir, size, "apps", icon_name)
 
                             if os.path.exists(path_with_png):
                                 found_icon_path = path_with_png
-                                break  # Stop at the first (highest-res) one we find
+                                break
                             elif os.path.exists(path_as_is):
                                 found_icon_path = path_as_is
-                                break  # Stop at the first (highest-res) one we find
+                                break
 
                         if found_icon_path:
-                            # We found it! Update the parser to use the FULL, ABSOLUTE path.
-                            # This makes the .desktop file self-contained.
                             config_parser.set('Desktop Entry', 'Icon', found_icon_path)
                             print(f"Updated icon path to: {found_icon_path}")
                         else:
                             print(f"Warning: Could not find icon '{icon_name}' in {icons_base_dir}")
-                    # --- END NEW CODE ---
 
-                    # 2. Extract the CRITICAL information
                     working_dir = entry.get('Path')
-                    # Use StartupWMClass as the .exe name. Fallback to guessing from Name.
                     exe_name = entry.get('StartupWMClass')
                     if not exe_name:
                         exe_name = entry.get('Name', 'game') + ".exe"
@@ -639,7 +540,6 @@ class DownloadItemWidget(QWidget):
                         print(f"Skipping {os.path.basename(original_path)}: No 'Path' entry found.")
                         continue
 
-                    # 3. Construct the new, working Exec line
                     exe_path = os.path.join(working_dir, exe_name)
                     config = self.current_install_config or {}
 
@@ -649,26 +549,19 @@ class DownloadItemWidget(QWidget):
                     for key, value in config.items():
                         env_prefix += f"{key}=\"{value}\" "
 
-                    # The final command: cd to working dir, set env, run umu-run
-                    # Note: We use single quotes for the 'sh -c' command and
-                    # double quotes inside for the paths.
                     new_exec = f"/bin/sh -c 'cd \"{working_dir}\" && {env_prefix} umu-run \"{exe_path}\"'"
 
-                    # 4. Update the parser with the new Exec line
                     config_parser.set('Desktop Entry', 'Exec', new_exec)
-                    # Ensure Type is set
                     config_parser.set('Desktop Entry', 'Type', 'Application')
                     config_parser.set('Desktop Entry', 'Categories', 'Application;Game;')
 
-                    # 5. Write the new, fixed file to the user's Desktop
                     new_file_name = os.path.basename(original_path)
                     new_file_path = os.path.join(dir, new_file_name)
 
                     with open(new_file_path, 'w') as f:
                         config_parser.write(f)
 
-                    # 6. Make the new file executable
-                    os.chmod(new_file_path, 0o755)  # rwxr-xr-x
+                    os.chmod(new_file_path, 0o755)
 
                     print(f"Successfully created shortcut at: {new_file_path}")
 
@@ -718,7 +611,7 @@ class DownloadItemWidget(QWidget):
         if state == QWebEngineDownloadRequest.DownloadState.DownloadInProgress:
             self.record["status"] = "Downloading"
             self.status_label.setText("Downloading...")
-            self.button_stack.setCurrentIndex(0)  # Show active (Cancel)
+            self.button_stack.setCurrentIndex(0)
             self.update_progress()
 
         elif state == QWebEngineDownloadRequest.DownloadState.DownloadCompleted:
@@ -726,7 +619,7 @@ class DownloadItemWidget(QWidget):
             self.record["total_bytes"] = total_bytes
             self.progress_bar.setValue(100)
             self.status_label.setText(f"Completed ({self.format_size(self.record['total_bytes'])})")
-            self.button_stack.setCurrentIndex(1)  # Show completed buttons
+            self.button_stack.setCurrentIndex(1)
             self._update_install_button_visibility()
             self.finished.emit(self.record)
 
@@ -734,12 +627,12 @@ class DownloadItemWidget(QWidget):
             self.record["status"] = "Cancelled"
             self.status_label.setText("Cancelled")
             self.progress_bar.hide()
-            self.button_stack.setCurrentIndex(2)  # Show failed (Remove)
+            self.button_stack.setCurrentIndex(2)
             self.finished.emit(self.record)
 
         elif state == QWebEngineDownloadRequest.DownloadState.DownloadInterrupted:
             self.record["status"] = "Failed"
             self.status_label.setText("Failed")
             self.progress_bar.hide()
-            self.button_stack.setCurrentIndex(2)  # Show failed (Remove)
+            self.button_stack.setCurrentIndex(2)
             self.finished.emit(self.record)
