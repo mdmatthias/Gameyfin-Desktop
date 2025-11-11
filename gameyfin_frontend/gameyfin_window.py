@@ -42,8 +42,10 @@ class CustomWebEnginePage(QWebEnginePage):
 
         return super().acceptNavigationRequest(url, nav_type, is_main_frame)
 
+
+# noinspection PyUnresolvedReferences
 class GameyfinWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, umu_database):
         super().__init__()
         self.setWindowTitle("Gameyfin")
         self.setGeometry(0, 0, int(getenv("GF_WINDOW_WIDTH", 1420)), int(getenv("GF_WINDOW_HEIGHT", 940)))
@@ -73,7 +75,7 @@ class GameyfinWindow(QMainWindow):
         self.browser.setUrl(base_url)
 
         # --- Download Manager Setup ---
-        self.download_manager = DownloadManagerWidget(profile_path, self)
+        self.download_manager = DownloadManagerWidget(profile_path, umu_database, self)
 
         # --- Tab Widget Setup ---
         self.tab_widget = QTabWidget()

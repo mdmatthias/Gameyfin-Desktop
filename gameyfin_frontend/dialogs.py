@@ -1,0 +1,258 @@
+from os import getenv
+from os.path import relpath
+
+from PyQt6.QtCore import pyqtSlot
+from PyQt6.QtWidgets import QVBoxLayout, QFormLayout, QCheckBox, QLineEdit, QPushButton, QStyle, QHBoxLayout, QWidget, \
+    QComboBox, QPlainTextEdit, QDialogButtonBox, QLabel, QInputDialog, QDialog, QMessageBox, QListWidget
+
+from gameyfin_frontend.umu_database import UmuDatabase
+
+UMU_DATABASE = UmuDatabase()
+
+
+# noinspection PyUnresolvedReferences
+class InstallConfigDialog(QDialog):
+    """
+    A dialog to configure environment variables before installation.
+    """
+
+    def __init__(self, parent=None, default_game_id="umu-default", default_store="none"):
+        super().__init__(parent)
+        self.setWindowTitle("Installation Configuration")
+        self.setMinimumWidth(400)
+
+        # --- Layouts ---
+        main_layout = QVBoxLayout(self)
+        form_layout = QFormLayout()
+
+        # --- Widgets ---
+        self.wayland_checkbox = QCheckBox("Enable Wayland support")
+
+        # --- UMU ID Input + Search Button ---
+        self.gameid_input = QLineEdit()
+        self.gameid_input.setText(default_game_id)  # <-- Set default
+
+        self.search_button = QPushButton()  # <-- New search button
+        icon = self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView)
+        self.search_button.setIcon(icon)
+        self.search_button.setToolTip("Search for game by name")
+        # Make it square, matching the line edit's height
+        button_size = self.gameid_input.sizeHint().height()
+        self.search_button.setFixedSize(button_size, button_size)
+
+        # Create a horizontal layout for the input and button
+        self.gameid_layout = QHBoxLayout()
+        self.gameid_layout.setContentsMargins(0, 0, 0, 0)
+        self.gameid_layout.addWidget(self.gameid_input)
+        self.gameid_layout.addWidget(self.search_button)
+        self.gameid_widget = QWidget()
+        self.gameid_widget.setLayout(self.gameid_layout)
+
+        self.store_combo = QComboBox()
+        stores = getenv("GF_UMU_DB_STORES", ["none", "gog", "amazon", "battlenet", "ea", "egs",
+                  "humble", "itchio", "steam", "ubisoft", "zoomplatform"])
+        self.store_combo.addItems(stores)
+        self.store_combo.setCurrentText(default_store)
+
+        self.extra_vars_input = QPlainTextEdit()
+        self.extra_vars_input.setPlaceholderText("KEY1=VALUE1\nKEY2=VALUE2")
+
+        # --- Button Box ---
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
+                                      QDialogButtonBox.StandardButton.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+
+        # --- Assemble Layout ---
+        main_layout.addWidget(self.wayland_checkbox)
+
+        form_layout.addRow("Umu protonfix:", self.gameid_widget)
+        form_layout.addRow("Store:", self.store_combo)
+        main_layout.addLayout(form_layout)
+
+        main_layout.addWidget(QLabel("Additional Environment Variables (one per line):"))
+        main_layout.addWidget(self.extra_vars_input)
+
+        main_layout.addWidget(button_box)
+
+        self.search_button.clicked.connect(self.search_for_game_id)
+
+    @pyqtSlot()
+    def search_for_game_id(self):
+        """
+        Opens a dialog to search for a game by title, checks ALL stores,
+        and populates the umu_id and store fields from the results.
+        """
+        # Get search term from user
+        text, ok = QInputDialog.getText(self, "Search UMU", "Enter game title to search:")
+        if not ok or not text.strip():
+            return  # User cancelled or entered nothing
+
+        search_title = text.strip()
+
+        all_results = []
+        try:
+
+            print(f"Searching all stores for title: {search_title}...")
+
+            # Call the UMU database
+            results = UMU_DATABASE.search_by_partial_title(search_title)
+
+            processed_list = []
+            if isinstance(results, list):
+                processed_list = results
+            elif isinstance(results, dict) and results.get("umu_id"):
+                processed_list = [results]
+
+            for entry in processed_list:
+                if entry.get("umu_id"):
+                    all_results.append(entry)
+
+
+            if not all_results:
+                QMessageBox.information(self, "No Results",
+                                        f"No games found matching '{search_title}' in any store.")
+                return
+
+            selected_entry = None
+            # This dialog will now get the correct title and store
+            dialog = SelectUmuIdDialog(all_results, self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                selected_entry = dialog.get_selected_entry()
+
+            # Set the values if an entry was selected
+            if selected_entry:
+                umu_id = selected_entry.get("umu_id")
+                store = selected_entry.get("store")
+
+                if umu_id:
+                    self.gameid_input.setText(umu_id)
+                if store:
+                    self.store_combo.setCurrentText(store)
+
+        except Exception as e:
+            QMessageBox.warning(self, "Search Error", f"An error occurred during search:\n{e}")
+
+    def get_config(self) -> dict:
+        """
+        Returns the configured environment variables as a dictionary.
+        """
+        config = {"PROTON_ENABLE_WAYLAND": "1" if self.wayland_checkbox.isChecked() else "0"}
+
+        game_id = self.gameid_input.text().strip()
+        if game_id:
+            config["GAMEID"] = game_id
+
+        store = self.store_combo.currentText()
+        if store and store != "none":  # no store is default
+            config["STORE"] = store
+
+        extra_vars_text = self.extra_vars_input.toPlainText().strip()
+        if extra_vars_text:
+            for line in extra_vars_text.splitlines():
+                if "=" in line:
+                    parts = line.split("=", 1)
+                    key = parts[0].strip()
+                    value = parts[1].strip()
+                    if key:
+                        config[key] = value
+
+        return config
+
+
+# noinspection PyUnresolvedReferences
+class SelectLauncherDialog(QDialog):
+    """
+    A dialog to select an executable when multiple are found.
+    """
+
+    def __init__(self, target_dir: str, exe_paths: list[str], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Launcher")
+        self.setMinimumWidth(450)
+        self.exe_map = {}
+
+        main_layout = QVBoxLayout(self)
+        main_layout.addWidget(QLabel("Multiple executables found. Please select one to launch:"))
+
+        self.list_widget = QListWidget()
+        for full_path in exe_paths:
+            relative_path = relpath(full_path, target_dir)
+            self.exe_map[relative_path] = full_path
+            self.list_widget.addItem(relative_path)
+
+        main_layout.addWidget(self.list_widget)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
+                                      QDialogButtonBox.StandardButton.Cancel)
+
+        self.ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
+        self.ok_button.setEnabled(False)  # Disable OK until one is selected
+
+        self.list_widget.currentItemChanged.connect(self.on_selection_changed)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+
+        main_layout.addWidget(button_box)
+
+    def on_selection_changed(self, current_item, previous_item):
+        """Enables the OK button when an item is selected."""
+        self.ok_button.setEnabled(current_item is not None)
+
+    def get_selected_launcher(self) -> str | None:
+        """Returns the full path of the selected executable."""
+        item = self.list_widget.currentItem()
+        if not item:
+            return None
+
+        relative_path = item.text()
+        return self.exe_map.get(relative_path)
+
+
+# noinspection PyUnresolvedReferences
+class SelectUmuIdDialog(QDialog):
+    """
+    A dialog to select a UMU entry when multiple match a codename.
+    """
+
+    def __init__(self, results: list[dict], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Game Entry")
+        self.setMinimumWidth(450)
+        self.results = results
+
+        main_layout = QVBoxLayout(self)
+        main_layout.addWidget(QLabel("Multiple game entries found. Please select one:"))
+
+        self.list_widget = QListWidget()
+        for entry in self.results:
+            title = entry.get('title', 'No Title')
+            store = entry.get('store', 'unknown')
+            umu_id = entry.get('umu_id', 'no-id')
+            display_text = f"{title} ({store}) - {umu_id}"
+            self.list_widget.addItem(display_text)
+
+        main_layout.addWidget(self.list_widget)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
+                                      QDialogButtonBox.StandardButton.Cancel)
+
+        self.ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
+        self.ok_button.setEnabled(False)  # Disable OK until one is selected
+
+        self.list_widget.currentItemChanged.connect(self.on_selection_changed)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+
+        main_layout.addWidget(button_box)
+
+    def on_selection_changed(self, current_item, previous_item):
+        """Enables the OK button when an item is selected."""
+        self.ok_button.setEnabled(current_item is not None)
+
+    def get_selected_entry(self) -> dict | None:
+        """Returns the full dictionary of the selected entry."""
+        current_row = self.list_widget.currentRow()
+        if current_row < 0 or current_row >= len(self.results):
+            return None
+        return self.results[current_row]

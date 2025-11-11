@@ -1,325 +1,133 @@
+import glob
 import json
 import os
 import time
-import zipfile
-import glob
+import configparser  # Import configparser
+from pathlib import Path
 
-from PyQt6.QtCore import (QUrl, pyqtSignal, QObject, QThread, pyqtSlot, QProcess,
+from PyQt6.QtCore import (QUrl, pyqtSignal, QThread, pyqtSlot, QProcess,
                           QProcessEnvironment)
 from PyQt6.QtGui import QCloseEvent, QDesktopServices
 from PyQt6.QtWebEngineCore import QWebEngineDownloadRequest
 from PyQt6.QtWidgets import (QGridLayout, QWidget, QScrollArea, QVBoxLayout, QStyle,
                              QStackedLayout, QHBoxLayout, QPushButton, QLabel,
-                             QProgressBar, QProgressDialog, QDialog, QFormLayout,
-                             QLineEdit, QComboBox, QCheckBox, QPlainTextEdit,
-                             QDialogButtonBox, QListWidget, QMessageBox, QInputDialog)
+                             QProgressBar, QProgressDialog, QDialog)
 
+from gameyfin_frontend.dialogs import SelectUmuIdDialog, InstallConfigDialog, SelectLauncherDialog
 from gameyfin_frontend.umu_database import UmuDatabase
-UMU_DATABASE = UmuDatabase()
+from gameyfin_frontend.workers import UnzipWorker
 
-class UnzipWorker(QObject):
+
+def get_xdg_user_dir(dir_name: str) -> Path:
     """
-    Runs the zip extraction in a separate thread to avoid freezing the UI.
+    Finds a special XDG user directory (like DESKTOP, DOCUMENTS)
+    in a language-independent way on Linux by reading the
+    ~/.config/user-dirs.dirs file.
+
+    Args:
+        dir_name: The internal name of the directory (e.g., "DESKTOP",
+                  "DOCUMENTS", "DOWNLOAD").
     """
-    # Signals
-    progress = pyqtSignal(int)  # Current percentage (0-100)
-    current_file = pyqtSignal(str)  # Name of file being extracted
-    finished = pyqtSignal()  # Emitted on success
-    error = pyqtSignal(str)  # Emitted on failure
 
-    def __init__(self, zip_path: str, target_dir: str):
-        super().__init__()
-        self.zip_path = zip_path
-        self.target_dir = target_dir
-        self._is_running = True
+    # 1. The key we are looking for in the file
+    key_to_find = f"XDG_{dir_name.upper()}_DIR"
 
-    @pyqtSlot()
+    # 2. Determine the config file path
+    # It's almost always in ~/.config/user-dirs.dirs
+    config_home = os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")
+    config_file_path = Path(config_home) / "user-dirs.dirs"
+
+    # 3. Set a sensible fallback (e.g., $HOME/Desktop)
+    # This is used if the file or key doesn't exist
+    fallback_dir = Path.home() / dir_name.capitalize()
+
+    if not config_file_path.is_file():
+        return fallback_dir
+
+    try:
+        with open(config_file_path, "r") as f:
+            for line in f:
+                line = line.strip()
+
+                # Skip comments or empty lines
+                if not line or line.startswith("#"):
+                    continue
+
+                # Check if this is the line we want
+                if line.startswith(key_to_find):
+                    try:
+                        # Line looks like: XDG_DESKTOP_DIR="$HOME/Bureaublad"
+                        # Split at '=', get the second part
+                        value = line.split("=", 1)[1]
+
+                        # Remove surrounding quotes (e.g., "...")
+                        value = value.strip('"')
+
+                        # IMPORTANT: Expand variables like $HOME
+                        path = os.path.expandvars(value)
+
+                        return Path(path)
+
+                    except Exception:
+                        # Found the key but the line was malformed, use fallback
+                        return fallback_dir
+
+    except Exception as e:
+        print(f"Error reading {config_file_path}: {e}")
+        # Fallback in case of permissions errors, etc.
+        return fallback_dir
+
+    # If the key (e.g., XDG_DESKTOP_DIR) wasn't found in the file
+    return fallback_dir
+
+class ProcessMonitorWorker(QThread):
+    """Monitors a process by its PID and emits when it's finished."""
+    finished = pyqtSignal()
+
+    def __init__(self, pid, parent=None):
+        super().__init__(parent)
+        self.pid = pid
+        self._running = True
+
     def run(self):
-        """Starts the extraction process."""
-        try:
-            with zipfile.ZipFile(self.zip_path, 'r') as zip_ref:
-                file_list = zip_ref.infolist()
-                total_files = len(file_list)
+        if not self.pid > 0:
+            print(f"ProcessMonitor: Invalid PID ({self.pid}), stopping.")
+            return
 
-                if total_files == 0:
-                    self.finished.emit()
-                    return
-
-                for i, member in enumerate(file_list):
-                    if not self._is_running:
-                        self.error.emit("Extraction cancelled by user.")
-                        return
-
-                    # Extract the single file
-                    zip_ref.extract(member, path=self.target_dir)
-
-                    # Calculate and emit progress
-                    percentage = int(((i + 1) / total_files) * 100)
-                    self.progress.emit(percentage)
-                    self.current_file.emit(f"Extracting: {member.filename}")
-
+        print(f"ProcessMonitor: Monitoring PID {self.pid}")
+        self._running = True
+        while self._running:
+            try:
+                # os.kill(pid, 0) checks if process exists
+                # (on Unix-like systems).
+                os.kill(self.pid, 0)
+            except OSError:
+                # Process does not exist
+                print(f"ProcessMonitor: PID {self.pid} finished.")
+                self._running = False
                 self.finished.emit()
+                break  # Exit loop
+            else:
+                # Process exists, sleep and check again
+                if not self._running:
+                    break  # Stop requested
+                self.msleep(1000)  # Check every second
 
-        except Exception as e:
-            self.error.emit(str(e))
+        print(f"ProcessMonitor: Stopping monitor for {self.pid}")
 
     def stop(self):
-        """Flags the worker to stop."""
-        self._is_running = False
+        self._running = False
 
 
-class InstallConfigDialog(QDialog):
-    """
-    A dialog to configure environment variables before installation.
-    """
-
-    def __init__(self, parent=None, default_game_id="umu-default", default_store="none"):
-        super().__init__(parent)
-        self.setWindowTitle("Installation Configuration")
-        self.setMinimumWidth(400)
-
-        # --- Layouts ---
-        main_layout = QVBoxLayout(self)
-        form_layout = QFormLayout()
-
-        # --- Widgets ---
-        self.wayland_checkbox = QCheckBox("Enable Wayland support")
-
-        # --- UMU ID Input + Search Button ---
-        self.gameid_input = QLineEdit()
-        self.gameid_input.setText(default_game_id)  # <-- Set default
-
-        self.search_button = QPushButton()  # <-- New search button
-        icon = self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView)
-        self.search_button.setIcon(icon)
-        self.search_button.setToolTip("Search for game by name")
-        # Make it square, matching the line edit's height
-        button_size = self.gameid_input.sizeHint().height()
-        self.search_button.setFixedSize(button_size, button_size)
-
-        # Create a horizontal layout for the input and button
-        self.gameid_layout = QHBoxLayout()
-        self.gameid_layout.setContentsMargins(0, 0, 0, 0)
-        self.gameid_layout.addWidget(self.gameid_input)
-        self.gameid_layout.addWidget(self.search_button)
-        self.gameid_widget = QWidget()
-        self.gameid_widget.setLayout(self.gameid_layout)
-
-        self.store_combo = QComboBox()
-        stores = os.getenv("GF_UMU_DB_STORES", ["none", "gog", "amazon", "battlenet", "ea", "egs",
-                  "humble", "itchio", "steam", "ubisoft", "zoomplatform"])
-        self.store_combo.addItems(stores)
-        self.store_combo.setCurrentText(default_store)
-
-        self.extra_vars_input = QPlainTextEdit()
-        self.extra_vars_input.setPlaceholderText("KEY1=VALUE1\nKEY2=VALUE2")
-
-        # --- Button Box ---
-        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
-                                      QDialogButtonBox.StandardButton.Cancel)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-
-        # --- Assemble Layout ---
-        main_layout.addWidget(self.wayland_checkbox)
-
-        form_layout.addRow("Umu protonfix:", self.gameid_widget)
-        form_layout.addRow("Store:", self.store_combo)
-        main_layout.addLayout(form_layout)
-
-        main_layout.addWidget(QLabel("Additional Environment Variables (one per line):"))
-        main_layout.addWidget(self.extra_vars_input)
-
-        main_layout.addWidget(button_box)
-
-        self.search_button.clicked.connect(self.search_for_game_id)
-
-    @pyqtSlot()
-    def search_for_game_id(self):
-        """
-        Opens a dialog to search for a game by title, checks ALL stores,
-        and populates the umu_id and store fields from the results.
-        """
-        # Get search term from user
-        text, ok = QInputDialog.getText(self, "Search UMU", "Enter game title to search:")
-        if not ok or not text.strip():
-            return  # User cancelled or entered nothing
-
-        search_title = text.strip()
-
-        all_results = []
-        try:
-
-            print(f"Searching all stores for title: {search_title}...")
-
-            # Call the UMU database
-            results = UMU_DATABASE.search_by_partial_title(search_title)
-
-            processed_list = []
-            if isinstance(results, list):
-                processed_list = results
-            elif isinstance(results, dict) and results.get("umu_id"):
-                processed_list = [results]
-
-            for entry in processed_list:
-                if entry.get("umu_id"):
-                    all_results.append(entry)
-
-
-            if not all_results:
-                QMessageBox.information(self, "No Results",
-                                        f"No games found matching '{search_title}' in any store.")
-                return
-
-            selected_entry = None
-            # This dialog will now get the correct title and store
-            dialog = SelectUmuIdDialog(all_results, self)
-            if dialog.exec() == QDialog.DialogCode.Accepted:
-                selected_entry = dialog.get_selected_entry()
-
-            # Set the values if an entry was selected
-            if selected_entry:
-                umu_id = selected_entry.get("umu_id")
-                store = selected_entry.get("store")
-
-                if umu_id:
-                    self.gameid_input.setText(umu_id)
-                if store:
-                    self.store_combo.setCurrentText(store)
-
-        except Exception as e:
-            QMessageBox.warning(self, "Search Error", f"An error occurred during search:\n{e}")
-
-    def get_config(self) -> dict:
-        """
-        Returns the configured environment variables as a dictionary.
-        """
-        config = {"PROTON_ENABLE_WAYLAND": "1" if self.wayland_checkbox.isChecked() else "0"}
-
-        game_id = self.gameid_input.text().strip()
-        if game_id:
-            config["GAMEID"] = game_id
-
-        store = self.store_combo.currentText()
-        if store and store != "none":  # no store is default
-            config["STORE"] = store
-
-        extra_vars_text = self.extra_vars_input.toPlainText().strip()
-        if extra_vars_text:
-            for line in extra_vars_text.splitlines():
-                if "=" in line:
-                    parts = line.split("=", 1)
-                    key = parts[0].strip()
-                    value = parts[1].strip()
-                    if key:
-                        config[key] = value
-
-        return config
-
-
-class SelectLauncherDialog(QDialog):
-    """
-    A dialog to select an executable when multiple are found.
-    """
-
-    def __init__(self, target_dir: str, exe_paths: list[str], parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Select Launcher")
-        self.setMinimumWidth(450)
-        self.exe_map = {}
-
-        main_layout = QVBoxLayout(self)
-        main_layout.addWidget(QLabel("Multiple executables found. Please select one to launch:"))
-
-        self.list_widget = QListWidget()
-        for full_path in exe_paths:
-            relative_path = os.path.relpath(full_path, target_dir)
-            self.exe_map[relative_path] = full_path
-            self.list_widget.addItem(relative_path)
-
-        main_layout.addWidget(self.list_widget)
-
-        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
-                                      QDialogButtonBox.StandardButton.Cancel)
-
-        self.ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
-        self.ok_button.setEnabled(False)  # Disable OK until one is selected
-
-        self.list_widget.currentItemChanged.connect(self.on_selection_changed)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-
-        main_layout.addWidget(button_box)
-
-    def on_selection_changed(self, current_item, previous_item):
-        """Enables the OK button when an item is selected."""
-        self.ok_button.setEnabled(current_item is not None)
-
-    def get_selected_launcher(self) -> str | None:
-        """Returns the full path of the selected executable."""
-        item = self.list_widget.currentItem()
-        if not item:
-            return None
-
-        relative_path = item.text()
-        return self.exe_map.get(relative_path)
-
-
-class SelectUmuIdDialog(QDialog):
-    """
-    A dialog to select a UMU entry when multiple match a codename.
-    """
-
-    def __init__(self, results: list[dict], parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Select Game Entry")
-        self.setMinimumWidth(450)
-        self.results = results
-
-        main_layout = QVBoxLayout(self)
-        main_layout.addWidget(QLabel("Multiple game entries found. Please select one:"))
-
-        self.list_widget = QListWidget()
-        for entry in self.results:
-            title = entry.get('title', 'No Title')
-            store = entry.get('store', 'unknown')
-            umu_id = entry.get('umu_id', 'no-id')
-            display_text = f"{title} ({store}) - {umu_id}"
-            self.list_widget.addItem(display_text)
-
-        main_layout.addWidget(self.list_widget)
-
-        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
-                                      QDialogButtonBox.StandardButton.Cancel)
-
-        self.ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
-        self.ok_button.setEnabled(False)  # Disable OK until one is selected
-
-        self.list_widget.currentItemChanged.connect(self.on_selection_changed)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-
-        main_layout.addWidget(button_box)
-
-    def on_selection_changed(self, current_item, previous_item):
-        """Enables the OK button when an item is selected."""
-        self.ok_button.setEnabled(current_item is not None)
-
-    def get_selected_entry(self) -> dict | None:
-        """Returns the full dictionary of the selected entry."""
-        current_row = self.list_widget.currentRow()
-        if current_row < 0 or current_row >= len(self.results):
-            return None
-        return self.results[current_row]
-
-
+# noinspection PyUnresolvedReferences
 class DownloadItemWidget(QWidget):
     remove_requested = pyqtSignal(QWidget)
     finished = pyqtSignal(dict)
 
-    def __init__(self, download_item: QWebEngineDownloadRequest = None, record: dict = None,
+    def __init__(self, umu_database: UmuDatabase, download_item: QWebEngineDownloadRequest = None, record: dict = None,
                  initial_total_size: int = 0, parent=None):
         super().__init__(parent)
+        self.umu_database = umu_database
         self.download_item = download_item
         self.record = record or {}
         self.last_time = time.time()
@@ -329,6 +137,12 @@ class DownloadItemWidget(QWidget):
         self.worker = None
         self.progress_dialog = None
         self.current_install_config = None
+
+        self.run_process = None  # Holds the QProcess for setup
+        self.current_wine_prefix = None  # Stores the WINEPREFIX path
+
+        self.monitor_thread = None  # Thread for monitoring the game PID
+        self.monitor_worker = None  # Worker for monitoring the game PID
 
         self.icon_label = QLabel()
         self.filename_label = QLabel()
@@ -491,8 +305,22 @@ class DownloadItemWidget(QWidget):
         self.worker.finished.connect(self.worker.deleteLater)
         self.thread.finished.connect(self.thread.deleteLater)
 
+        # --- 4b. Connect destroyed signals for safe cleanup ---
+        self.worker.destroyed.connect(self.on_unzip_worker_deleted)
+        self.thread.destroyed.connect(self.on_unzip_thread_deleted)
+
         # --- 5. Start the thread ---
         self.thread.start()
+
+    @pyqtSlot()
+    def on_unzip_worker_deleted(self):
+        print("Unzip worker cleaned up.")
+        self.worker = None
+
+    @pyqtSlot()
+    def on_unzip_thread_deleted(self):
+        print("Unzip thread cleaned up.")
+        self.thread = None
 
     @pyqtSlot()
     def on_unzip_finished(self):
@@ -525,7 +353,7 @@ class DownloadItemWidget(QWidget):
                 if codename:
                     print(f"Found codename: {codename}")
                     # Call UMU API
-                    results = UMU_DATABASE.get_game_by_codename(str(codename))
+                    results = self.umu_database.get_game_by_codename(str(codename))
                     print(f"API results (by codename): {results}")
 
             # --- ATTEMPT 2: Fallback to search by zip name ---
@@ -538,7 +366,7 @@ class DownloadItemWidget(QWidget):
                 if search_title:
                     print(f"No results from codename. Fallback: searching by title: '{search_title}'")
                     # Call UMU API
-                    results = UMU_DATABASE.search_by_partial_title(search_title)
+                    results = self.umu_database.search_by_partial_title(search_title)
                     print(f"API results (by title): {results}")
                 else:
                     print("No codename found and zip name was empty. Skipping UMU search.")
@@ -575,6 +403,7 @@ class DownloadItemWidget(QWidget):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             self.status_label.setText("Install cancelled by user.")
             self.status_label.setStyleSheet("")
+            # Unzip thread/worker will be cleaned up by their signals
             return  # User cancelled
 
         # Store the config for launch
@@ -601,11 +430,10 @@ class DownloadItemWidget(QWidget):
             self.status_label.setText("Install complete, no .exe found.")
             self.status_label.setStyleSheet("color: #E67E22;")
             QDesktopServices.openUrl(QUrl.fromLocalFile(target_dir))
-
+            # Unzip thread/worker will be cleaned up by their signals
         elif len(launcher_paths) == 1:
             # Case 2: Exactly one .exe found
             launcher_to_run = launcher_paths[0]
-
         else:
             # Case 3: Multiple .exe found
             dialog = SelectLauncherDialog(target_dir, launcher_paths, self)
@@ -636,50 +464,86 @@ class DownloadItemWidget(QWidget):
                 # 3. Construct WINEPREFIX
                 wine_prefix_path = os.path.join(home_dir, ".config", "gameyfin", "prefixes", pfx_name)
 
-                # 4. Create QProcess and set environment
-                process = QProcess()
-                env = QProcessEnvironment.systemEnvironment()  # Get current env
+                # --- Store WINEPREFIX for the 'finished' slot ---
+                self.current_wine_prefix = wine_prefix_path
+
+                # 4. Create QProcess
+                self.run_process = QProcess()  # Use the instance variable
+                launcher_dir = os.path.dirname(launcher_to_run)
+                self.run_process.setWorkingDirectory(launcher_dir)  # Set working directory
+
+                # --- 5. Build the command string (MOST ROBUST WAY) ---
+                # This injects the env vars directly into the shell command
 
                 # --- Apply base environment ---
-                env.insert("PROTONPATH", os.getenv("PROTONPATH", "GE-Proton"))
-                env.insert("WINEPREFIX", wine_prefix_path)
+                proton_path = os.getenv("PROTONPATH", "GE-Proton")
+                # We must quote paths in case they have spaces
+                env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{wine_prefix_path}\" "
 
                 # --- Apply user config from dialog ---
                 print("[Install] Applying user environment configuration:")
                 for key, value in config.items():
                     print(f"  {key}={value}")
-                    env.insert(key, value)
-                # --- End applying config ---
+                    # Add to the prefix, quoting the value
+                    env_prefix += f"{key}=\"{value}\" "
 
-                process.setProcessEnvironment(env)
-                launcher_dir = os.path.dirname(launcher_to_run)
-                process.setWorkingDirectory(launcher_dir)  # Set working directory
+                # --- Build full command ---
+                # The environment prefix goes BEFORE the command
+                # We must quote the launcher path
+                command_string = f"{env_prefix} umu-run \"{launcher_to_run}\""
+                print(f"Executing command: /bin/sh -c \"{command_string}\"")
 
-                # --- 5. Set program/args on instance ---
-                process.setProgram("umu-run")
-                process.setArguments([launcher_to_run])
+                # --- 6. Launch using startDetached to get PID ---
+                success, pid = self.run_process.startDetached("/bin/sh", ["-c", command_string])
 
-                # --- 6. Launch detached ---
-                success = process.startDetached()
-
-                if success:
+                # --- 7. Check success and start monitor ---
+                if success and pid > 0:
+                    print(f"Launch successful. Monitoring PID: {pid}")
                     size = self.record.get("total_bytes", 0)
-                    self.status_label.setText(f"Completed ({self.format_size(size)})")
-                    self.status_label.setStyleSheet("")
+                    self.status_label.setText(f"Running... ({self.format_size(size)})")
+                    self.status_label.setStyleSheet("color: #3498DB;")
+
+                    # --- 8. Set up PID monitor ---
+                    self.monitor_thread = QThread()
+                    self.monitor_worker = ProcessMonitorWorker(pid)
+                    self.monitor_worker.moveToThread(self.monitor_thread)
+
+                    # Connect worker finish to our handler
+                    self.monitor_worker.finished.connect(self.on_run_finished)
+
+                    # Connect thread management
+                    self.monitor_thread.started.connect(self.monitor_worker.run)
+                    self.monitor_worker.finished.connect(self.monitor_thread.quit)
+                    self.monitor_worker.finished.connect(self.monitor_worker.deleteLater)
+                    self.monitor_thread.finished.connect(self.monitor_thread.deleteLater)
+
+                    # --- 8b. Connect destroyed signals for safe cleanup ---
+                    self.monitor_worker.destroyed.connect(self.on_monitor_worker_deleted)
+                    self.monitor_thread.destroyed.connect(self.on_monitor_thread_deleted)
+
+                    self.monitor_thread.start()
+
                 else:
+                    print(f"Launch failed (startDetached returned {success}, PID: {pid}).")
                     self.status_label.setText("Launch failed. Is 'umu-run' installed?")
                     self.status_label.setStyleSheet("color: red;")
-                    QDesktopServices.openUrl(QUrl.fromLocalFile(target_dir))
+                    self.current_wine_prefix = None  # Clear prefix if launch failed
+                    # Unzip thread/worker will be cleaned up by their signals
 
             except Exception as e:
                 self.status_label.setText(f"Launch failed: {e}")
                 self.status_label.setStyleSheet("color: red;")
-                QDesktopServices.openUrl(QUrl.fromLocalFile(target_dir))
+                self.current_wine_prefix = None  # Clear prefix on exception
+                # Unzip thread/worker will be cleaned up by their signals
 
-        # --- Final Cleanup ---
-        self.current_install_config = None  # Clean up config
-        self.thread = None
-        self.worker = None
+        # --- Final Cleanup (Partial) ---
+        # We NO LONGER clear self.current_install_config here.
+        # It's needed in on_run_finished.
+
+        # We clean up self.run_process now as it's not needed
+        if self.run_process:
+            self.run_process.deleteLater()
+            self.run_process = None
 
     @pyqtSlot(str)
     def on_unzip_error(self, message: str):
@@ -691,8 +555,7 @@ class DownloadItemWidget(QWidget):
         self.status_label.setStyleSheet("color: red;")
 
         self.current_install_config = None  # Clean up
-        self.thread = None
-        self.worker = None
+        # self.thread and self.worker are cleaned up by destroyed signals
 
     @pyqtSlot()
     def cancel_unzip(self):
@@ -701,16 +564,171 @@ class DownloadItemWidget(QWidget):
             self.worker.stop()  # Tell worker to stop
         if self.thread:
             self.thread.quit()  # Ask thread to quit
-            self.thread.wait(500)  # Wait 500ms
+
+        # Also stop the monitor if it's running
+        if self.monitor_worker:
+            self.monitor_worker.stop()
+        if self.monitor_thread:
+            self.monitor_thread.quit()  # Ask to quit
 
         self.status_label.setText("Install cancelled")
         self.install_button.setEnabled(True)
 
         self.current_install_config = None  # Clean up
-        self.thread = None
-        self.worker = None
 
-    def format_size(self, nbytes: int) -> str:
+        if self.run_process:
+            self.run_process.deleteLater()
+            self.run_process = None
+
+        # All threads/workers will be nulled by their
+        # 'destroyed' signal handlers.
+
+    @pyqtSlot()
+    def on_monitor_worker_deleted(self):
+        print("Process monitor worker cleaned up.")
+        self.monitor_worker = None
+
+    @pyqtSlot()
+    def on_monitor_thread_deleted(self):
+        print("Process monitor thread cleaned up.")
+        self.monitor_thread = None
+
+    @pyqtSlot()
+    def on_run_finished(self):
+        """
+        Called when the ProcessMonitorWorker signals that the PID has finished.
+        """
+        print(f"umu-run process finished.")
+
+        # --- Check for .desktop files ---
+        if self.current_wine_prefix and os.path.isdir(self.current_wine_prefix):
+            shortcuts_dir = os.path.join(self.current_wine_prefix, "drive_c", "proton_shortcuts")
+            print(f"Checking for shortcuts in: {shortcuts_dir}")
+
+            if os.path.isdir(shortcuts_dir):
+                desktop_files = glob.glob(os.path.join(shortcuts_dir, "*.desktop"))
+
+                # --- NEW: Create working shortcuts on desktop ---
+                if desktop_files:
+                    print(f"Found {len(desktop_files)} .desktop files. Processing...")
+                    self.create_desktop_shortcuts(desktop_files)
+                else:
+                    print("No .desktop files found in proton_shortcuts.")
+            else:
+                print("proton_shortcuts directory does not exist.")
+        else:
+            print("WINEPREFIX path not set or does not exist, skipping shortcut check.")
+
+        # --- Final Status Update ---
+        # We assume normal exit since we can't get an exit code
+        size = self.record.get("total_bytes", 0)
+        self.status_label.setText(f"Completed ({self.format_size(size)})")
+        self.status_label.setStyleSheet("")
+
+        # --- Final Cleanup ---
+        self.current_install_config = None  # Now we can clear this
+        self.current_wine_prefix = None
+
+        # self.thread and self.worker (unzip) are already cleaned up
+        # self.monitor_thread and self.monitor_worker are
+        # currently being cleaned up and will be nulled by their
+        # 'destroyed' signal handlers.
+
+    def create_desktop_shortcuts(self, desktop_files: list):
+        """
+        Parses the found .desktop files, fixes them, and saves them
+        to the user's ~/Desktop directory.
+        """
+        if not self.current_install_config:
+            # This should not happen, but as a safeguard
+            print("Error: Install config was cleared too early. Cannot create shortcuts.")
+            self.current_install_config = {}  # Use empty config
+        dirs = list()
+        desktop_dir = os.path.join(os.path.expanduser("~"), get_xdg_user_dir("DESKTOP"))
+        applications_dir = os.path.join(os.path.expanduser("~"), ".local/share/applications")
+        dirs.append(applications_dir)
+        dirs.append(desktop_dir)
+
+        for dir in dirs:
+            os.makedirs(dir, exist_ok=True)
+
+            for original_path in desktop_files:
+                try:
+                    print(f"Processing: {os.path.basename(original_path)}")
+
+                    # 1. Read and Parse the original .desktop file
+
+                    # configparser needs a section header
+                    with open(original_path, 'r') as f:
+                        content = f.read()
+                    if not content.strip().startswith('[Desktop Entry]'):
+                        content = '[Desktop Entry]\n' + content
+
+                    # Use strict=False to allow duplicate keys
+                    config_parser = configparser.ConfigParser(strict=False)
+
+                    # --- THIS IS THE FIX ---
+                    # Tell configparser to preserve key case (e.g., 'Type' not 'type')
+                    config_parser.optionxform = str
+                    # --- END FIX ---
+
+                    config_parser.read_string(content)
+
+                    if 'Desktop Entry' not in config_parser:
+                        print(f"Skipping {os.path.basename(original_path)}: Cannot find [Desktop Entry] section.")
+                        continue
+
+                    entry = config_parser['Desktop Entry']
+
+                    # 2. Extract the CRITICAL information
+                    working_dir = entry.get('Path')
+                    # Use StartupWMClass as the .exe name. Fallback to guessing from Name.
+                    exe_name = entry.get('StartupWMClass')
+                    if not exe_name:
+                        exe_name = entry.get('Name', 'game') + ".exe"
+                        print(f"Warning: No StartupWMClass. Guessing exe name: {exe_name}")
+
+                    if not working_dir:
+                        print(f"Skipping {os.path.basename(original_path)}: No 'Path' entry found.")
+                        continue
+
+                    # 3. Construct the new, working Exec line
+                    exe_path = os.path.join(working_dir, exe_name)
+                    config = self.current_install_config or {}
+
+                    proton_path = os.getenv("PROTONPATH", "GE-Proton")
+                    env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.current_wine_prefix}\" "
+
+                    for key, value in config.items():
+                        env_prefix += f"{key}=\"{value}\" "
+
+                    # The final command: cd to working dir, set env, run umu-run
+                    # Note: We use single quotes for the 'sh -c' command and
+                    # double quotes inside for the paths.
+                    new_exec = f"/bin/sh -c 'cd \"{working_dir}\" && {env_prefix} umu-run \"{exe_path}\"'"
+
+                    # 4. Update the parser with the new Exec line
+                    config_parser.set('Desktop Entry', 'Exec', new_exec)
+                    # Ensure Type is set
+                    config_parser.set('Desktop Entry', 'Type', 'Game')
+
+                    # 5. Write the new, fixed file to the user's Desktop
+                    new_file_name = os.path.basename(original_path)
+                    new_file_path = os.path.join(dir, new_file_name)
+
+                    with open(new_file_path, 'w') as f:
+                        config_parser.write(f)
+
+                    # 6. Make the new file executable
+                    os.chmod(new_file_path, 0o755)  # rwxr-xr-x
+
+                    print(f"Successfully created shortcut at: {new_file_path}")
+
+                except Exception as e:
+                    print(f"Failed to process shortcut {original_path}: {e}")
+
+    @staticmethod
+    def format_size(nbytes: int) -> str:
         if nbytes >= 1024 ** 3: return f"{nbytes / 1024 ** 3:.2f} GB"
         if nbytes >= 1024 ** 2: return f"{nbytes / 1024 ** 2:.2f} MB"
         if nbytes >= 1024: return f"{nbytes / 1024:.2f} KB"
@@ -757,7 +775,7 @@ class DownloadItemWidget(QWidget):
 
         elif state == QWebEngineDownloadRequest.DownloadState.DownloadCompleted:
             self.record["status"] = "Completed"
-            self.record["total_bytes"] = self.download_item.totalBytes()
+            self.record["total_bytes"] = total_bytes
             self.progress_bar.setValue(100)
             self.status_label.setText(f"Completed ({self.format_size(self.record['total_bytes'])})")
             self.button_stack.setCurrentIndex(1)  # Show completed buttons
@@ -779,10 +797,12 @@ class DownloadItemWidget(QWidget):
             self.finished.emit(self.record)
 
 
+# noinspection PyUnresolvedReferences
 class DownloadManagerWidget(QWidget):
 
-    def __init__(self, data_path: str, parent=None):
+    def __init__(self, data_path: str, umu_database: UmuDatabase, parent=None):
         super().__init__(parent)
+        self.umu_database = umu_database
         self.json_path = os.path.join(data_path, "downloads.json")
         self.download_records = []
         self.widget_map = {}
@@ -816,10 +836,10 @@ class DownloadManagerWidget(QWidget):
         self.widget_map[controller] = widgets
 
     def add_download(self, download_item, total_size: int = 0):
-        controller = DownloadItemWidget(
-            download_item=download_item,
-            initial_total_size=total_size
-        )
+        controller = DownloadItemWidget(self.umu_database,
+                                        download_item=download_item,
+                                        initial_total_size=total_size
+                                        )
 
         controller.finished.connect(self.on_download_finished)
         controller.remove_requested.connect(self.remove_download_item)
@@ -847,7 +867,7 @@ class DownloadManagerWidget(QWidget):
                     if record["status"] == "Downloading":
                         record["status"] = "Failed"
 
-                    controller = DownloadItemWidget(record=record)
+                    controller = DownloadItemWidget(self.umu_database, record=record)
                     controller.remove_requested.connect(self.remove_download_item)
                     self.add_download_to_grid(controller)
 
@@ -870,7 +890,9 @@ class DownloadManagerWidget(QWidget):
             for row in range(self.downloads_layout.rowCount() - 1):  # -1 to skip stretch
                 item = self.downloads_layout.itemAtPosition(row, 1)  # Get filename label
                 if item:
-                    filename = item.widget().text()
+                    widget = item.widget()
+                    if not widget: continue  # Widget might be in deletion process
+                    filename = widget.text()
                     # Find the controller associated with this filename
                     for controller in self.widget_map.keys():
                         if os.path.basename(controller.record["path"]) == filename:
