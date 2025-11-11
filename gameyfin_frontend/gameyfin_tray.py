@@ -3,6 +3,7 @@ from os import getenv
 from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QIcon, QAction
 
+
 class GameyfinTray:
     def __init__(self, app, window):
         self.app = app
@@ -11,12 +12,11 @@ class GameyfinTray:
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
         self.tray.setIcon(QIcon(getenv("GF_ICON_PATH", icon_path)))
         self.menu = QMenu()
-        # Add tray buttons
+
         self.show_action = QAction("Show")
         self.downloads_action = QAction("Show Downloads")
         self.quit_action = QAction("Quit")
 
-        # Link actions to buttons
         self.menu.addAction(self.show_action)
         self.menu.addAction(self.downloads_action)
         self.menu.addSeparator()
@@ -35,8 +35,10 @@ class GameyfinTray:
 
     def icon_clicked(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            if self.window.isVisible(): self.window.hide()
-            else: self.window.show()
+            if self.window.isVisible():
+                self.window.hide()
+            else:
+                self.window.show()
 
     def quit_app(self):
         self.tray.hide()

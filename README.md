@@ -8,20 +8,24 @@ A dedicated desktop client for [Gameyfin](https://github.com/gameyfin/gameyfin) 
 * **🖥️ Dedicated Desktop Application:** Runs Gameyfin in its own window, separate from your web browser.
 * **🔑 Persistent SSO Login:** Supports persistent logins with SSO providers. The application saves your session data, so you only have to log in once. (*Note: This requires the "remember me" feature to be enabled in your SSO provider's settings.*)
 * **⚙️ System Tray Integration:** Includes an icon in the system tray for quickly showing, hiding, or quitting the application.
-* **📥 Download Manager & Installer (Linux):**
-    * Manages all file downloads in a persistent "Downloads" tab.
-    * Shows progress, speed, and a complete download history.
-    * **Automates `umu-run` for installing games:**
-        * Prompts for per-install environment configuration (Wayland, GameID, Store, etc.).
-        * Extracts the archive to its own folder.
-        * Detects `.exe` files. If multiple are found, it asks you to choose which one to launch.
-        * Automatically creates a wineprefix and launches the installer using `umu-run`.
-        * Autodetect/search umu-id: Automatically lookup the umu-id for proton fixes by codename, folder name or manual search entry.
+* **📥 Download Manager:**
+  * Manages all file downloads in a persistent "Downloads" tab.
+  * Shows progress, speed, and a complete download history.
+* **💽 Installer (Linux):**
+  * Prompts for per-install environment configuration (Wayland, GameID, Store, etc.).
+  * Extracts the archive to its own folder.
+  * Detects `.exe` files. If multiple are found, it asks you to choose which one to launch.
+  * Automatically lookup the umu-id for proton fixes by codename, folder name or manual search entry.
+  * Automatically creates a wineprefix and launches the installer using `umu-run`.
+* **⤴️ Integrated Shortcut Management (Linux):**
+  * When a game installation finishes, the app automatically detects any shortcuts created by the installer.
+  * You're in Control: A dialog pops up letting you choose exactly which shortcuts (e.g., "Game" "Settings," "Uninstall") you want to add.
+  * Dual-Location: Your selected shortcuts are placed on your **Desktop** and in your system's **Application Menu**.
+  * Just like Windows: This gives you the simple, familiar "Create a desktop shortcut?" experience.
 
----
 ### 🗓️ Planned Features
-* **Desktop shortcuts:** Automatically add desktop shortcut (and/or play button in the download manager) to launch the game with the same umu-launcher config as chosen during the installation.
 * **Protonfixes and Winecfg button:** To manually configure your Wineprefix if needed.
+* **Windows support**
 * **Other ideas?:** Create a new issue/merge request and I will look into it.
 
 ---

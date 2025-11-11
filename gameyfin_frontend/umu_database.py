@@ -10,22 +10,22 @@ class UmuDatabase:
     def __init__(self):
         self.umu_api_url = getenv("GF_UMU_API_URL", "https://umu.openwinecomponents.org/umu_api.php")
 
-        # This will store our data as: {"Game Title": [entry1, entry2, ...]}
+        # Stores data as: {"Game Title": [entry1, entry2, ...]}
         self._games_by_title: Dict[str, List[dict]] = defaultdict(list)
 
         print("Initializing Umu database and fetching all entries...")
         self.refresh_cache()
         self._ROMAN_REPLACEMENTS = (
-            (r'\bX\b', ' 10 '),  # 10
-            (r'\bIX\b', ' 9 '),  # 9
-            (r'\bVIII\b', ' 8 '),  # 8
-            (r'\bVII\b', ' 7 '),  # 7
-            (r'\bVI\b', ' 6 '),  # 6
-            (r'\bIV\b', ' 4 '),  # 4
-            (r'\bV\b', ' 5 '),  # 5
-            (r'\bIII\b', ' 3 '),  # 3
-            (r'\bII\b', ' 2 '),  # 2
-            (r'\bI\b', ' 1 ')  # 1
+            (r'\bX\b', ' 10 '),
+            (r'\bIX\b', ' 9 '),
+            (r'\bVIII\b', ' 8 '),
+            (r'\bVII\b', ' 7 '),
+            (r'\bVI\b', ' 6 '),
+            (r'\bIV\b', ' 4 '),
+            (r'\bV\b', ' 5 '),
+            (r'\bIII\b', ' 3 '),
+            (r'\bII\b', ' 2 '),
+            (r'\bI\b', ' 1 ')
         )
         print(f"Umu database initialized.")
 
@@ -34,7 +34,6 @@ class UmuDatabase:
         Helper to process the raw list from list_all()
         into the _games_by_title dict.
         """
-        # Clear existing cache
         self._games_by_title.clear()
 
         if not isinstance(all_entries_raw, list):
@@ -84,11 +83,9 @@ class UmuDatabase:
         """
         normalized_text = text
 
-        # 1. Replace Roman numerals (case-insensitive)
         for roman_re, arabic in self._ROMAN_REPLACEMENTS:
             normalized_text = re.sub(roman_re, arabic, normalized_text, flags=re.IGNORECASE)
 
-        # 2. Convert to lowercase and remove all non-alphanumeric chars
         normalized_text = normalized_text.lower()
         return re.sub(r'[^a-z0-9]', '', normalized_text)
 
@@ -111,14 +108,10 @@ class UmuDatabase:
 
         matching_entries = []
 
-        # Iterate over the keys (full titles) of our cached dictionary
         for full_title in self._games_by_title:
-            # Normalize the title from the cache
             normalized_full_title = self._normalize_string(full_title)
 
-            # Compare the normalized strings
             if normalized_search_term in normalized_full_title:
-                # If it matches, add the original entries
                 matching_entries.extend(self._games_by_title[full_title])
 
         return matching_entries

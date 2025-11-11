@@ -1,5 +1,5 @@
-pyqt6~=6.0
+pyqt6-sip~=13.10
+PyQt6~=6.10
 PyQt6-WebEngine~=6.0
 dotenv~=0.1
 requests~=2.0
-frozendict~=2.4

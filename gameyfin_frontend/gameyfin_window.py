@@ -7,7 +7,8 @@ from PyQt6.QtCore import QUrl
 from PyQt6.QtWebEngineCore import (QWebEngineScript,
                                    QWebEngineDownloadRequest, QWebEngineProfile, QWebEngineSettings, QWebEnginePage)
 
-from .download_manager import DownloadManagerWidget
+from gameyfin_frontend.widgets.download_manager import DownloadManagerWidget
+
 
 class UrlCatchingPage(QWebEnginePage):
     def __init__(self, profile, parent=None):
@@ -17,6 +18,7 @@ class UrlCatchingPage(QWebEnginePage):
         QDesktopServices.openUrl(url)
         self.deleteLater()
         return False
+
 
 class CustomWebEnginePage(QWebEnginePage):
     def __init__(self, base_url, profile, parent=None):
@@ -42,8 +44,9 @@ class CustomWebEnginePage(QWebEnginePage):
 
         return super().acceptNavigationRequest(url, nav_type, is_main_frame)
 
+
 class GameyfinWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, umu_database):
         super().__init__()
         self.setWindowTitle("Gameyfin")
         self.setGeometry(0, 0, int(getenv("GF_WINDOW_WIDTH", 1420)), int(getenv("GF_WINDOW_HEIGHT", 940)))
@@ -55,7 +58,6 @@ class GameyfinWindow(QMainWindow):
         profile_path = os.path.join(script_dir, ".gameyfin-app-data")
         os.makedirs(profile_path, exist_ok=True)
 
-        # --- Profile setup ---
         self.profile = QWebEngineProfile("gameyfin-profile", self)
         self.profile.setPersistentStoragePath(profile_path)
         self.profile.setHttpCacheType(QWebEngineProfile.HttpCacheType.DiskHttpCache)
@@ -65,17 +67,14 @@ class GameyfinWindow(QMainWindow):
         settings = self.profile.settings()
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalStorageEnabled, True)
 
-        # --- Browser Setup ---
         self.browser = QWebEngineView()
         base_url = QUrl(getenv("GF_URL", "http://localhost:8080"))
         self.custom_page = CustomWebEnginePage(base_url, self.profile, self.browser)
         self.browser.setPage(self.custom_page)
         self.browser.setUrl(base_url)
 
-        # --- Download Manager Setup ---
-        self.download_manager = DownloadManagerWidget(profile_path, self)
+        self.download_manager = DownloadManagerWidget(profile_path, umu_database, self)
 
-        # --- Tab Widget Setup ---
         self.tab_widget = QTabWidget()
 
         # Add the Gameyfin tab with an empty string for the label
@@ -83,15 +82,12 @@ class GameyfinWindow(QMainWindow):
         # Set the icon for that tab
         self.tab_widget.setTabIcon(gameyfin_tab_index, QIcon(icon_path))
 
-        # Add the Downloads tab
         self.tab_widget.addTab(self.download_manager, "Downloads")
 
         self.setCentralWidget(self.tab_widget)
 
-        # --- Connect Signals ---
         self.browser.page().profile().downloadRequested.connect(self.on_download_requested)
 
-        # --- Scrollbar Script ---
         script = QWebEngineScript()
         script.setSourceCode("""
             document.documentElement.style.overflowX = 'hidden';
@@ -113,8 +109,8 @@ class GameyfinWindow(QMainWindow):
             num, unit = text.split()
             num = float(num.replace(",", "."))
             multipliers = {
-                "B": 1, "KiB": 1024, "MiB": 1024**2, "GiB": 1024**3, "TiB": 1024**4,
-                "KB": 1000, "MB": 1000**2, "GB": 1000**3, "TB": 1000**4
+                "B": 1, "KiB": 1024, "MiB": 1024 ** 2, "GiB": 1024 ** 3, "TiB": 1024 ** 4,
+                "KB": 1000, "MB": 1000 ** 2, "GB": 1000 ** 3, "TB": 1000 ** 4
             }
             return int(num * multipliers.get(unit, 1))
         except Exception:
@@ -126,7 +122,7 @@ class GameyfinWindow(QMainWindow):
             self.download_manager.close()
             self.browser.setPage(None)
             self.browser.deleteLater()
-            event.accept() # Accept the event and close
+            event.accept()
         else:
             # This is just the 'X' button, so hide
             event.ignore()
