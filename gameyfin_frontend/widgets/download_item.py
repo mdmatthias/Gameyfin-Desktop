@@ -558,7 +558,7 @@ class DownloadItemWidget(QWidget):
 
                     for key, value in config.items():
                         env_prefix += f"{key}=\"{value}\" "
-                    new_exec = f"/bin/sh -c '{env_prefix} umu-run \"{exe_path}\"'"
+                    new_exec = f"{env_prefix} umu-run \"{exe_path}\""
 
                     config_parser.set('Desktop Entry', 'Exec', new_exec)
                     config_parser.set('Desktop Entry', 'Type', 'Application')
