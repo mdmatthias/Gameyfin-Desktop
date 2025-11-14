@@ -1,9 +1,10 @@
 import configparser
 import os
+import sys  # <-- Added
 from os import getenv
 from os.path import relpath
 
-from PyQt6.QtCore import pyqtSlot
+from PyQt6.QtCore import pyqtSlot, QProcess  # <-- Added QProcess
 from PyQt6.QtWidgets import QVBoxLayout, QFormLayout, QCheckBox, QLineEdit, QPushButton, QStyle, QHBoxLayout, QWidget, \
     QComboBox, QPlainTextEdit, QDialogButtonBox, QLabel, QInputDialog, QDialog, QMessageBox, QListWidget, QScrollArea
 
@@ -15,9 +16,12 @@ class InstallConfigDialog(QDialog):
     A dialog to configure environment variables before installation.
     """
 
-    def __init__(self, umu_database: UmuDatabase, parent=None, default_game_id="umu-default", default_store="none"):
+    def __init__(self, umu_database: UmuDatabase, parent=None,
+                 default_game_id="umu-default", default_store="none",
+                 wine_prefix_path: str = None):
         super().__init__(parent)
         self.umu_database = umu_database
+        self.wine_prefix_path = wine_prefix_path
         self.setWindowTitle("Installation Configuration")
         self.setMinimumWidth(400)
 
@@ -67,8 +71,27 @@ class InstallConfigDialog(QDialog):
         main_layout.addWidget(QLabel("Additional Environment Variables (one per line):"))
         main_layout.addWidget(self.extra_vars_input)
 
+        if self.wine_prefix_path:
+            prefix_label = QLabel(f"<b>WINE Prefix:</b><br>{self.wine_prefix_path}")
+            prefix_label.setWordWrap(True)
+            main_layout.addWidget(prefix_label)
+
+        self.wine_tools_widget = QWidget()
+        wine_tools_layout = QHBoxLayout(self.wine_tools_widget)
+        wine_tools_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.winecfg_button = QPushButton("Run Winecfg")
+        self.winetricks_button = QPushButton("Run Winetricks")
+
+        wine_tools_layout.addWidget(self.winecfg_button)
+        wine_tools_layout.addWidget(self.winetricks_button)
+
+        main_layout.addWidget(self.wine_tools_widget)
+
         main_layout.addWidget(button_box)
 
+        self.winecfg_button.clicked.connect(self.run_winecfg)
+        self.winetricks_button.clicked.connect(self.run_winetricks)
         self.search_button.clicked.connect(self.search_for_game_id)
 
     @pyqtSlot()
@@ -120,6 +143,38 @@ class InstallConfigDialog(QDialog):
 
         except Exception as e:
             QMessageBox.warning(self, "Search Error", f"An error occurred during search:\n{e}")
+
+    @pyqtSlot()
+    def run_winecfg(self):
+        """Runs winecfg in the correct prefix using umu-run."""
+        if not self.wine_prefix_path:
+            return
+
+        os.makedirs(self.wine_prefix_path, exist_ok=True)
+
+        proton_path = os.getenv("PROTONPATH", "GE-Proton")
+        env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.wine_prefix_path}\" "
+
+        command_string = f"{env_prefix} umu-run winecfg"
+
+        print(f"Executing: /bin/sh -c \"{command_string}\"")
+        QProcess.startDetached("/bin/sh", ["-c", command_string])
+
+    @pyqtSlot()
+    def run_winetricks(self):
+        """Runs winetricks in the correct prefix."""
+        if not self.wine_prefix_path:
+            return
+
+        os.makedirs(self.wine_prefix_path, exist_ok=True)
+
+        proton_path = os.getenv("PROTONPATH", "GE-Proton")
+        env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.wine_prefix_path}\" "
+
+        command_string = f"{env_prefix} winetricks"
+
+        print(f"Executing: /bin/sh -c \"{command_string}\"")
+        QProcess.startDetached("/bin/sh", ["-c", command_string])
 
     def get_config(self) -> dict:
         """

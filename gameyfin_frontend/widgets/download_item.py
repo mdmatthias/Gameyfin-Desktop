@@ -273,15 +273,30 @@ class DownloadItemWidget(QWidget):
         except Exception as e:
             print(f"Error during UMU auto-detection: {e}")
 
+        wine_prefix_path = None
+        if sys.platform == "linux":
+            try:
+                home_dir = os.path.expanduser("~")
+                folder_name = os.path.basename(target_dir)
+                pfx_name = f"{folder_name.lower()}_pfx"
+                wine_prefix_path = os.path.join(home_dir, ".config", "gameyfin", "prefixes", pfx_name)
+
+                self.current_wine_prefix = wine_prefix_path
+                print(f"Getting WINEPREFIX for dialog: {wine_prefix_path}")
+            except Exception as e:
+                print(f"Error getting WINEPREFIX: {e}")
+
         dialog = InstallConfigDialog(
             umu_database=self.umu_database,
             parent=self,
             default_game_id=default_game_id,
-            default_store=default_store
+            default_store=default_store,
+            wine_prefix_path=wine_prefix_path
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             self.status_label.setText("Install cancelled by user.")
             self.status_label.setStyleSheet("")
+            self.current_wine_prefix = None
             return
 
         self.current_install_config = dialog.get_config()
@@ -331,12 +346,10 @@ class DownloadItemWidget(QWidget):
         try:
             config = install_config or {}
 
-            home_dir = os.path.expanduser("~")
-            folder_name = os.path.basename(target_dir)
-            pfx_name = f"{folder_name.lower()}_pfx"
-            wine_prefix_path = os.path.join(home_dir, ".config", "gameyfin", "prefixes", pfx_name)
+            if not self.current_wine_prefix:
+                raise ValueError("Wineprefix path was not set.")
 
-            self.current_wine_prefix = wine_prefix_path
+            wine_prefix_path = self.current_wine_prefix
 
             self.run_process = QProcess()
             launcher_dir = os.path.dirname(launcher_to_run)
