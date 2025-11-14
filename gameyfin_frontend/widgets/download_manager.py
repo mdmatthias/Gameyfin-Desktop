@@ -1,24 +1,11 @@
-import glob
 import json
 import os
-import time
-import configparser
-from pathlib import Path
 
-from PyQt6.QtCore import (QUrl, pyqtSignal, QThread, pyqtSlot, QProcess,
-                          QProcessEnvironment)
-from PyQt6.QtGui import QCloseEvent, QDesktopServices
-from PyQt6.QtWebEngineCore import QWebEngineDownloadRequest
-from PyQt6.QtWidgets import (QGridLayout, QWidget, QScrollArea, QVBoxLayout, QStyle,
-                             QStackedLayout, QHBoxLayout, QPushButton, QLabel,
-                             QProgressBar, QProgressDialog, QDialog, QCheckBox,
-                             QDialogButtonBox)
+from PyQt6.QtGui import QCloseEvent
+from PyQt6.QtWidgets import (QGridLayout, QWidget, QScrollArea, QVBoxLayout)
 
-from gameyfin_frontend.dialogs import SelectUmuIdDialog, InstallConfigDialog, SelectLauncherDialog, \
-    SelectShortcutsDialog
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.widgets.download_item import DownloadItemWidget
-from gameyfin_frontend.workers import UnzipWorker
 
 
 class DownloadManagerWidget(QWidget):
