@@ -2,7 +2,8 @@ name: Build and Release Flatpak
 
 on:
   push:
-    branches: [flatpak_github_build]
+    tags:
+      - 'v*'
 
 jobs:
   build-and-release:
