@@ -19,14 +19,14 @@ jobs:
     - name: Build Flatpak
       uses: flatpak/flatpak-github-actions/flatpak-builder@v6
       with:
-        bundle: GameyFinFrontend.flatpak
-        manifest-path: org.gameyfin.GameyFinFrontend.yaml
+        bundle: Gameyfin-desktop.flatpak
+        manifest-path: Gameyfin-desktop.yaml
         cache-key: flatpak-builder-${{ github.sha }}
 
     - name: Release
       uses: softprops/action-gh-release@v1
       if: startsWith(github.ref, 'refs/tags/')
       with:
-        files: GameyFinFrontend.flatpak
+        files: Gameyfin-desktop.flatpak
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
