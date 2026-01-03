@@ -111,6 +111,9 @@ The download progress bar provides an estimation. The total size is calculated b
 #### Installer
 Currently only tested with GOG games, but should work with any installer.
 
+### AI notice
+Build with the help from Gemini. If you see something that could be better or looks weird, please let me know!
+
 ### 🖼️ Screenshots
 
 <img src="preview2.png" alt="SSO" width="800">
