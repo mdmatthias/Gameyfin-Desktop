@@ -92,11 +92,11 @@ While the application can be configured using environment variables (see below),
 #### Flatpak
 You can build and install the application as a Flatpak:
 ```bash
-# Build and install locally
-flatpak-builder --user --install --force-clean build-dir org.gameyfin.GameyFinFrontend.yaml
+flatpak-builder --user --install --force-clean build-dir org.gameyfin.Gameyfin-Desktop.yaml
 
-# Run
-flatpak run org.gameyfin.GameyFinFrontend
+To run the installed Flatpak:
+```bash
+flatpak run org.gameyfin.Gameyfin-Desktop
 ```
 
 ---
