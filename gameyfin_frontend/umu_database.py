@@ -1,14 +1,12 @@
 import re
-from collections import defaultdict
-from os import getenv
-from typing import Dict, List
-
 import requests
-
+from collections import defaultdict
+from typing import Dict, List
+from .settings import settings_manager
 
 class UmuDatabase:
     def __init__(self):
-        self.umu_api_url = getenv("GF_UMU_API_URL", "https://umu.openwinecomponents.org/umu_api.php")
+        self.umu_api_url = settings_manager.get("GF_UMU_API_URL")
 
         # Stores data as: {"Game Title": [entry1, entry2, ...]}
         self._games_by_title: Dict[str, List[dict]] = defaultdict(list)

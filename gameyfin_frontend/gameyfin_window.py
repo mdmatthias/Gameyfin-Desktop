@@ -1,14 +1,15 @@
 import os
-from os import getenv
 from PyQt6.QtWidgets import QMainWindow, QFileDialog, QTabWidget
 from PyQt6.QtGui import QCloseEvent, QIcon, QDesktopServices
 from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtCore import QUrl
+from PyQt6.QtCore import QUrl, QStandardPaths
 from PyQt6.QtWebEngineCore import (QWebEngineScript,
                                    QWebEngineDownloadRequest, QWebEngineProfile, QWebEngineSettings, QWebEnginePage)
 
 from gameyfin_frontend.widgets.download_manager import DownloadManagerWidget
 
+from .settings_widget import SettingsWidget
+from .settings import settings_manager
 
 class UrlCatchingPage(QWebEnginePage):
     def __init__(self, profile, parent=None):
@@ -25,7 +26,7 @@ class CustomWebEnginePage(QWebEnginePage):
         super().__init__(profile, parent)
         self.base_url = base_url
         self.allowed_hosts = {self.base_url.host()}
-        sso_provider_host = getenv("GF_SSO_PROVIDER_HOST", None)
+        sso_provider_host = settings_manager.get("GF_SSO_PROVIDER_HOST", "")
         if sso_provider_host:
             # Parse only the host, https://sso.host.com -> sso.host.com
             sso_host = QUrl(sso_provider_host).host() or sso_provider_host
@@ -49,13 +50,13 @@ class GameyfinWindow(QMainWindow):
     def __init__(self, umu_database):
         super().__init__()
         self.setWindowTitle("Gameyfin")
-        self.setGeometry(0, 0, int(getenv("GF_WINDOW_WIDTH", 1420)), int(getenv("GF_WINDOW_HEIGHT", 940)))
+        self.setGeometry(0, 0, settings_manager.get("GF_WINDOW_WIDTH"), settings_manager.get("GF_WINDOW_HEIGHT"))
         self.is_really_quitting = False
         script_dir = os.path.dirname(os.path.abspath(__file__))
 
         icon_path = os.path.join(script_dir, "icon.png")
 
-        profile_path = os.path.join(script_dir, ".gameyfin-app-data")
+        profile_path = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
         os.makedirs(profile_path, exist_ok=True)
 
         self.profile = QWebEngineProfile("gameyfin-profile", self)
@@ -68,13 +69,17 @@ class GameyfinWindow(QMainWindow):
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalStorageEnabled, True)
 
         self.browser = QWebEngineView()
-        base_url = QUrl(getenv("GF_URL", "http://localhost:8080"))
+        base_url = QUrl(settings_manager.get("GF_URL"))
         self.custom_page = CustomWebEnginePage(base_url, self.profile, self.browser)
         self.browser.setPage(self.custom_page)
         self.browser.setUrl(base_url)
 
         self.download_manager = DownloadManagerWidget(profile_path, umu_database, self)
 
+        # --- Settings Setup ---
+        self.settings_widget = SettingsWidget(self)
+
+        # --- Tab Widget Setup ---
         self.tab_widget = QTabWidget()
 
         # Add the Gameyfin tab with an empty string for the label
@@ -83,6 +88,9 @@ class GameyfinWindow(QMainWindow):
         self.tab_widget.setTabIcon(gameyfin_tab_index, QIcon(icon_path))
 
         self.tab_widget.addTab(self.download_manager, "Downloads")
+
+        # Add the Settings tab
+        self.tab_widget.addTab(self.settings_widget, "Settings")
 
         self.setCentralWidget(self.tab_widget)
 

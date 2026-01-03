@@ -1,7 +1,7 @@
 import os
-from os import getenv
 from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QIcon, QAction
+from .settings import settings_manager
 
 
 class GameyfinTray:
@@ -10,7 +10,7 @@ class GameyfinTray:
         self.window = window
         self.tray = QSystemTrayIcon()
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
-        self.tray.setIcon(QIcon(getenv("GF_ICON_PATH", icon_path)))
+        self.tray.setIcon(QIcon(settings_manager.get("GF_ICON_PATH", icon_path)))
         self.menu = QMenu()
 
         self.show_action = QAction("Show")

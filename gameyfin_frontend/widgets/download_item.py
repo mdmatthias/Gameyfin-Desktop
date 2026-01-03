@@ -16,6 +16,7 @@ from gameyfin_frontend.dialogs import SelectShortcutsDialog, InstallConfigDialog
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.utils import get_xdg_user_dir
 from gameyfin_frontend.workers import UnzipWorker, ProcessMonitorWorker
+from gameyfin_frontend.settings import settings_manager
 
 
 class DownloadItemWidget(QWidget):
@@ -355,7 +356,7 @@ class DownloadItemWidget(QWidget):
             launcher_dir = os.path.dirname(launcher_to_run)
             self.run_process.setWorkingDirectory(launcher_dir)
 
-            proton_path = os.getenv("PROTONPATH", "GE-Proton")
+            proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
             env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{wine_prefix_path}\" "
 
             print("[Install] Applying user environment configuration:")
@@ -363,35 +364,41 @@ class DownloadItemWidget(QWidget):
                 print(f"  {key}={value}")
                 env_prefix += f"{key}=\"{value}\" "
 
-            command_string = f"{env_prefix} umu-run \"{launcher_to_run}\""
-            print(f"Executing command: /bin/sh -c \"{command_string}\"")
+            self.run_process = QProcess(self)
+            self.run_process.setWorkingDirectory(launcher_dir)
+            
+            # Detect if running in Flatpak
+            is_flatpak = os.path.exists("/.flatpak-info")
+            
+            if is_flatpak:
+                # In Flatpak, we MUST use flatpak-spawn --host to run on the host.
+                # Crucially, we must use 'env' to pass environment variables to the host.
+                args = ["--host", "env"]
+                args.append(f"PROTONPATH={settings_manager.get('PROTONPATH', 'GE-Proton')}")
+                args.append(f"WINEPREFIX={wine_prefix_path}")
+                
+                for key, value in config.items():
+                    args.append(f"{key}={value}")
+                
+                args.extend(["umu-run", launcher_to_run])
+                
+                print(f"Executing (Flatpak): flatpak-spawn {' '.join(args)}")
+                self.run_process.finished.connect(self.on_run_finished)
+                self.run_process.start("flatpak-spawn", args)
+            else:
+                # Original shell-based execution for non-flatpak
+                command_string = f"{env_prefix} exec umu-run \"{launcher_to_run}\""
+                print(f"Executing: /bin/sh -c \"{command_string}\"")
+                self.run_process.finished.connect(self.on_run_finished)
+                self.run_process.start("/bin/sh", ["-c", command_string])
 
-            success, pid = self.run_process.startDetached("/bin/sh", ["-c", command_string])
-
-            if success and pid > 0:
-                print(f"Launch successful. Monitoring PID: {pid}")
+            if self.run_process.waitForStarted():
+                print(f"Launch successful. Monitoring QProcess.")
                 size = self.record.get("total_bytes", 0)
                 self.status_label.setText(f"Running... ({self.format_size(size)})")
                 self.status_label.setStyleSheet("color: #3498DB;")
-
-                self.monitor_thread = QThread()
-                self.monitor_worker = ProcessMonitorWorker(pid)
-                self.monitor_worker.moveToThread(self.monitor_thread)
-
-                self.monitor_worker.finished.connect(self.on_run_finished)
-
-                self.monitor_thread.started.connect(self.monitor_worker.run)
-                self.monitor_worker.finished.connect(self.monitor_thread.quit)
-                self.monitor_worker.finished.connect(self.monitor_worker.deleteLater)
-                self.monitor_thread.finished.connect(self.monitor_thread.deleteLater)
-
-                self.monitor_worker.destroyed.connect(self.on_monitor_worker_deleted)
-                self.monitor_thread.destroyed.connect(self.on_monitor_thread_deleted)
-
-                self.monitor_thread.start()
-
             else:
-                print(f"Launch failed (startDetached returned {success}, PID: {pid}).")
+                print(f"Launch failed (QProcess failed to start).")
                 self.status_label.setText("Launch failed. Is 'umu-run' installed?")
                 self.status_label.setStyleSheet("color: red;")
                 self.current_wine_prefix = None
@@ -445,11 +452,12 @@ class DownloadItemWidget(QWidget):
         self.monitor_thread = None
 
     @pyqtSlot()
-    def on_run_finished(self):
+    @pyqtSlot(int, QProcess.ExitStatus)
+    def on_run_finished(self, exit_code=None, exit_status=None):
         """
-        Called when the ProcessMonitorWorker signals that the PID has finished.
+        Called when the process signals that it has finished.
         """
-        print(f"umu-run process finished.")
+        print(f"umu-run process finished with code {exit_code}, status {exit_status}.")
 
         if self.current_wine_prefix and os.path.isdir(self.current_wine_prefix):
             shortcuts_dir = os.path.join(self.current_wine_prefix, "drive_c", "proton_shortcuts")
@@ -582,7 +590,7 @@ class DownloadItemWidget(QWidget):
                     exe_path = os.path.join(working_dir, exe_name)
                     config = self.current_install_config or {}
 
-                    proton_path = os.getenv("PROTONPATH", "GE-Proton")
+                    proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
                     env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.current_wine_prefix}\" "
 
                     for key, value in config.items():

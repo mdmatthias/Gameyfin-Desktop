@@ -52,35 +52,67 @@ class UnzipWorker(QObject):
         self._is_running = False
 
 class ProcessMonitorWorker(QThread):
+
     """Monitors a process by its PID and emits when it's finished."""
+
     finished = pyqtSignal()
 
+
+
     def __init__(self, pid, parent=None):
+
         super().__init__(parent)
+
         self.pid = pid
+
         self._running = True
+
+
 
     def run(self):
+
         if not self.pid > 0:
+
             print(f"ProcessMonitor: Invalid PID ({self.pid}), stopping.")
+
             return
 
+
+
         print(f"ProcessMonitor: Monitoring PID {self.pid}")
+
         self._running = True
+
         while self._running:
+
             try:
+
                 os.kill(self.pid, 0)
+
             except OSError:
+
                 print(f"ProcessMonitor: PID {self.pid} finished.")
+
                 self._running = False
+
                 self.finished.emit()
+
                 break
+
             else:
+
                 if not self._running:
+
                     break
+
                 self.msleep(1000)
+
+
 
         print(f"ProcessMonitor: Stopping monitor for {self.pid}")
 
+
+
     def stop(self):
+
         self._running = False

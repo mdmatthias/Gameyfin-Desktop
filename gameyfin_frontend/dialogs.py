@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import QVBoxLayout, QFormLayout, QCheckBox, QLineEdit, QPus
     QComboBox, QPlainTextEdit, QDialogButtonBox, QLabel, QInputDialog, QDialog, QMessageBox, QListWidget, QScrollArea
 
 from gameyfin_frontend.umu_database import UmuDatabase
+from gameyfin_frontend.settings import settings_manager
 
 
 class InstallConfigDialog(QDialog):
@@ -49,8 +50,8 @@ class InstallConfigDialog(QDialog):
         self.gameid_widget.setLayout(self.gameid_layout)
 
         self.store_combo = QComboBox()
-        stores = getenv("GF_UMU_DB_STORES", ["none", "gog", "amazon", "battlenet", "ea", "egs",
-                                             "humble", "itchio", "steam", "ubisoft", "zoomplatform"])
+        stores = settings_manager.get("GF_UMU_DB_STORES", ["none", "gog", "amazon", "battlenet", "ea", "egs",
+                                                           "humble", "itchio", "steam", "ubisoft", "zoomplatform"])
         self.store_combo.addItems(stores)
         self.store_combo.setCurrentText(default_store)
 
@@ -152,7 +153,7 @@ class InstallConfigDialog(QDialog):
 
         os.makedirs(self.wine_prefix_path, exist_ok=True)
 
-        proton_path = os.getenv("PROTONPATH", "GE-Proton")
+        proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
         env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.wine_prefix_path}\" "
 
         command_string = f"{env_prefix} umu-run winecfg"
@@ -168,7 +169,7 @@ class InstallConfigDialog(QDialog):
 
         os.makedirs(self.wine_prefix_path, exist_ok=True)
 
-        proton_path = os.getenv("PROTONPATH", "GE-Proton")
+        proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
         env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.wine_prefix_path}\" "
 
         command_string = f"{env_prefix} winetricks"

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Gameyfin
+Comment=Gameyfin Desktop Client
+Exec=gameyfin-frontend
+Icon=org.gameyfin.GameyFinFrontend
+Type=Application
+Categories=Game;

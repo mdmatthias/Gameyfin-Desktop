@@ -1,0 +1,57 @@
+app-id: org.gameyfin.GameyFinFrontend
+runtime: org.kde.Platform
+runtime-version: '6.10'
+sdk: org.kde.Sdk
+command: gameyfin-frontend
+finish-args:
+  - --share=ipc
+  - --socket=x11
+  - --socket=wayland
+  - --share=network
+  - --socket=session-bus
+  - --socket=system-bus
+  - --device=dri
+  - --filesystem=xdg-download
+  - --filesystem=home
+  - --talk-name=org.freedesktop.Flatpak
+  - --talk-name=org.kde.StatusNotifierWatcher
+modules:
+  - name: krb5
+    buildsystem: simple
+    sources:
+      - type: archive
+        url: https://kerberos.org/dist/krb5/1.21/krb5-1.21.3.tar.gz
+        sha256: b7a4cd5ead67fb08b980b21abd150ff7217e85ea320c9ed0c6dadd304840ad35
+    build-options:
+      cflags: "-std=gnu89 -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=implicit-function-declaration"
+    build-commands:
+      - cd src && ./configure --prefix=/app --disable-static --disable-rpath
+      - cd src && make -j${FLATPAK_BUILDER_N_JOBS}
+      - cd src && make install
+  - name: umu-host-wrapper
+    buildsystem: simple
+    build-commands:
+      - install -D umu-run.sh /app/bin/umu-run
+    sources:
+      - type: script
+        dest-filename: umu-run.sh
+        commands:
+          - '#!/bin/sh'
+          - 'exec flatpak-spawn --host umu-run "$@"'
+  - python-dependencies.json
+  - name: gameyfin-frontend
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/share/gameyfin
+      - cp -r gameyfin_frontend /app/share/gameyfin/
+      - cp gameyfin_qt.py /app/share/gameyfin/
+      - mkdir -p /app/bin
+      - install -m 755 gameyfin-frontend.sh /app/bin/gameyfin-frontend
+      - mkdir -p /app/share/applications
+      - install -m 644 org.gameyfin.GameyFinFrontend.desktop /app/share/applications/
+      - export PYTHONPATH=$PYTHONPATH:/app/lib/python3.13/site-packages && python3 make_square_icon.py gameyfin_frontend/icon.png square_icon.png
+      - mkdir -p /app/share/icons/hicolor/256x256/apps
+      - install -m 644 square_icon.png /app/share/icons/hicolor/256x256/apps/org.gameyfin.GameyFinFrontend.png
+    sources:
+      - type: dir
+        path: .
