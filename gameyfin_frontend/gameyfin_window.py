@@ -85,7 +85,10 @@ class GameyfinWindow(QMainWindow):
         # Add the Gameyfin tab with an empty string for the label
         gameyfin_tab_index = self.tab_widget.addTab(self.browser, "")
         # Set the icon for that tab
-        self.tab_widget.setTabIcon(gameyfin_tab_index, QIcon(icon_path))
+        tab_icon = QIcon.fromTheme("org.gameyfin.Gameyfin-Desktop")
+        if tab_icon.isNull():
+            tab_icon = QIcon(icon_path)
+        self.tab_widget.setTabIcon(gameyfin_tab_index, tab_icon)
 
         self.tab_widget.addTab(self.download_manager, "Downloads")
 

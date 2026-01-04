@@ -61,7 +61,11 @@ class SettingsManager:
                 except: pass
             return env_val
         
-        return self.settings.get(key, fallback or self.defaults.get(key))
+        val = self.settings.get(key)
+        if (val is None or val == "") and fallback:
+            return fallback
+            
+        return val if val is not None else self.defaults.get(key)
 
     def set(self, key, value):
         self.settings[key] = value

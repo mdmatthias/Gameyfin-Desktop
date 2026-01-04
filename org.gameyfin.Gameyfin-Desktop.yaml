@@ -1,8 +1,8 @@
-app-id: org.gameyfin.GameyFinFrontend
+app-id: org.gameyfin.Gameyfin-Desktop
 runtime: org.kde.Platform
 runtime-version: '6.10'
 sdk: org.kde.Sdk
-command: gameyfin-frontend
+command: gameyfin-desktop
 finish-args:
   - --share=ipc
   - --socket=x11
@@ -39,19 +39,19 @@ modules:
           - '#!/bin/sh'
           - 'exec flatpak-spawn --host umu-run "$@"'
   - python-dependencies.json
-  - name: gameyfin-frontend
+  - name: gameyfin-desktop
     buildsystem: simple
     build-commands:
       - mkdir -p /app/share/gameyfin
       - cp -r gameyfin_frontend /app/share/gameyfin/
       - cp gameyfin_qt.py /app/share/gameyfin/
       - mkdir -p /app/bin
-      - install -m 755 gameyfin-frontend.sh /app/bin/gameyfin-frontend
+      - install -m 755 gameyfin-desktop.sh /app/bin/gameyfin-desktop
       - mkdir -p /app/share/applications
-      - install -m 644 org.gameyfin.GameyFinFrontend.desktop /app/share/applications/
+      - install -m 644 org.gameyfin.Gameyfin-Desktop.desktop /app/share/applications/
       - export PYTHONPATH=$PYTHONPATH:/app/lib/python3.13/site-packages && python3 make_square_icon.py gameyfin_frontend/icon.png square_icon.png
       - mkdir -p /app/share/icons/hicolor/256x256/apps
-      - install -m 644 square_icon.png /app/share/icons/hicolor/256x256/apps/org.gameyfin.GameyFinFrontend.png
+      - install -m 644 square_icon.png /app/share/icons/hicolor/256x256/apps/org.gameyfin.Gameyfin-Desktop.png
     sources:
       - type: dir
         path: .
