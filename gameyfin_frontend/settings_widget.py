@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import subprocess
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QLineEdit, 
                              QPushButton, QLabel, QSpinBox, QMessageBox, QCheckBox, QHBoxLayout, QFileDialog)
 from .settings import settings_manager
@@ -95,4 +96,12 @@ class SettingsWidget(QWidget):
         settings_manager.set("GF_ICON_PATH", self.icon_path_edit.text())
         
         # Clean up and restart
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        print("Restarting application...")
+        if getattr(sys, 'frozen', False):
+            # For PyInstaller frozen apps
+            subprocess.Popen([sys.executable] + sys.argv[1:])
+        else:
+            # For standard Python scripts
+            subprocess.Popen([sys.executable] + sys.argv)
+            
+        sys.exit()
