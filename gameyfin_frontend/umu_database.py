@@ -1,4 +1,5 @@
 import re
+import sys
 import requests
 from collections import defaultdict
 from typing import Dict, List
@@ -6,6 +7,12 @@ from .settings import settings_manager
 
 class UmuDatabase:
     def __init__(self):
+        if sys.platform == "win32":
+            print("Running on Windows. UmuDatabase disabled.")
+            self.umu_api_url = ""
+            self._games_by_title = {}
+            return
+
         self.umu_api_url = settings_manager.get("GF_UMU_API_URL")
 
         # Stores data as: {"Game Title": [entry1, entry2, ...]}

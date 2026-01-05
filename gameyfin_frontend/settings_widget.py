@@ -32,16 +32,18 @@ class SettingsWidget(QWidget):
         
         self.proton_edit = QLineEdit()
         self.proton_edit.setText(settings_manager.get("PROTONPATH"))
-        self.form_layout.addRow("Proton Path:", self.proton_edit)
         
         self.umu_api_edit = QLineEdit()
         self.umu_api_edit.setText(settings_manager.get("GF_UMU_API_URL"))
-        self.form_layout.addRow("UMU API URL:", self.umu_api_edit)
 
         self.stores_edit = QLineEdit()
         stores = settings_manager.get("GF_UMU_DB_STORES")
         self.stores_edit.setText(json.dumps(stores))
-        self.form_layout.addRow("UMU Stores (JSON):", self.stores_edit)
+
+        if sys.platform == "linux":
+            self.form_layout.addRow("Proton Path:", self.proton_edit)
+            self.form_layout.addRow("UMU API URL:", self.umu_api_edit)
+            self.form_layout.addRow("UMU Stores (JSON):", self.stores_edit)
 
         self.minimized_check = QCheckBox()
         self.minimized_check.setChecked(bool(settings_manager.get("GF_START_MINIMIZED")))
