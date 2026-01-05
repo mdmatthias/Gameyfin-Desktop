@@ -29,7 +29,7 @@ jobs:
 
     - name: Build with PyInstaller
       run: |
-        pyinstaller --name "Gameyfin" --onefile --windowed --icon="gameyfin_frontend/icon.png" --add-data "gameyfin_frontend/icon.png;gameyfin_frontend" --add-data ".env.example;." gameyfin_qt.py
+        pyinstaller --name "Gameyfin-Desktop" --onefile --windowed --icon="gameyfin_frontend/icon.png" --add-data "gameyfin_frontend/icon.png;gameyfin_frontend" --add-data ".env.example;." gameyfin_qt.py
 
     - name: Release
       uses: softprops/action-gh-release@v1
