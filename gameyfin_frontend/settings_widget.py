@@ -98,8 +98,9 @@ class SettingsWidget(QWidget):
         # Clean up and restart
         print("Restarting application...")
         if getattr(sys, 'frozen', False):
-            # For PyInstaller frozen apps
-            subprocess.Popen([sys.executable] + sys.argv[1:])
+            env = os.environ.copy()
+            env.pop('_MEIPASS2', None)
+            subprocess.Popen([sys.executable] + sys.argv[1:], env=env)
         else:
             # For standard Python scripts
             subprocess.Popen([sys.executable] + sys.argv)
