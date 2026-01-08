@@ -214,7 +214,7 @@ class GameyfinWindow(QMainWindow):
         self.tab_widget.setTabIcon(0, app_icon)
 
         # 5. Refresh UMU Database
-        if self.umu_database:
+        if sys.platform != "win32" and self.umu_database:
             self.umu_database.refresh_cache()
              
         

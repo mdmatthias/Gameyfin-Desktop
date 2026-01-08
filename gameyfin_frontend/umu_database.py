@@ -53,6 +53,9 @@ class UmuDatabase:
         """
         Fetches the full list from the API and rebuilds the local title cache.
         """
+        if sys.platform == "win32":
+            return
+
         print("Refreshing UmuDatabase cache...")
         all_entries_raw = self.list_all()
         self._build_title_cache(all_entries_raw)
