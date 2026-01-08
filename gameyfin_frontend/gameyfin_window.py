@@ -1,4 +1,5 @@
 import os
+import sys
 from PyQt6.QtWidgets import QMainWindow, QFileDialog, QTabWidget
 from PyQt6.QtGui import QCloseEvent, QIcon, QDesktopServices
 from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -49,6 +50,7 @@ class CustomWebEnginePage(QWebEnginePage):
 class GameyfinWindow(QMainWindow):
     def __init__(self, umu_database):
         super().__init__()
+        self.umu_database = umu_database
         self.setWindowTitle("Gameyfin")
         self.setGeometry(0, 0, settings_manager.get("GF_WINDOW_WIDTH"), settings_manager.get("GF_WINDOW_HEIGHT"))
         self.is_really_quitting = False
@@ -166,3 +168,54 @@ class GameyfinWindow(QMainWindow):
         })();"""
 
         self.browser.page().runJavaScript(js, 0, handle_js_result)
+
+    def apply_settings(self):
+        """Applies settings dynamically without requiring a restart."""
+        # 1. Update Window Geometry
+        w = settings_manager.get("GF_WINDOW_WIDTH")
+        h = settings_manager.get("GF_WINDOW_HEIGHT")
+        if w and h:
+            self.resize(w, h)
+
+        # 2. Update Browser URL
+        new_url_str = settings_manager.get("GF_URL")
+        if new_url_str:
+            new_url = QUrl(new_url_str)
+            if self.browser.url() != new_url:
+                print(f"Applying new URL: {new_url.toString()}")
+                self.browser.setUrl(new_url)
+                # Update the base_url in custom page for SSO logic
+                if isinstance(self.browser.page(), CustomWebEnginePage):
+                     self.browser.page().base_url = new_url
+                     self.browser.page().allowed_hosts.add(new_url.host())
+
+        # 3. Update SSO Host
+        sso_provider_host = settings_manager.get("GF_SSO_PROVIDER_HOST", "")
+        if sso_provider_host:
+            sso_host = QUrl(sso_provider_host).host() or sso_provider_host
+            if sso_host and isinstance(self.browser.page(), CustomWebEnginePage):
+                print(f"Updating SSO host allowlist: {sso_host}")
+                self.browser.page().allowed_hosts.add(sso_host)
+
+        # 4. Update Icon
+        icon_path = settings_manager.get("GF_ICON_PATH")
+        # Logic matches main initialization
+        app_icon = QIcon.fromTheme("org.gameyfin.Gameyfin-Desktop")
+        
+        if icon_path and os.path.exists(icon_path):
+             app_icon = QIcon(icon_path)
+        elif app_icon.isNull():
+             # Fallback to default bundled icon
+             script_dir = os.path.dirname(os.path.abspath(__file__))
+             default_icon_path = os.path.join(script_dir, "icon.png")
+             app_icon = QIcon(default_icon_path)
+             
+        self.setWindowIcon(app_icon)
+        # Update tab icon (index 0 is browser)
+        self.tab_widget.setTabIcon(0, app_icon)
+
+        # 5. Refresh UMU Database
+        if sys.platform != "win32" and self.umu_database:
+            self.umu_database.refresh_cache()
+             
+        

@@ -1,4 +1,5 @@
 import re
+import sys
 import requests
 from collections import defaultdict
 from typing import Dict, List
@@ -6,7 +7,11 @@ from .settings import settings_manager
 
 class UmuDatabase:
     def __init__(self):
-        self.umu_api_url = settings_manager.get("GF_UMU_API_URL")
+        if sys.platform == "win32":
+            print("Running on Windows. UmuDatabase disabled.")
+            self.umu_api_url = ""
+            self._games_by_title = {}
+            return
 
         # Stores data as: {"Game Title": [entry1, entry2, ...]}
         self._games_by_title: Dict[str, List[dict]] = defaultdict(list)
@@ -48,6 +53,9 @@ class UmuDatabase:
         """
         Fetches the full list from the API and rebuilds the local title cache.
         """
+        if sys.platform == "win32":
+            return
+
         print("Refreshing UmuDatabase cache...")
         all_entries_raw = self.list_all()
         self._build_title_cache(all_entries_raw)
@@ -59,7 +67,8 @@ class UmuDatabase:
         """
         response = None
         try:
-            response = requests.get(self.umu_api_url, params=params)
+            umu_api_url = settings_manager.get("GF_UMU_API_URL")
+            response = requests.get(umu_api_url, params=params)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:

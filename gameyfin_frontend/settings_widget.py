@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import subprocess
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QLineEdit, 
                              QPushButton, QLabel, QSpinBox, QMessageBox, QCheckBox, QHBoxLayout, QFileDialog)
 from .settings import settings_manager
@@ -32,16 +33,18 @@ class SettingsWidget(QWidget):
         
         self.proton_edit = QLineEdit()
         self.proton_edit.setText(settings_manager.get("PROTONPATH"))
-        self.form_layout.addRow("Proton Path:", self.proton_edit)
         
         self.umu_api_edit = QLineEdit()
         self.umu_api_edit.setText(settings_manager.get("GF_UMU_API_URL"))
-        self.form_layout.addRow("UMU API URL:", self.umu_api_edit)
 
         self.stores_edit = QLineEdit()
         stores = settings_manager.get("GF_UMU_DB_STORES")
         self.stores_edit.setText(json.dumps(stores))
-        self.form_layout.addRow("UMU Stores (JSON):", self.stores_edit)
+
+        if sys.platform == "linux":
+            self.form_layout.addRow("Proton Path:", self.proton_edit)
+            self.form_layout.addRow("UMU API URL:", self.umu_api_edit)
+            self.form_layout.addRow("UMU Stores (JSON):", self.stores_edit)
 
         self.minimized_check = QCheckBox()
         self.minimized_check.setChecked(bool(settings_manager.get("GF_START_MINIMIZED")))
@@ -58,15 +61,11 @@ class SettingsWidget(QWidget):
         
         self.layout.addLayout(self.form_layout)
         
-        self.save_button = QPushButton("Save and Restart")
+        self.save_button = QPushButton("Save and Apply")
         self.save_button.clicked.connect(self.save_settings)
         self.layout.addWidget(self.save_button)
         
         self.layout.addStretch()
-        
-        self.info_label = QLabel("Note: The application will restart to apply new settings.")
-        self.info_label.setStyleSheet("font-style: italic; color: gray;")
-        self.layout.addWidget(self.info_label)
 
     def browse_icon(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Icon", "", "Images (*.png *.jpg *.ico);;All Files (*)")
@@ -92,5 +91,8 @@ class SettingsWidget(QWidget):
         settings_manager.set("GF_START_MINIMIZED", 1 if self.minimized_check.isChecked() else 0)
         settings_manager.set("GF_ICON_PATH", self.icon_path_edit.text())
         
-        # Clean up and restart
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        # Apply settings immediately
+        if hasattr(self.window(), 'apply_settings'):
+            self.window().apply_settings()
+        
+        QMessageBox.information(self, "Settings Saved", "Settings have been saved and applied.")

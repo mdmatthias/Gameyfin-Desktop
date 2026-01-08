@@ -220,6 +220,46 @@ class DownloadItemWidget(QWidget):
 
         target_dir = os.path.splitext(self.record["path"])[0]
 
+        if sys.platform == "win32":
+            # --- Windows Logic ---
+            launcher_paths = []
+            try:
+                for root, dirs, files in os.walk(target_dir):
+                    for file in files:
+                        if file.lower().endswith(".exe"):
+                            launcher_paths.append(os.path.join(root, file))
+            except Exception as e:
+                print(f"Error searching for launcher: {e}")
+                self.on_unzip_error(f"Install OK, but failed to find launcher: {e}")
+                return
+
+            if not launcher_paths:
+                self.status_label.setText("Install complete, no .exe found.")
+                self.status_label.setStyleSheet("color: #E67E22;")
+                QDesktopServices.openUrl(QUrl.fromLocalFile(target_dir))
+                return
+
+            launcher_to_run = None
+            if len(launcher_paths) == 1:
+                launcher_to_run = launcher_paths[0]
+            else:
+                dialog = SelectLauncherDialog(target_dir, launcher_paths, self)
+                if dialog.exec() == QDialog.DialogCode.Accepted:
+                    launcher_to_run = dialog.get_selected_launcher()
+                    if not launcher_to_run:
+                        self.status_label.setText("Install complete, no launcher selected.")
+                        self.status_label.setStyleSheet("color: #E67E22;")
+                        return
+                else:
+                    self.status_label.setText("Install complete, launch cancelled.")
+                    self.status_label.setStyleSheet("")
+                    return
+
+            if launcher_to_run:
+                self._start_windows_installation(launcher_to_run)
+            return
+
+        # --- Linux Logic (Original) ---
         default_game_id = "umu-default"
         default_store = "none"
         results = []
@@ -337,6 +377,33 @@ class DownloadItemWidget(QWidget):
                 self._start_linux_installation(launcher_to_run, target_dir, self.current_install_config)
             else:
                 raise NotImplementedError("Other platforms not yet implemented.")
+
+
+    def _start_windows_installation(self, launcher_to_run: str):
+        """
+        Handles the Windows-specific run process.
+        """
+        try:
+            print(f"Executing (Windows): {launcher_to_run}")
+            self.run_process = QProcess(self)
+            self.run_process.setProgram(launcher_to_run)
+            self.run_process.setWorkingDirectory(os.path.dirname(launcher_to_run))
+            
+            self.run_process.finished.connect(self.on_run_finished)
+            self.run_process.start()
+
+            if self.run_process.waitForStarted():
+                print(f"Launch successful. Monitoring QProcess.")
+                size = self.record.get("total_bytes", 0)
+                self.status_label.setText(f"Running... ({self.format_size(size)})")
+                self.status_label.setStyleSheet("color: #3498DB;")
+            else:
+                print(f"Launch failed (QProcess failed to start).")
+                self.status_label.setText("Launch failed.")
+                self.status_label.setStyleSheet("color: red;")
+        except Exception as e:
+            self.status_label.setText(f"Launch failed: {e}")
+            self.status_label.setStyleSheet("color: red;")
 
 
     def _start_linux_installation(self, launcher_to_run: str, target_dir: str, install_config: dict):

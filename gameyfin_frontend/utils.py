@@ -1,5 +1,17 @@
 import os
+import sys
 from pathlib import Path
+
+
+def resource_path(relative_path: str) -> str:
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+
+    # Fallback for dev: assume relative_path is relative to the project root
+    # utils.py is in gameyfin_frontend/
+    base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, relative_path)
 
 
 def get_xdg_user_dir(dir_name: str) -> Path:
