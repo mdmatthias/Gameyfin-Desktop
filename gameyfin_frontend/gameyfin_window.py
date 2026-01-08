@@ -1,4 +1,5 @@
 import os
+import sys
 from PyQt6.QtWidgets import QMainWindow, QFileDialog, QTabWidget
 from PyQt6.QtGui import QCloseEvent, QIcon, QDesktopServices
 from PyQt6.QtWebEngineWidgets import QWebEngineView
