@@ -121,7 +121,11 @@ Choose your platform below to get started.
 ### 📝 Notes
 
 #### Data Persistence
-The application saves all browser data (cookies, local storage, cache, etc.) to a profile stored in a `.gameyfin-app-data` folder within the application's directory. This allows your login session to persist between launches. To clear your session and all stored data, simply delete this folder.
+The application saves all data (settings, download history, cookies, local storage, and cache) to your system's standard application data directory. This allows your login session and configuration to persist between launches.
+
+*   **Linux:** `~/.local/share/Gameyfin/Gameyfin/`
+*   **Windows:** `%APPDATA%\Gameyfin\Gameyfin\`
+
 
 #### Download Progress
 The download progress bar provides an estimation. The total size is calculated based on the uncompressed files within the archive, not the size of the `.zip` file being downloaded. See [this issue](https://github.com/gameyfin/gameyfin/issues/707#issuecomment-2038166299) for more details.
