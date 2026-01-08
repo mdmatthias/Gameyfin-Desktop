@@ -13,8 +13,6 @@ class UmuDatabase:
             self._games_by_title = {}
             return
 
-        self.umu_api_url = settings_manager.get("GF_UMU_API_URL")
-
         # Stores data as: {"Game Title": [entry1, entry2, ...]}
         self._games_by_title: Dict[str, List[dict]] = defaultdict(list)
 
@@ -66,7 +64,8 @@ class UmuDatabase:
         """
         response = None
         try:
-            response = requests.get(self.umu_api_url, params=params)
+            umu_api_url = settings_manager.get("GF_UMU_API_URL")
+            response = requests.get(umu_api_url, params=params)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:

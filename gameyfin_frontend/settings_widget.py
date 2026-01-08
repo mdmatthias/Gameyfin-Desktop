@@ -61,15 +61,11 @@ class SettingsWidget(QWidget):
         
         self.layout.addLayout(self.form_layout)
         
-        self.save_button = QPushButton("Save and Restart")
+        self.save_button = QPushButton("Save and Apply")
         self.save_button.clicked.connect(self.save_settings)
         self.layout.addWidget(self.save_button)
         
         self.layout.addStretch()
-        
-        self.info_label = QLabel("Note: The application will restart to apply new settings.")
-        self.info_label.setStyleSheet("font-style: italic; color: gray;")
-        self.layout.addWidget(self.info_label)
 
     def browse_icon(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Icon", "", "Images (*.png *.jpg *.ico);;All Files (*)")
@@ -95,14 +91,8 @@ class SettingsWidget(QWidget):
         settings_manager.set("GF_START_MINIMIZED", 1 if self.minimized_check.isChecked() else 0)
         settings_manager.set("GF_ICON_PATH", self.icon_path_edit.text())
         
-        # Clean up and restart
-        print("Restarting application...")
-        if getattr(sys, 'frozen', False):
-            env = os.environ.copy()
-            env.pop('_MEIPASS2', None)
-            subprocess.Popen([sys.executable] + sys.argv[1:], env=env)
-        else:
-            # For standard Python scripts
-            subprocess.Popen([sys.executable] + sys.argv)
-            
-        sys.exit()
+        # Apply settings immediately
+        if hasattr(self.window(), 'apply_settings'):
+            self.window().apply_settings()
+        
+        QMessageBox.information(self, "Settings Saved", "Settings have been saved and applied.")
