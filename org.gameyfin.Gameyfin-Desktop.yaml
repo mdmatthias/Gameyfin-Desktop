@@ -49,6 +49,8 @@ modules:
       - install -m 755 gameyfin-desktop.sh /app/bin/gameyfin-desktop
       - mkdir -p /app/share/applications
       - install -m 644 org.gameyfin.Gameyfin-Desktop.desktop /app/share/applications/
+      - mkdir -p /app/share/metainfo
+      - install -m 644 org.gameyfin.Gameyfin-Desktop.metainfo.xml /app/share/metainfo/
       - export PYTHONPATH=$PYTHONPATH:/app/lib/python3.13/site-packages && python3 make_square_icon.py gameyfin_frontend/icon.png square_icon.png
       - mkdir -p /app/share/icons/hicolor/256x256/apps
       - install -m 644 square_icon.png /app/share/icons/hicolor/256x256/apps/org.gameyfin.Gameyfin-Desktop.png
