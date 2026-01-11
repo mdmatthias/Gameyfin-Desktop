@@ -75,7 +75,7 @@
   <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
   <content_rating type="oars-1.1" />
   <releases>
-    <release version="2.0.12" date="2026-01-11"/>
+    <release version="2.1.0" date="2026-01-11"/>
   </releases>
   <launchable type="desktop-id">org.gameyfin.Gameyfin-Desktop.desktop</launchable>
   <provides>
