@@ -75,6 +75,13 @@
   <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="2.1.1" date="2026-01-18">
+    <description>
+      <ul>
+        <li>Fixed SSO host parsing to support ports and multiple hosts</li>
+      </ul>
+    </description>
+  </release>
     <release version="2.1.0" date="2026-01-11"/>
   </releases>
   <launchable type="desktop-id">org.gameyfin.Gameyfin-Desktop.desktop</launchable>
