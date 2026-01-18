@@ -26,9 +26,10 @@ jobs:
         cache-key: flatpak-builder-${{ github.sha }}
 
     - name: Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       if: startsWith(github.ref, 'refs/tags/')
       with:
+        prerelease: ${{ endsWith(github.ref_name, '-dev') }}
         files: Gameyfin-Desktop-${{ github.ref_name }}.flatpak
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

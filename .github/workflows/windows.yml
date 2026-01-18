@@ -13,32 +13,33 @@ jobs:
     runs-on: windows-latest
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11' 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pyinstaller pillow
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller pillow
 
-    - name: Build with PyInstaller
-      run: |
-        pyinstaller --name "Gameyfin-Desktop" --onefile --windowed --icon="gameyfin_frontend/icon.png" --add-data "gameyfin_frontend/icon.png;gameyfin_frontend" --add-data ".env.example;." gameyfin_qt.py
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --name "Gameyfin-Desktop" --onefile --windowed --icon="gameyfin_frontend/icon.png" --add-data "gameyfin_frontend/icon.png;gameyfin_frontend" --add-data ".env.example;." gameyfin_qt.py
 
-    - name: Rename Executable
-      run: |
-        mv dist/Gameyfin-Desktop.exe dist/Gameyfin-Desktop-${{ github.ref_name }}.exe
+      - name: Rename Executable
+        run: |
+          mv dist/Gameyfin-Desktop.exe dist/Gameyfin-Desktop-${{ github.ref_name }}.exe
 
-    - name: Release
-      uses: softprops/action-gh-release@v1
-      if: startsWith(github.ref, 'refs/tags/')
-      with:
-        files: dist/Gameyfin-Desktop-${{ github.ref_name }}.exe
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          prerelease: ${{ endsWith(github.ref_name, '-dev') }}
+          files: dist/Gameyfin-Desktop-${{ github.ref_name }}.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

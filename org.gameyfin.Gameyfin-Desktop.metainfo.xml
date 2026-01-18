@@ -1,91 +1,106 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>org.gameyfin.Gameyfin-Desktop</id>
-  <metadata_license>CC0-1.0</metadata_license>
-  <project_license>GPL-3.0</project_license>
-  <name>Gameyfin Desktop</name>
-  <summary>A dedicated desktop client for Gameyfin</summary>
-  <description>
-    <p>
-      Gameyfin Desktop is a dedicated desktop client for Gameyfin that wraps the web interface
-      in a standalone application for a more integrated experience.
-    </p>
-    <p>Key Features:</p>
-    <ul>
-      <li>
-        <strong>Dedicated Desktop Application:</strong> Runs Gameyfin in its own window, separate from your web browser.
-      </li>
-      <li>
-        <strong>Persistent SSO Login:</strong> Supports persistent logins with SSO providers. The application saves your session data, so you only have to log in once.
-      </li>
-      <li>
-        <strong>System Tray Integration:</strong> Includes an icon in the system tray for quickly showing, hiding, or quitting the application.
-      </li>
-      <li>
-        <strong>Integrated Settings:</strong> Configure your Gameyfin URL, SSO host, window dimensions, and more directly within the app.
-      </li>
-      <li>
-        <strong>Download Manager:</strong> Manages all file downloads in a persistent "Downloads" tab, showing progress, speed, and history.
-      </li>
-      <li>
-        <strong>Linux Installer:</strong>
-        <ul>
-          <li>Prompts for per-install environment configuration (Wayland, GameID, Store, etc.).</li>
-          <li>Extracts the downloaded archive and detects .exe files.</li>
-          <li>Automatically looks up the umu-id for proton fixes.</li>
-          <li>Automatically creates a wineprefix and launches the installer using umu-run.</li>
-          <li>Quick access to winecfg and winetricks for manual prefix configuration.</li>
-        </ul>
-      </li>
-      <li>
-        <strong>Integrated Shortcut Management:</strong> Automatically detects shortcuts created by the installer and allows you to add them to your Desktop and Application Menu.
-      </li>
-    </ul>
-  </description>
-  <screenshots>
-    <screenshot type="default">
-      <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview6.png</image>
-    </screenshot>
-    <screenshot>
-      <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview2.png</image>
-      <caption>SSO Login Screen</caption>
-    </screenshot>
-    <screenshot>
-      <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview.png</image>
-      <caption>Download Manager</caption>
-    </screenshot>
-    <screenshot>
-      <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview3.png</image>
-      <caption>Wineprefix Config</caption>
-    </screenshot>
-    <screenshot>
-      <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview4.png</image>
-      <caption>Extracting Files</caption>
-    </screenshot>
-    <screenshot>
-      <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview5.png</image>
-      <caption>Installing Game</caption>
-    </screenshot>
-    <screenshot>
-      <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview7.png</image>
-      <caption>Application Settings</caption>
-    </screenshot>
-  </screenshots>
-  <url type="homepage">https://github.com/mdmatthias/Gameyfin-Desktop</url>
-  <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
-  <content_rating type="oars-1.1" />
-  <releases>
-    <release version="2.1.1" date="2026-01-18">
+    <id>org.gameyfin.Gameyfin-Desktop</id>
+    <metadata_license>CC0-1.0</metadata_license>
+    <project_license>GPL-3.0</project_license>
+    <name>Gameyfin Desktop</name>
+    <summary>A dedicated desktop client for Gameyfin</summary>
     <description>
-      <ul>
-        <li>Fixed SSO host parsing to support ports and multiple hosts</li>
-      </ul>
+        <p>
+            Gameyfin Desktop is a dedicated desktop client for Gameyfin that wraps the web interface
+            in a standalone application for a more integrated experience.
+        </p>
+        <p>Key Features:</p>
+        <ul>
+            <li>
+                <strong>Dedicated Desktop Application:</strong>
+                Runs Gameyfin in its own window, separate from your web browser.
+            </li>
+            <li>
+                <strong>Persistent SSO Login:</strong>
+                Supports persistent logins with SSO providers. The application saves your session data, so you only have
+                to log in once.
+            </li>
+            <li>
+                <strong>System Tray Integration:</strong>
+                Includes an icon in the system tray for quickly showing, hiding, or quitting the application.
+            </li>
+            <li>
+                <strong>Integrated Settings:</strong>
+                Configure your Gameyfin URL, SSO host, window dimensions, and more directly within the app.
+            </li>
+            <li>
+                <strong>Download Manager:</strong>
+                Manages all file downloads in a persistent "Downloads" tab, showing progress, speed, and history.
+            </li>
+            <li>
+                <strong>Linux Installer:</strong>
+                <ul>
+                    <li>Prompts for per-install environment configuration (Wayland, GameID, Store, etc.).</li>
+                    <li>Extracts the downloaded archive and detects .exe files.</li>
+                    <li>Automatically looks up the umu-id for proton fixes.</li>
+                    <li>Automatically creates a wineprefix and launches the installer using umu-run.</li>
+                    <li>Quick access to winecfg and winetricks for manual prefix configuration.</li>
+                </ul>
+            </li>
+            <li>
+                <strong>Integrated Shortcut Management:</strong>
+                Automatically detects shortcuts created by the installer and allows you to add them to your Desktop and
+                Application Menu.
+            </li>
+        </ul>
     </description>
-  </release>
-    <release version="2.1.0" date="2026-01-11"/>
-  </releases>
-  <launchable type="desktop-id">org.gameyfin.Gameyfin-Desktop.desktop</launchable>
-  <provides>
-    <binary>gameyfin-desktop</binary>
-  </provides>
+    <screenshots>
+        <screenshot type="default">
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview6.png</image>
+        </screenshot>
+        <screenshot>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview2.png</image>
+            <caption>SSO Login Screen</caption>
+        </screenshot>
+        <screenshot>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview.png</image>
+            <caption>Download Manager</caption>
+        </screenshot>
+        <screenshot>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview3.png</image>
+            <caption>Wineprefix Config</caption>
+        </screenshot>
+        <screenshot>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview4.png</image>
+            <caption>Extracting Files</caption>
+        </screenshot>
+        <screenshot>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview5.png</image>
+            <caption>Installing Game</caption>
+        </screenshot>
+        <screenshot>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview7.png</image>
+            <caption>Application Settings</caption>
+        </screenshot>
+    </screenshots>
+    <url type="homepage">https://github.com/mdmatthias/Gameyfin-Desktop</url>
+    <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
+    <content_rating type="oars-1.1"/>
+    <releases>
+        <release version="2.1.2-dev" date="2026-01-18">
+            <description>
+                <ul>
+                    <li>Light and dark mode fix for logo + extra themes</li>
+                </ul>
+            </description>
+        </release>
+        <release version="2.1.1" date="2026-01-18">
+            <description>
+                <ul>
+                    <li>Fixed SSO host parsing to support ports and multiple hosts</li>
+                </ul>
+            </description>
+        </release>
+        <release version="2.1.0" date="2026-01-11"/>
+    </releases>
+    <launchable type="desktop-id">org.gameyfin.Gameyfin-Desktop.desktop</launchable>
+    <provides>
+        <binary>gameyfin-desktop</binary>
+    </provides>
 </component>
