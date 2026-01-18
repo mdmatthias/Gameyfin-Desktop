@@ -28,7 +28,8 @@ class SettingsManager:
             "GF_ICON_PATH": "",
             "PROTONPATH": "GE-Proton",
             "GF_UMU_API_URL": "https://umu.openwinecomponents.org/umu_api.php",
-            "GF_UMU_DB_STORES": ["none", "gog", "amazon", "battlenet", "ea", "egs", "epic", "humble", "itchio", "origin", "steam", "uplay", "ubisoft"]
+            "GF_UMU_DB_STORES": ["none", "gog", "amazon", "battlenet", "ea", "egs", "epic", "humble", "itchio", "origin", "steam", "uplay", "ubisoft"],
+            "GF_THEME": "auto"
         }
         
         self.settings = self.defaults.copy()

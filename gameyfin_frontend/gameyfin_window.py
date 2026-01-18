@@ -1,6 +1,6 @@
 import os
 import sys
-from PyQt6.QtWidgets import QMainWindow, QFileDialog, QTabWidget
+from PyQt6.QtWidgets import QMainWindow, QFileDialog, QTabWidget, QApplication
 from PyQt6.QtGui import QCloseEvent, QIcon, QDesktopServices
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtCore import QUrl, QStandardPaths
@@ -79,7 +79,7 @@ class GameyfinWindow(QMainWindow):
         self.setGeometry(0, 0, settings_manager.get("GF_WINDOW_WIDTH"), settings_manager.get("GF_WINDOW_HEIGHT"))
         self.is_really_quitting = False
         
-        icon_path = get_app_icon_path(settings_manager.get("GF_ICON_PATH"))
+        icon_path = get_app_icon_path(settings_manager.get("GF_ICON_PATH"), theme=settings_manager.get("GF_THEME"))
 
         profile_path = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
         os.makedirs(profile_path, exist_ok=True)
@@ -225,11 +225,12 @@ class GameyfinWindow(QMainWindow):
         app_icon = QIcon.fromTheme("org.gameyfin.Gameyfin-Desktop")
         
         custom_icon_path = settings_manager.get("GF_ICON_PATH")
+        theme = settings_manager.get("GF_THEME")
         if custom_icon_path and os.path.exists(custom_icon_path):
              app_icon = QIcon(custom_icon_path)
         elif app_icon.isNull():
              # Fallback to theme-aware bundled icon
-             app_icon = QIcon(get_app_icon_path())
+             app_icon = QIcon(get_app_icon_path(theme=theme))
              
         self.setWindowIcon(app_icon)
         # Update tab icon (index 0 is browser)
@@ -238,5 +239,19 @@ class GameyfinWindow(QMainWindow):
         # 5. Refresh UMU Database
         if sys.platform != "win32" and self.umu_database:
             self.umu_database.refresh_cache()
-             
+
+        # 6. Update Theme
+        theme = settings_manager.get("GF_THEME")
+        app = QApplication.instance()
+        if theme and theme != "auto":
+            from qt_material import apply_stylesheet
+            apply_stylesheet(app, theme=theme)
+        else:
+            app.setStyleSheet("")
+            if hasattr(app, 'default_palette'):
+                app.setPalette(app.default_palette)
+            if hasattr(app, 'default_font'):
+                app.setFont(app.default_font)
+            if hasattr(app, 'default_style_name'):
+                app.setStyle(app.default_style_name)
         

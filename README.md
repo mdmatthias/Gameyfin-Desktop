@@ -47,6 +47,7 @@ While the application can be configured using environment variables (see below),
 | `GF_ICON_PATH`         | The absolute file path to a custom tray icon.                                    |
 | `GF_WINDOW_WIDTH`      | Window width.                                                                    |
 | `GF_WINDOW_HEIGHT`     | Window height.                                                                   |
+| `GF_THEME`             | The UI theme to use (e.g., `dark_teal.xml`, `light_blue.xml`). Set to `auto` for default. |
 | `PROTONPATH`           | **(Linux Only)** Path or name of the Proton version to use (default: `GE-Proton`).                |
 | `GF_UMU_API_URL`       | **(Linux Only)** URL for the UMU API to search for game fixes.                                    |
 
@@ -101,11 +102,11 @@ Choose your platform below to get started.
 1. **Dependencies:** Install Python, required libraries, and `umu-launcher`.
    *   **Arch:**
        ```bash
-       sudo pacman -Syu python-pyqt6 python-pyqt6-webengine python-dotenv python-requests umu-launcher
+       sudo pacman -Syu python-pyqt6 python-pyqt6-webengine python-dotenv python-requests python-qt-material umu-launcher
        ```
    *   **Fedora:**
        ```bash
-       sudo dnf install python3-pyqt6 python3-pyqt6-webengine python3-dotenv python3-requests umu-launcher
+       sudo dnf install python3-pyqt6 python3-pyqt6-webengine python3-dotenv python3-requests python3-qt-material umu-launcher
        ```
    *   **Pip (General):**
        ```bash

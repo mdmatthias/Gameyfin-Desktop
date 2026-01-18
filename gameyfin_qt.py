@@ -22,6 +22,17 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
 
+    # Store default palette and font for "auto" theme fallback
+    app.default_palette = app.palette()
+    app.default_font = app.font()
+    app.default_style_name = app.style().objectName()
+
+    # Apply theme
+    theme = settings_manager.get("GF_THEME")
+    if theme and theme != "auto":
+        from qt_material import apply_stylesheet
+        apply_stylesheet(app, theme=theme)
+
     umu_database = UmuDatabase()
 
     app.setApplicationName("Gameyfin")
@@ -31,7 +42,7 @@ if __name__ == "__main__":
     # Set window icon
     app_icon = QIcon.fromTheme("org.gameyfin.Gameyfin-Desktop")
     if app_icon.isNull():
-        icon_path = get_app_icon_path(settings_manager.get("GF_ICON_PATH"))
+        icon_path = get_app_icon_path(settings_manager.get("GF_ICON_PATH"), theme=theme)
         app_icon = QIcon(icon_path)
     app.setWindowIcon(app_icon)
 

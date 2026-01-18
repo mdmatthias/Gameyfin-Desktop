@@ -4,4 +4,4 @@ PyQt6-WebEngine~=6.0
 requests~=2.0
 python-dotenv~=1.0
 requests~=2.0
-frozendict~=2.4
+qt-material~=2.17

@@ -16,22 +16,30 @@ def resource_path(relative_path: str) -> str:
     return os.path.join(base_path, relative_path)
 
 
-def get_app_icon_path(custom_path: str = None) -> str:
+def get_app_icon_path(custom_path: str = None, theme: str = None) -> str:
     """
-    Returns the appropriate icon path based on the system theme (Light/Dark)
-    or a custom path if provided.
+    Returns the appropriate icon path based on the selected theme, 
+    system theme (Light/Dark), or a custom path if provided.
     """
     if custom_path and os.path.exists(custom_path):
         return custom_path
 
     icon_name = "icon.png"
-    app = QGuiApplication.instance()
 
-    if app:
-        # Qt 6.5+ supports colorScheme detection
-        scheme = app.styleHints().colorScheme()
-        if scheme == Qt.ColorScheme.Light:
+    # 1. Check if a qt-material theme is specified
+    if theme and theme != "auto":
+        if "light" in theme.lower():
             icon_name = "icon_light.png"
+        else:
+            icon_name = "icon.png"
+    else:
+        # 2. Fallback to system theme detection
+        app = QGuiApplication.instance()
+        if app:
+            # Qt 6.5+ supports colorScheme detection
+            scheme = app.styleHints().colorScheme()
+            if scheme == Qt.ColorScheme.Light:
+                icon_name = "icon_light.png"
 
     return resource_path(os.path.join("gameyfin_frontend", icon_name))
 

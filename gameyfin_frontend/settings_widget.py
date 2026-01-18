@@ -3,7 +3,8 @@ import sys
 import json
 import subprocess
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QLineEdit, 
-                             QPushButton, QLabel, QSpinBox, QMessageBox, QCheckBox, QHBoxLayout, QFileDialog)
+                             QPushButton, QLabel, QSpinBox, QMessageBox, QCheckBox, QHBoxLayout, QFileDialog, QComboBox)
+from qt_material import list_themes
 from .settings import settings_manager
 
 class SettingsWidget(QWidget):
@@ -50,6 +51,14 @@ class SettingsWidget(QWidget):
         self.minimized_check.setChecked(bool(settings_manager.get("GF_START_MINIMIZED")))
         self.form_layout.addRow("Start Minimized:", self.minimized_check)
 
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItem("auto")
+        self.theme_combo.addItems(list_themes())
+        current_theme = settings_manager.get("GF_THEME")
+        if current_theme:
+            self.theme_combo.setCurrentText(current_theme)
+        self.form_layout.addRow("Theme:", self.theme_combo)
+
         self.icon_path_edit = QLineEdit()
         self.icon_path_edit.setPlaceholderText("(default)")
         self.icon_path_edit.setText(settings_manager.get("GF_ICON_PATH"))
@@ -90,6 +99,7 @@ class SettingsWidget(QWidget):
         settings_manager.set("GF_UMU_API_URL", self.umu_api_edit.text())
         settings_manager.set("GF_UMU_DB_STORES", stores)
         settings_manager.set("GF_START_MINIMIZED", 1 if self.minimized_check.isChecked() else 0)
+        settings_manager.set("GF_THEME", self.theme_combo.currentText())
         settings_manager.set("GF_ICON_PATH", self.icon_path_edit.text())
         
         # Apply settings immediately
