@@ -29,10 +29,33 @@ class CustomWebEnginePage(QWebEnginePage):
         self.allowed_hosts = {self.base_url.host()}
         sso_provider_host = settings_manager.get("GF_SSO_PROVIDER_HOST", "")
         if sso_provider_host:
-            # Parse only the host, https://sso.host.com -> sso.host.com
-            sso_host = QUrl(sso_provider_host).host() or sso_provider_host
-            if sso_host:
-                self.allowed_hosts.add(sso_host)
+            self.allowed_hosts.update(self.parse_sso_hosts(sso_provider_host))
+
+    @staticmethod
+    def parse_sso_hosts(sso_string):
+        """
+        Parses a comma-separated string of hosts.
+        Ensures we extract the hostname correctly even if the user provides a port or no scheme.
+        """
+        hosts = set()
+        if not sso_string:
+            return hosts
+
+        for part in sso_string.split(','):
+            part = part.strip()
+            if not part:
+                continue
+            
+            # If no scheme is present, QUrl might not parse the host/port correctly.
+            # Prepend https:// to ensure it's treated as a URL.
+            if "://" not in part:
+                part = f"https://{part}"
+            
+            qurl = QUrl(part)
+            host = qurl.host()
+            if host:
+                hosts.add(host)
+        return hosts
 
     def createWindow(self, _type):
         return UrlCatchingPage(self.profile(), self)
@@ -191,11 +214,11 @@ class GameyfinWindow(QMainWindow):
 
         # 3. Update SSO Host
         sso_provider_host = settings_manager.get("GF_SSO_PROVIDER_HOST", "")
-        if sso_provider_host:
-            sso_host = QUrl(sso_provider_host).host() or sso_provider_host
-            if sso_host and isinstance(self.browser.page(), CustomWebEnginePage):
-                print(f"Updating SSO host allowlist: {sso_host}")
-                self.browser.page().allowed_hosts.add(sso_host)
+        if sso_provider_host and isinstance(self.browser.page(), CustomWebEnginePage):
+            hosts = CustomWebEnginePage.parse_sso_hosts(sso_provider_host)
+            if hosts:
+                print(f"Updating SSO host allowlist: {hosts}")
+                self.browser.page().allowed_hosts.update(hosts)
 
         # 4. Update Icon
         icon_path = settings_manager.get("GF_ICON_PATH")
