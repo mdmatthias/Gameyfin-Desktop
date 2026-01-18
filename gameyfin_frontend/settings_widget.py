@@ -51,6 +51,7 @@ class SettingsWidget(QWidget):
         self.form_layout.addRow("Start Minimized:", self.minimized_check)
 
         self.icon_path_edit = QLineEdit()
+        self.icon_path_edit.setPlaceholderText("(default)")
         self.icon_path_edit.setText(settings_manager.get("GF_ICON_PATH"))
         self.icon_browse_btn = QPushButton("Browse...")
         self.icon_browse_btn.clicked.connect(self.browse_icon)

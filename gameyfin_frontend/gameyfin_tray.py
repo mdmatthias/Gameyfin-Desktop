@@ -2,6 +2,7 @@ import os
 from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QIcon, QAction
 from .settings import settings_manager
+from .utils import get_app_icon_path
 
 
 class GameyfinTray:
@@ -11,12 +12,11 @@ class GameyfinTray:
         self.tray = QSystemTrayIcon()
         
         icon_name = "org.gameyfin.Gameyfin-Desktop"
-        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
         
         # Try to use the theme icon (especially for Flatpak), fall back to file path
         icon = QIcon.fromTheme(icon_name)
         if icon.isNull():
-            icon = QIcon(settings_manager.get("GF_ICON_PATH", icon_path))
+            icon = QIcon(get_app_icon_path(settings_manager.get("GF_ICON_PATH")))
             
         self.tray.setIcon(icon)
         self.menu = QMenu()

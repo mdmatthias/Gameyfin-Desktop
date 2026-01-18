@@ -1,6 +1,8 @@
 import os
 import sys
 from pathlib import Path
+from PyQt6.QtGui import QGuiApplication
+from PyQt6.QtCore import Qt
 
 
 def resource_path(relative_path: str) -> str:
@@ -12,6 +14,26 @@ def resource_path(relative_path: str) -> str:
     # utils.py is in gameyfin_frontend/
     base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base_path, relative_path)
+
+
+def get_app_icon_path(custom_path: str = None) -> str:
+    """
+    Returns the appropriate icon path based on the system theme (Light/Dark)
+    or a custom path if provided.
+    """
+    if custom_path and os.path.exists(custom_path):
+        return custom_path
+
+    icon_name = "icon.png"
+    app = QGuiApplication.instance()
+
+    if app:
+        # Qt 6.5+ supports colorScheme detection
+        scheme = app.styleHints().colorScheme()
+        if scheme == Qt.ColorScheme.Light:
+            icon_name = "icon_light.png"
+
+    return resource_path(os.path.join("gameyfin_frontend", icon_name))
 
 
 def get_xdg_user_dir(dir_name: str) -> Path:

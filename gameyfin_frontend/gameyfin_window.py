@@ -11,6 +11,7 @@ from gameyfin_frontend.widgets.download_manager import DownloadManagerWidget
 
 from .settings_widget import SettingsWidget
 from .settings import settings_manager
+from .utils import get_app_icon_path
 
 class UrlCatchingPage(QWebEnginePage):
     def __init__(self, profile, parent=None):
@@ -77,9 +78,8 @@ class GameyfinWindow(QMainWindow):
         self.setWindowTitle("Gameyfin")
         self.setGeometry(0, 0, settings_manager.get("GF_WINDOW_WIDTH"), settings_manager.get("GF_WINDOW_HEIGHT"))
         self.is_really_quitting = False
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-
-        icon_path = os.path.join(script_dir, "icon.png")
+        
+        icon_path = get_app_icon_path(settings_manager.get("GF_ICON_PATH"))
 
         profile_path = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
         os.makedirs(profile_path, exist_ok=True)
@@ -221,17 +221,15 @@ class GameyfinWindow(QMainWindow):
                 self.browser.page().allowed_hosts.update(hosts)
 
         # 4. Update Icon
-        icon_path = settings_manager.get("GF_ICON_PATH")
         # Logic matches main initialization
         app_icon = QIcon.fromTheme("org.gameyfin.Gameyfin-Desktop")
         
-        if icon_path and os.path.exists(icon_path):
-             app_icon = QIcon(icon_path)
+        custom_icon_path = settings_manager.get("GF_ICON_PATH")
+        if custom_icon_path and os.path.exists(custom_icon_path):
+             app_icon = QIcon(custom_icon_path)
         elif app_icon.isNull():
-             # Fallback to default bundled icon
-             script_dir = os.path.dirname(os.path.abspath(__file__))
-             default_icon_path = os.path.join(script_dir, "icon.png")
-             app_icon = QIcon(default_icon_path)
+             # Fallback to theme-aware bundled icon
+             app_icon = QIcon(get_app_icon_path())
              
         self.setWindowIcon(app_icon)
         # Update tab icon (index 0 is browser)
