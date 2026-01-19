@@ -83,6 +83,13 @@
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="2.1.3-dev" date="2026-01-20">
+            <description>
+                <ul>
+                    <li>Rework SSO handling, no more config needed</li>
+                </ul>
+            </description>
+        </release>
         <release version="2.1.2-dev" date="2026-01-18">
             <description>
                 <ul>
