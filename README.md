@@ -8,7 +8,7 @@ A dedicated desktop client for [Gameyfin](https://github.com/gameyfin/gameyfin) 
 * **🖥️ Dedicated Desktop Application:** Runs Gameyfin in its own window on both Windows and Linux, separate from your web browser.
 * **🔑 Persistent SSO Login:** Supports persistent logins with SSO providers. The application saves your session data, so you only have to log in once. (*Note: This requires the "remember me" feature to be enabled in your SSO provider's settings.*)
 * **⚙️ System Tray Integration:** Includes an icon in the system tray for quickly showing, hiding, or quitting the application.
-* **⚙️ Integrated Settings:** Configure your Gameyfin URL, SSO host, window dimensions, and more directly within the app's **Settings** tab.
+* **⚙️ Integrated Settings:** Configure your Gameyfin URL, window dimensions, and more directly within the app's **Settings** tab.
 * **📥 Download Manager:**
   * Manages all file downloads in a persistent "Downloads" tab.
   * Shows progress, speed, and a complete download history.
@@ -42,7 +42,6 @@ While the application can be configured using environment variables (see below),
 | Environment Variable   | Description                                                                      |
 |:-----------------------|:---------------------------------------------------------------------------------|
 | `GF_URL`               | **(Required)** The URL of your Gameyfin instance, e.g., `http://localhost:8080`. |
-| `GF_SSO_PROVIDER_HOST` | The host of your SSO provider, e.g., `sso.host.com`. **Required if using SSO.**  |
 | `GF_START_MINIMIZED`   | Set to `1` to start the application minimized to the tray.                       |
 | `GF_ICON_PATH`         | The absolute file path to a custom tray icon.                                    |
 | `GF_WINDOW_WIDTH`      | Window width.                                                                    |

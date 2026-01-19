@@ -16,7 +16,8 @@ from gameyfin_frontend.settings import settings_manager
 
 load_dotenv()
 
-
+# Disable Web Security to bypass CORS issues with Authentik redirect
+os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-web-security"
 
 if __name__ == "__main__":
 

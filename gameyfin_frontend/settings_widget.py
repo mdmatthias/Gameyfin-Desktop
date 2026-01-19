@@ -18,10 +18,6 @@ class SettingsWidget(QWidget):
         self.url_edit.setText(settings_manager.get("GF_URL"))
         self.form_layout.addRow("Gameyfin URL:", self.url_edit)
         
-        self.sso_edit = QLineEdit()
-        self.sso_edit.setText(settings_manager.get("GF_SSO_PROVIDER_HOST"))
-        self.form_layout.addRow("SSO Provider Host:", self.sso_edit)
-        
         self.width_spin = QSpinBox()
         self.width_spin.setRange(800, 3840)
         self.width_spin.setValue(settings_manager.get("GF_WINDOW_WIDTH"))
@@ -92,7 +88,6 @@ class SettingsWidget(QWidget):
             return
 
         settings_manager.set("GF_URL", self.url_edit.text())
-        settings_manager.set("GF_SSO_PROVIDER_HOST", self.sso_edit.text())
         settings_manager.set("GF_WINDOW_WIDTH", self.width_spin.value())
         settings_manager.set("GF_WINDOW_HEIGHT", self.height_spin.value())
         settings_manager.set("PROTONPATH", self.proton_edit.text())

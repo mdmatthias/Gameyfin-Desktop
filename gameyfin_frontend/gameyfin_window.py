@@ -1,9 +1,9 @@
 import os
 import sys
-from PyQt6.QtWidgets import QMainWindow, QFileDialog, QTabWidget, QApplication
+from PyQt6.QtWidgets import QMainWindow, QFileDialog, QTabWidget, QApplication, QTabBar
 from PyQt6.QtGui import QCloseEvent, QIcon, QDesktopServices
 from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtCore import QUrl, QStandardPaths
+from PyQt6.QtCore import QUrl, QStandardPaths, pyqtSignal, Qt
 from PyQt6.QtWebEngineCore import (QWebEngineScript,
                                    QWebEngineDownloadRequest, QWebEngineProfile, QWebEngineSettings, QWebEnginePage)
 
@@ -13,60 +13,60 @@ from .settings_widget import SettingsWidget
 from .settings import settings_manager
 from .utils import get_app_icon_path
 
-class UrlCatchingPage(QWebEnginePage):
-    def __init__(self, profile, parent=None):
-        super().__init__(profile, parent)
-
-    def acceptNavigationRequest(self, url, _type, _is_main_frame):
-        QDesktopServices.openUrl(url)
-        self.deleteLater()
-        return False
-
 
 class CustomWebEnginePage(QWebEnginePage):
-    def __init__(self, base_url, profile, parent=None):
+    # Signal to request a new tab with a specific URL
+    new_tab_requested = pyqtSignal(QUrl)
+    # Signal to request redirecting back to main tab
+    main_tab_redirect_requested = pyqtSignal(QUrl)
+    # Signal when logout is detected
+    logout_detected = pyqtSignal(QUrl)
+
+    def __init__(self, profile, parent=None, restricted_host=None, main_host=None):
         super().__init__(profile, parent)
-        self.base_url = base_url
-        self.allowed_hosts = {self.base_url.host()}
-        sso_provider_host = settings_manager.get("GF_SSO_PROVIDER_HOST", "")
-        if sso_provider_host:
-            self.allowed_hosts.update(self.parse_sso_hosts(sso_provider_host))
+        self.restricted_host = restricted_host
+        self.main_host = main_host
+        self.create_window_callback = None
 
-    @staticmethod
-    def parse_sso_hosts(sso_string):
-        """
-        Parses a comma-separated string of hosts.
-        Ensures we extract the hostname correctly even if the user provides a port or no scheme.
-        """
-        hosts = set()
-        if not sso_string:
-            return hosts
+    def set_restricted_host(self, host):
+        self.restricted_host = host
+        self.main_host = host
 
-        for part in sso_string.split(','):
-            part = part.strip()
-            if not part:
-                continue
-            
-            # If no scheme is present, QUrl might not parse the host/port correctly.
-            # Prepend https:// to ensure it's treated as a URL.
-            if "://" not in part:
-                part = f"https://{part}"
-            
-            qurl = QUrl(part)
-            host = qurl.host()
-            if host:
-                hosts.add(host)
-        return hosts
+    def set_main_host(self, host):
+        self.main_host = host
 
     def createWindow(self, _type):
-        return UrlCatchingPage(self.profile(), self)
+        if self.create_window_callback:
+            return self.create_window_callback(_type)
+        return None
 
     def acceptNavigationRequest(self, url, nav_type, is_main_frame):
         if is_main_frame:
-            requested_host = url.host()
-            if requested_host and requested_host not in self.allowed_hosts:
-                QDesktopServices.openUrl(url)
-                return False
+            # 1. Detect Logout
+            if self.main_host and url.host() == self.main_host and '/logout' in url.path():
+                 self.logout_detected.emit(url)
+                 # If we are the main page (restricted_host is set), allow the navigation to proceed
+                 if self.restricted_host:
+                     return True
+                 # If external tab, block it and let the signal handler redirect the main tab
+                 return False
+
+            # 2. Standard Host Restrictions
+            if self.restricted_host:
+                # If we have a restricted host, ensure we stay on it
+                if url.host() and url.host() != self.restricted_host:
+                    # Only open in new tab for link clicks and typed URLs.
+                    # We allow FormSubmitted and Other (redirects) to stay in the main tab
+                    # to prevent breaking authentication flows and avoiding "Form submission did not navigate away" errors.
+                    if nav_type in (QWebEnginePage.NavigationType.NavigationTypeLinkClicked,
+                                    QWebEnginePage.NavigationType.NavigationTypeTyped):
+                        self.new_tab_requested.emit(url)
+                        return False
+            elif self.main_host:
+                # If we are in an external tab but navigate to the main host
+                if url.host() and url.host() == self.main_host:
+                    self.main_tab_redirect_requested.emit(url)
+                    return False
 
         return super().acceptNavigationRequest(url, nav_type, is_main_frame)
 
@@ -95,7 +95,13 @@ class GameyfinWindow(QMainWindow):
 
         self.browser = QWebEngineView()
         base_url = QUrl(settings_manager.get("GF_URL"))
-        self.custom_page = CustomWebEnginePage(base_url, self.profile, self.browser)
+        
+        # Main page restricted to the Gameyfin host
+        self.custom_page = CustomWebEnginePage(self.profile, self.browser, restricted_host=base_url.host(), main_host=base_url.host())
+        self.custom_page.new_tab_requested.connect(self.add_new_browser_tab)
+        self.custom_page.logout_detected.connect(self.handle_logout)
+        self.custom_page.create_window_callback = self.create_new_window_for_page
+        
         self.browser.setPage(self.custom_page)
         self.browser.setUrl(base_url)
 
@@ -106,19 +112,26 @@ class GameyfinWindow(QMainWindow):
 
         # --- Tab Widget Setup ---
         self.tab_widget = QTabWidget()
+        self.tab_widget.setTabsClosable(True)
+        self.tab_widget.tabCloseRequested.connect(self.close_tab)
 
         # Add the Gameyfin tab with an empty string for the label
         gameyfin_tab_index = self.tab_widget.addTab(self.browser, "")
+        
+        # Remove close button from the main tab (index 0)
+        self.tab_widget.tabBar().setTabButton(gameyfin_tab_index, QTabBar.ButtonPosition.RightSide, None)
+        
         # Set the icon for that tab
         tab_icon = QIcon.fromTheme("org.gameyfin.Gameyfin-Desktop")
         if tab_icon.isNull():
             tab_icon = QIcon(icon_path)
         self.tab_widget.setTabIcon(gameyfin_tab_index, tab_icon)
 
-        self.tab_widget.addTab(self.download_manager, "Downloads")
+        downloads_index = self.tab_widget.addTab(self.download_manager, "Downloads")
+        self.tab_widget.tabBar().setTabButton(downloads_index, QTabBar.ButtonPosition.RightSide, None)
 
-        # Add the Settings tab
-        self.tab_widget.addTab(self.settings_widget, "Settings")
+        settings_index = self.tab_widget.addTab(self.settings_widget, "Settings")
+        self.tab_widget.tabBar().setTabButton(settings_index, QTabBar.ButtonPosition.RightSide, None)
 
         self.setCentralWidget(self.tab_widget)
 
@@ -133,6 +146,88 @@ class GameyfinWindow(QMainWindow):
         script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         script.setRunsOnSubFrames(True)
         self.browser.page().scripts().insert(script)
+
+    def close_tab(self, index):
+        # Prevent closing the fixed tabs (Main, Downloads, Settings)
+        if index < 3:
+            return
+        
+        widget = self.tab_widget.widget(index)
+        if widget:
+            widget.deleteLater()
+            self.tab_widget.removeTab(index)
+
+    def add_new_browser_tab(self, url):
+        view = QWebEngineView()
+        # External tabs are not restricted
+        base_url = QUrl(settings_manager.get("GF_URL"))
+        page = CustomWebEnginePage(self.profile, view, restricted_host=None, main_host=base_url.host())
+        page.new_tab_requested.connect(self.add_new_browser_tab)
+        page.main_tab_redirect_requested.connect(self.redirect_to_main_tab)
+        page.logout_detected.connect(self.handle_logout)
+        page.create_window_callback = self.create_new_window_for_page
+        view.setPage(page)
+        view.setUrl(url)
+        
+        index = self.tab_widget.addTab(view, url.host() or "External")
+        self.tab_widget.setCurrentIndex(index)
+        view.show()
+        
+        view.titleChanged.connect(lambda title: self.update_tab_title(view, title))
+        view.iconChanged.connect(lambda icon: self.update_tab_icon(view, icon))
+        return page
+
+    def create_new_window_for_page(self, _type):
+        view = QWebEngineView()
+        base_url = QUrl(settings_manager.get("GF_URL"))
+        page = CustomWebEnginePage(self.profile, view, restricted_host=None, main_host=base_url.host())
+        page.new_tab_requested.connect(self.add_new_browser_tab)
+        page.main_tab_redirect_requested.connect(self.redirect_to_main_tab)
+        page.logout_detected.connect(self.handle_logout)
+        page.create_window_callback = self.create_new_window_for_page
+        view.setPage(page)
+        
+        index = self.tab_widget.addTab(view, "Loading...")
+        self.tab_widget.setCurrentIndex(index)
+        
+        view.titleChanged.connect(lambda title: self.update_tab_title(view, title))
+        view.iconChanged.connect(lambda icon: self.update_tab_icon(view, icon))
+
+        return page
+
+    def handle_logout(self, url):
+        # Close all external tabs (starting from the end to avoid index shift issues)
+        count = self.tab_widget.count()
+        # Fixed tabs are 0 (Main), 1 (Downloads), 2 (Settings) - indices < 3
+        for i in range(count - 1, 2, -1):
+            self.close_tab(i)
+        
+        # Ensure we are on the main tab
+        self.tab_widget.setCurrentIndex(0)
+        
+        # Only navigate if the signal didn't come from the main page itself
+        if self.sender() != self.browser.page():
+            self.browser.setUrl(url)
+
+    def redirect_to_main_tab(self, url):
+        self.tab_widget.setCurrentIndex(0)
+        self.browser.setUrl(url)
+        # Close tabs after redirect to main tab
+        sender_page = self.sender()
+        if isinstance(sender_page, CustomWebEnginePage):
+            count = self.tab_widget.count()
+            for i in range(count - 1, 2, -1):
+                self.close_tab(i)
+
+    def update_tab_title(self, view, title):
+        idx = self.tab_widget.indexOf(view)
+        if idx != -1:
+            self.tab_widget.setTabText(idx, title)
+
+    def update_tab_icon(self, view, icon):
+        idx = self.tab_widget.indexOf(view)
+        if idx != -1:
+            self.tab_widget.setTabIcon(idx, icon)
 
     def show_downloads_tab(self):
         self.show()
@@ -204,23 +299,23 @@ class GameyfinWindow(QMainWindow):
         new_url_str = settings_manager.get("GF_URL")
         if new_url_str:
             new_url = QUrl(new_url_str)
+            new_host = new_url.host()
             if self.browser.url() != new_url:
                 print(f"Applying new URL: {new_url.toString()}")
                 self.browser.setUrl(new_url)
-                # Update the base_url in custom page for SSO logic
-                if isinstance(self.browser.page(), CustomWebEnginePage):
-                     self.browser.page().base_url = new_url
-                     self.browser.page().allowed_hosts.add(new_url.host())
+            
+            # Update the main_host in all custom pages
+            for i in range(self.tab_widget.count()):
+                widget = self.tab_widget.widget(i)
+                if isinstance(widget, QWebEngineView):
+                    page = widget.page()
+                    if isinstance(page, CustomWebEnginePage):
+                        if page.restricted_host:
+                            page.set_restricted_host(new_host)
+                        else:
+                            page.set_main_host(new_host)
 
-        # 3. Update SSO Host
-        sso_provider_host = settings_manager.get("GF_SSO_PROVIDER_HOST", "")
-        if sso_provider_host and isinstance(self.browser.page(), CustomWebEnginePage):
-            hosts = CustomWebEnginePage.parse_sso_hosts(sso_provider_host)
-            if hosts:
-                print(f"Updating SSO host allowlist: {hosts}")
-                self.browser.page().allowed_hosts.update(hosts)
-
-        # 4. Update Icon
+        # 3. Update Icon
         # Logic matches main initialization
         app_icon = QIcon.fromTheme("org.gameyfin.Gameyfin-Desktop")
         
@@ -236,11 +331,11 @@ class GameyfinWindow(QMainWindow):
         # Update tab icon (index 0 is browser)
         self.tab_widget.setTabIcon(0, app_icon)
 
-        # 5. Refresh UMU Database
+        # 4. Refresh UMU Database
         if sys.platform != "win32" and self.umu_database:
             self.umu_database.refresh_cache()
 
-        # 6. Update Theme
+        # 5. Update Theme
         theme = settings_manager.get("GF_THEME")
         app = QApplication.instance()
         if theme and theme != "auto":
@@ -254,4 +349,3 @@ class GameyfinWindow(QMainWindow):
                 app.setFont(app.default_font)
             if hasattr(app, 'default_style_name'):
                 app.setStyle(app.default_style_name)
-        

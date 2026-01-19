@@ -21,7 +21,6 @@ class SettingsManager:
         
         self.defaults = {
             "GF_URL": "http://localhost:8080",
-            "GF_SSO_PROVIDER_HOST": "",
             "GF_WINDOW_WIDTH": 1420,
             "GF_WINDOW_HEIGHT": 940,
             "GF_START_MINIMIZED": 0,
