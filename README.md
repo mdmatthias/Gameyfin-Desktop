@@ -88,10 +88,17 @@ Choose your platform below to get started.
 
    ```
 2. **Install:** Download the latest `Gameyfin-Desktop-vX.X.X.flatpak` from the [Releases](https://github.com/mdmatthias/Gameyfin-Desktop/releases) page.
-   Install it by opening the file or running:
+   Install it by running:
    ```bash
    flatpak install Gameyfin-Desktop-vX.X.X.flatpak
    ```
+   Or with Discover:
+   ```
+      1. Remove the previous installed version if you are updating (settings will be kept) otherwise Discover will not be able to install the update.
+      2. Open the new flatpak with Discover
+      3. Install it.
+   ```
+
 3. **Run:** Launch it from your application menu or run:
    ```bash
    flatpak run org.gameyfin.Gameyfin-Desktop
