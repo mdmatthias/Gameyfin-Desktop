@@ -80,6 +80,13 @@
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="2.1.5" date="2026-01-22">
+            <description>
+                <ul>
+                    <li>Light and dark mode fix for logo, again</li>
+                </ul>
+            </description>
+        </release>
         <release version="2.1.4" date="2026-01-22">
             <description>
                 <ul>

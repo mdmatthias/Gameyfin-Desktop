@@ -13,10 +13,21 @@ class GameyfinTray:
         
         icon_name = "org.gameyfin.Gameyfin-Desktop"
         
-        # Try to use the theme icon (especially for Flatpak), fall back to file path
-        icon = QIcon.fromTheme(icon_name)
-        if icon.isNull():
-            icon = QIcon(get_app_icon_path(settings_manager.get("GF_ICON_PATH")))
+        custom_icon_path = settings_manager.get("GF_ICON_PATH")
+        theme = settings_manager.get("GF_THEME")
+        
+        internal_icon_path = get_app_icon_path(custom_icon_path, theme=theme)
+        
+        is_light_variant = "icon_light.png" in internal_icon_path
+        has_custom_path = custom_icon_path is not None and custom_icon_path != ""
+
+        if has_custom_path or is_light_variant:
+             icon = QIcon(internal_icon_path)
+        else:
+             # Try to use the theme icon (especially for Flatpak), fall back to file path
+             icon = QIcon.fromTheme(icon_name)
+             if icon.isNull():
+                 icon = QIcon(internal_icon_path)
             
         self.tray.setIcon(icon)
         self.menu = QMenu()
