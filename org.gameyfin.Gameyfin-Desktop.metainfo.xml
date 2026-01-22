@@ -51,31 +51,28 @@
         </ul>
     </description>
     <screenshots>
-        <screenshot type="default">
-            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview6.png</image>
-        </screenshot>
         <screenshot>
-            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview2.png</image>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/authentik.png</image>
             <caption>SSO Login Screen</caption>
         </screenshot>
         <screenshot>
-            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview.png</image>
-            <caption>Download Manager</caption>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/gameyfin.png</image>
+            <caption>Gameyfin</caption>
         </screenshot>
         <screenshot>
-            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview3.png</image>
-            <caption>Wineprefix Config</caption>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/downloads.png</image>
+            <caption>Downloads</caption>
         </screenshot>
         <screenshot>
-            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview4.png</image>
-            <caption>Extracting Files</caption>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/install_linux.png</image>
+            <caption>Linux Pre Installer</caption>
         </screenshot>
         <screenshot>
-            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview5.png</image>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/install.png</image>
             <caption>Installing Game</caption>
         </screenshot>
         <screenshot>
-            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/preview7.png</image>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/settings.png</image>
             <caption>Application Settings</caption>
         </screenshot>
     </screenshots>
@@ -83,6 +80,14 @@
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="2.1.4" date="2026-01-22">
+            <description>
+                <ul>
+                    <li>Rework SSO handling, no more config needed</li>
+                    <li>Light and dark mode fix for logo + extra themes</li>
+                </ul>
+            </description>
+        </release>
         <release version="2.1.3-dev" date="2026-01-20">
             <description>
                 <ul>
