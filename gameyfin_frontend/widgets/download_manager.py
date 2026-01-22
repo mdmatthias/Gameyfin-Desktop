@@ -2,7 +2,7 @@ import json
 import os
 
 from PyQt6.QtGui import QCloseEvent
-from PyQt6.QtWidgets import (QGridLayout, QWidget, QScrollArea, QVBoxLayout)
+from PyQt6.QtWidgets import (QGridLayout, QWidget, QScrollArea, QVBoxLayout, QPushButton, QHBoxLayout, QSpacerItem, QSizePolicy)
 
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.widgets.download_item import DownloadItemWidget

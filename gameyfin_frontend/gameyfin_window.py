@@ -92,6 +92,12 @@ class GameyfinWindow(QMainWindow):
         )
         settings = self.profile.settings()
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalStorageEnabled, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.PluginsEnabled, False)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.PdfViewerEnabled, False)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.ScreenCaptureEnabled, False)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, False)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, False)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.DnsPrefetchEnabled, False)
 
         self.browser = QWebEngineView()
         base_url = QUrl(settings_manager.get("GF_URL"))

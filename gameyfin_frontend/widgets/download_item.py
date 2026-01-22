@@ -52,34 +52,16 @@ class DownloadItemWidget(QWidget):
         self.open_button = QPushButton("Open File")
         self.open_folder_button = QPushButton("Open Folder")
         self.remove_button = QPushButton("Remove")
-        self.remove_button_failed = QPushButton("Remove")
         self.install_button = QPushButton("Install")
 
-        self.active_button_widget = QWidget()
-        active_layout = QHBoxLayout(self.active_button_widget)
-        active_layout.setContentsMargins(0, 0, 0, 0)
-        active_layout.addWidget(self.cancel_button)
-
-        self.completed_button_widget = QWidget()
-        completed_layout = QHBoxLayout(self.completed_button_widget)
-        completed_layout.setContentsMargins(0, 0, 0, 0)
-        completed_layout.addWidget(self.remove_button)
-        completed_layout.addWidget(self.install_button)
-        completed_layout.addWidget(self.open_button)
-        completed_layout.addWidget(self.open_folder_button)
-
-        self.failed_button_widget = QWidget()
-        failed_layout = QHBoxLayout(self.failed_button_widget)
-        failed_layout.setContentsMargins(0, 0, 0, 0)
-        failed_layout.addWidget(self.remove_button_failed)
-
-        self.button_stack = QStackedLayout()
-        self.button_stack.addWidget(self.active_button_widget)
-        self.button_stack.addWidget(self.completed_button_widget)
-        self.button_stack.addWidget(self.failed_button_widget)
-
         self.button_container = QWidget()
-        self.button_container.setLayout(self.button_stack)
+        self.button_layout = QHBoxLayout(self.button_container)
+        self.button_layout.setContentsMargins(0, 0, 0, 0)
+        self.button_layout.addWidget(self.cancel_button)
+        self.button_layout.addWidget(self.install_button)
+        self.button_layout.addWidget(self.open_button)
+        self.button_layout.addWidget(self.open_folder_button)
+        self.button_layout.addWidget(self.remove_button)
 
         font_metrics = self.fontMetrics()
         self.icon_label.setFixedWidth(font_metrics.height())
@@ -92,7 +74,6 @@ class DownloadItemWidget(QWidget):
         self.open_folder_button.clicked.connect(self.open_folder)
         self.install_button.clicked.connect(self.install_package)
         self.remove_button.clicked.connect(lambda: self.remove_requested.emit(self))
-        self.remove_button_failed.clicked.connect(lambda: self.remove_requested.emit(self))
 
         if self.download_item:
             self.record = {
@@ -129,7 +110,13 @@ class DownloadItemWidget(QWidget):
             self.progress_bar.setValue(100)
             size = self.record.get("total_bytes", 0)
             self.status_label.setText(f"Completed ({self.format_size(size)})")
-            self.button_stack.setCurrentIndex(1)
+            
+            self.cancel_button.hide()
+            self.install_button.show()
+            self.open_button.show()
+            self.open_folder_button.show()
+            self.remove_button.show()
+            
             self._update_install_button_visibility()
 
             if not os.path.exists(self.record["path"]):
@@ -143,7 +130,13 @@ class DownloadItemWidget(QWidget):
         elif status in ("Cancelled", "Failed"):
             self.progress_bar.hide()
             self.status_label.setText(status)
-            self.button_stack.setCurrentIndex(2)
+            
+            self.cancel_button.hide()
+            self.install_button.hide()
+            self.open_button.hide()
+            self.open_folder_button.hide()
+            self.remove_button.show()
+            
             self._update_install_button_visibility()
 
     def cancel_download(self):
@@ -455,7 +448,7 @@ class DownloadItemWidget(QWidget):
             else:
                 # Original shell-based execution for non-flatpak
                 command_string = f"{env_prefix} exec umu-run \"{launcher_to_run}\""
-                print(f"Executing: /bin/sh -c \"{command_string}\"")
+                print(f"Executing: /bin/sh -c \"{command_string}\" ")
                 self.run_process.finished.connect(self.on_run_finished)
                 self.run_process.start("/bin/sh", ["-c", command_string])
 
@@ -675,7 +668,7 @@ class DownloadItemWidget(QWidget):
                     os.chmod(script_path, 0o755)
                     print(f"Created helper script at: {script_path}")
 
-                    config_parser.set('Desktop Entry', 'Exec', f'"{script_path}"')
+                    config_parser.set('Desktop Entry', 'Exec', f'\"{script_path}\"')
 
                     config_parser.set('Desktop Entry', 'Type', 'Application')
                     config_parser.set('Desktop Entry', 'Categories', 'Application;Game;')
@@ -736,7 +729,11 @@ class DownloadItemWidget(QWidget):
         if state == QWebEngineDownloadRequest.DownloadState.DownloadInProgress:
             self.record["status"] = "Downloading"
             self.status_label.setText("Downloading...")
-            self.button_stack.setCurrentIndex(0)
+            self.cancel_button.show()
+            self.install_button.hide()
+            self.open_button.hide()
+            self.open_folder_button.hide()
+            self.remove_button.hide()
             self.update_progress()
 
         elif state == QWebEngineDownloadRequest.DownloadState.DownloadCompleted:
@@ -744,7 +741,13 @@ class DownloadItemWidget(QWidget):
             self.record["total_bytes"] = total_bytes
             self.progress_bar.setValue(100)
             self.status_label.setText(f"Completed ({self.format_size(self.record['total_bytes'])})")
-            self.button_stack.setCurrentIndex(1)
+            
+            self.cancel_button.hide()
+            self.install_button.show()
+            self.open_button.show()
+            self.open_folder_button.show()
+            self.remove_button.show()
+            
             self._update_install_button_visibility()
             self.finished.emit(self.record)
 
@@ -752,12 +755,24 @@ class DownloadItemWidget(QWidget):
             self.record["status"] = "Cancelled"
             self.status_label.setText("Cancelled")
             self.progress_bar.hide()
-            self.button_stack.setCurrentIndex(2)
+            
+            self.cancel_button.hide()
+            self.install_button.hide()
+            self.open_button.hide()
+            self.open_folder_button.hide()
+            self.remove_button.show()
+            
             self.finished.emit(self.record)
 
         elif state == QWebEngineDownloadRequest.DownloadState.DownloadInterrupted:
             self.record["status"] = "Failed"
             self.status_label.setText("Failed")
             self.progress_bar.hide()
-            self.button_stack.setCurrentIndex(2)
+            
+            self.cancel_button.hide()
+            self.install_button.hide()
+            self.open_button.hide()
+            self.open_folder_button.hide()
+            self.remove_button.show()
+            
             self.finished.emit(self.record)
