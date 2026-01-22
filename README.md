@@ -137,18 +137,14 @@ The application saves all data (settings, download history, cookies, local stora
 #### Download Progress
 The download progress bar provides an estimation. The total size is calculated based on the uncompressed files within the archive, not the size of the `.zip` file being downloaded. See [this issue](https://github.com/gameyfin/gameyfin/issues/707#issuecomment-2038166299) for more details.
 
-#### Installer
-Currently only tested with GOG games, but should work with any installer.
-
 ### AI notice
 Build with the help from Gemini. If you see something that could be better or looks weird, please let me know!
 
 ### 🖼️ Screenshots
 
-<img src="preview2.png" alt="SSO" width="800">
-<img src="preview6.png" alt="Gameyfin" width="800">
-<img src="preview.png" alt="Download manager" width="800">
-<img src="preview3.png" alt="Wineprefix config" width="800">
-<img src="preview4.png" alt="Unzip" width="800">
-<img src="preview5.png" alt="Install" width="800">
-<img src="preview7.png" alt="Settings" width="800">
+<img src="screenshots/authentik.png" alt="SSO" width="800">
+<img src="screenshots/gameyfin.png" alt="Gameyfin" width="800">
+<img src="screenshots/downloads.png" alt="Download manager" width="800">
+<img src="screenshots/install_linux.png" alt="Linux Pre Install" width="800">
+<img src="screenshots/install.png" alt="Install" width="800">
+<img src="screenshots/settings.png" alt="Settings" width="800">

@@ -235,10 +235,20 @@ class GameyfinWindow(QMainWindow):
         if idx != -1:
             self.tab_widget.setTabIcon(idx, icon)
 
+    def show_main_tab(self):
+        self.show()
+        self.activateWindow()
+        self.tab_widget.setCurrentWidget(self.browser)
+
     def show_downloads_tab(self):
         self.show()
         self.activateWindow()
         self.tab_widget.setCurrentWidget(self.download_manager)
+
+    def show_settings_tab(self):
+        self.show()
+        self.activateWindow()
+        self.tab_widget.setCurrentWidget(self.settings_widget)
 
     @staticmethod
     def parse_size(text: str) -> int:

@@ -21,22 +21,26 @@ class GameyfinTray:
         self.tray.setIcon(icon)
         self.menu = QMenu()
 
-        self.show_action = QAction("Show")
-        self.downloads_action = QAction("Show Downloads")
+        self.show_action = QAction("Gameyfin")
+        self.downloads_action = QAction("Downloads")
+        self.settings_action = QAction("Settings")
         self.quit_action = QAction("Quit")
 
         self.menu.addAction(self.show_action)
         self.menu.addAction(self.downloads_action)
+        self.menu.addAction(self.settings_action)
+
         self.menu.addSeparator()
         self.menu.addAction(self.quit_action)
 
         self.tray.setContextMenu(self.menu)
         self.tray.setToolTip("Gameyfin")
 
-        self.show_action.triggered.connect(self.window.show)
+        self.show_action.triggered.connect(self.window.show_main_tab)
         self.quit_action.triggered.connect(self.quit_app)
 
         self.downloads_action.triggered.connect(self.window.show_downloads_tab)
+        self.settings_action.triggered.connect(self.window.show_settings_tab)
 
         self.tray.activated.connect(self.icon_clicked)
         self.tray.show()
@@ -46,7 +50,7 @@ class GameyfinTray:
             if self.window.isVisible():
                 self.window.hide()
             else:
-                self.window.show()
+                self.window.show_main_tab()
 
     def quit_app(self):
         self.tray.hide()
