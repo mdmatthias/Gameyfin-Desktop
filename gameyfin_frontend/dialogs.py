@@ -19,7 +19,7 @@ class InstallConfigDialog(QDialog):
 
     def __init__(self, umu_database: UmuDatabase, parent=None,
                  default_game_id="umu-default", default_store="none",
-                 wine_prefix_path: str = None):
+                 wine_prefix_path: str = None, initial_config: dict = None):
         super().__init__(parent)
         self.umu_database = umu_database
         self.wine_prefix_path = wine_prefix_path
@@ -57,6 +57,24 @@ class InstallConfigDialog(QDialog):
 
         self.extra_vars_input = QPlainTextEdit()
         self.extra_vars_input.setPlaceholderText("KEY1=VALUE1\nKEY2=VALUE2")
+        
+        # Apply initial config if provided
+        if initial_config:
+            if initial_config.get("PROTON_ENABLE_WAYLAND") == "1":
+                self.wayland_checkbox.setChecked(True)
+            
+            if "GAMEID" in initial_config:
+                self.gameid_input.setText(initial_config["GAMEID"])
+            
+            if "STORE" in initial_config:
+                self.store_combo.setCurrentText(initial_config["STORE"])
+                
+            # Populate extra vars
+            extra_lines = []
+            for k, v in initial_config.items():
+                if k not in ["PROTON_ENABLE_WAYLAND", "GAMEID", "STORE"]:
+                    extra_lines.append(f"{k}={v}")
+            self.extra_vars_input.setPlainText("\n".join(extra_lines))
 
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
                                       QDialogButtonBox.StandardButton.Cancel)

@@ -8,6 +8,7 @@ from PyQt6.QtWebEngineCore import (QWebEngineScript,
                                    QWebEngineDownloadRequest, QWebEngineProfile, QWebEngineSettings, QWebEnginePage)
 
 from gameyfin_frontend.widgets.download_manager import DownloadManagerWidget
+from gameyfin_frontend.widgets.prefix_manager import PrefixManagerWidget
 
 from .settings_widget import SettingsWidget
 from .settings import settings_manager
@@ -112,6 +113,7 @@ class GameyfinWindow(QMainWindow):
         self.browser.setUrl(base_url)
 
         self.download_manager = DownloadManagerWidget(profile_path, umu_database, self)
+        self.prefix_manager = PrefixManagerWidget(umu_database, self)
 
         # --- Settings Setup ---
         self.settings_widget = SettingsWidget(self)
@@ -143,6 +145,9 @@ class GameyfinWindow(QMainWindow):
         downloads_index = self.tab_widget.addTab(self.download_manager, "Downloads")
         self.tab_widget.tabBar().setTabButton(downloads_index, QTabBar.ButtonPosition.RightSide, None)
 
+        prefixes_index = self.tab_widget.addTab(self.prefix_manager, "Prefixes")
+        self.tab_widget.tabBar().setTabButton(prefixes_index, QTabBar.ButtonPosition.RightSide, None)
+
         settings_index = self.tab_widget.addTab(self.settings_widget, "Settings")
         self.tab_widget.tabBar().setTabButton(settings_index, QTabBar.ButtonPosition.RightSide, None)
 
@@ -161,8 +166,8 @@ class GameyfinWindow(QMainWindow):
         self.browser.page().scripts().insert(script)
 
     def close_tab(self, index):
-        # Prevent closing the fixed tabs (Main, Downloads, Settings)
-        if index < 3:
+        # Prevent closing the fixed tabs (Main, Downloads, Prefixes, Settings)
+        if index < 4:
             return
         
         widget = self.tab_widget.widget(index)
@@ -211,8 +216,8 @@ class GameyfinWindow(QMainWindow):
     def handle_logout(self, url):
         # Close all external tabs (starting from the end to avoid index shift issues)
         count = self.tab_widget.count()
-        # Fixed tabs are 0 (Main), 1 (Downloads), 2 (Settings) - indices < 3
-        for i in range(count - 1, 2, -1):
+        # Fixed tabs are 0 (Main), 1 (Downloads), 2 (Prefixes), 3 (Settings) - indices < 4
+        for i in range(count - 1, 3, -1):
             self.close_tab(i)
         
         # Ensure we are on the main tab
@@ -229,7 +234,7 @@ class GameyfinWindow(QMainWindow):
         sender_page = self.sender()
         if isinstance(sender_page, CustomWebEnginePage):
             count = self.tab_widget.count()
-            for i in range(count - 1, 2, -1):
+            for i in range(count - 1, 3, -1):
                 self.close_tab(i)
 
     def update_tab_title(self, view, title):
