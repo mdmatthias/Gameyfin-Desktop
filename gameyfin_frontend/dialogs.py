@@ -5,8 +5,7 @@ from os import getenv
 from os.path import relpath
 
 from PyQt6.QtCore import pyqtSlot, QProcess  # <-- Added QProcess
-from PyQt6.QtWidgets import QVBoxLayout, QFormLayout, QCheckBox, QLineEdit, QPushButton, QStyle, QHBoxLayout, QWidget, \
-    QComboBox, QPlainTextEdit, QDialogButtonBox, QLabel, QInputDialog, QDialog, QMessageBox, QListWidget, QScrollArea
+from PyQt6.QtWidgets import QVBoxLayout, QFormLayout, QCheckBox, QLineEdit, QPushButton, QStyle, QHBoxLayout, QWidget,     QComboBox, QPlainTextEdit, QDialogButtonBox, QLabel, QInputDialog, QDialog, QMessageBox, QListWidget, QScrollArea
 
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.settings import settings_manager
@@ -29,7 +28,8 @@ class InstallConfigDialog(QDialog):
         main_layout = QVBoxLayout(self)
         form_layout = QFormLayout()
 
-        self.wayland_checkbox = QCheckBox("Enable Wayland support")
+        self.wayland_checkbox = QCheckBox("Enable Wayland")
+        self.mangohud_checkbox = QCheckBox("Enable MangoHud")
 
         self.gameid_input = QLineEdit()
         self.gameid_input.setText(default_game_id)
@@ -63,6 +63,9 @@ class InstallConfigDialog(QDialog):
             if initial_config.get("PROTON_ENABLE_WAYLAND") == "1":
                 self.wayland_checkbox.setChecked(True)
             
+            if initial_config.get("MANGOHUD") == "1":
+                self.mangohud_checkbox.setChecked(True)
+            
             if "GAMEID" in initial_config:
                 self.gameid_input.setText(initial_config["GAMEID"])
             
@@ -72,7 +75,7 @@ class InstallConfigDialog(QDialog):
             # Populate extra vars
             extra_lines = []
             for k, v in initial_config.items():
-                if k not in ["PROTON_ENABLE_WAYLAND", "GAMEID", "STORE"]:
+                if k not in ["PROTON_ENABLE_WAYLAND", "MANGOHUD", "GAMEID", "STORE"]:
                     extra_lines.append(f"{k}={v}")
             self.extra_vars_input.setPlainText("\n".join(extra_lines))
 
@@ -82,6 +85,7 @@ class InstallConfigDialog(QDialog):
         button_box.rejected.connect(self.reject)
 
         main_layout.addWidget(self.wayland_checkbox)
+        main_layout.addWidget(self.mangohud_checkbox)
 
         form_layout.addRow("Umu protonfix:", self.gameid_widget)
         form_layout.addRow("Store:", self.store_combo)
@@ -199,7 +203,10 @@ class InstallConfigDialog(QDialog):
         """
         Returns the configured environment variables as a dictionary.
         """
-        config = {"PROTON_ENABLE_WAYLAND": "1" if self.wayland_checkbox.isChecked() else "0"}
+        config = {
+            "PROTON_ENABLE_WAYLAND": "1" if self.wayland_checkbox.isChecked() else "0",
+            "MANGOHUD": "1" if self.mangohud_checkbox.isChecked() else "0"
+        }
 
         game_id = self.gameid_input.text().strip()
         if game_id:
@@ -321,35 +328,64 @@ class SelectUmuIdDialog(QDialog):
 class SelectShortcutsDialog(QDialog):
     """
     A dialog that shows a list of .desktop files and lets the user
-    select which ones to create shortcuts for.
+    select which ones to create shortcuts for (Desktop vs Application Menu).
     """
 
-    def __init__(self, desktop_files: list, parent=None):
+    def __init__(self, desktop_files: list, parent=None, existing_desktop: list = None, existing_apps: list = None):
         super().__init__(parent)
-        self.setWindowTitle("Create Shortcuts")
-        self.setMinimumWidth(400)
+        self.setWindowTitle("Manage Shortcuts")
+        self.setMinimumWidth(500)
+        self.setMinimumHeight(500)
         self.setModal(True)
 
         self.main_layout = QVBoxLayout(self)
-
+        
+        # Scroll Area
         self.scroll_area = QScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
         self.scroll_content = QWidget()
-        self.checkbox_layout = QVBoxLayout(self.scroll_content)
+        self.content_layout = QVBoxLayout(self.scroll_content)
+        self.content_layout.setSpacing(2)  # Minimal spacing between checkboxes
+        self.content_layout.setContentsMargins(10, 10, 10, 10)
         self.scroll_area.setWidget(self.scroll_content)
-
-        self.main_layout.addWidget(QLabel("Select which shortcuts to create:"))
+        
         self.main_layout.addWidget(self.scroll_area)
 
-        self.checkboxes = []
+        self.desktop_checkboxes = []
+        self.apps_checkboxes = []
 
+        # Desktop Section
+        desktop_label = QLabel("<b>Desktop Shortcuts</b>")
+        self.content_layout.addWidget(desktop_label)
         for file_path in desktop_files:
             name = self.parse_desktop_name(file_path)
             checkbox = QCheckBox(name)
-            checkbox.setChecked(True)
-            self.checkbox_layout.addWidget(checkbox)
-            self.checkboxes.append((checkbox, file_path))
+            if existing_desktop is not None:
+                checkbox.setChecked(os.path.basename(file_path) in existing_desktop)
+            else:
+                checkbox.setChecked(True)
+            self.content_layout.addWidget(checkbox)
+            self.desktop_checkboxes.append((checkbox, file_path))
+            
+        self.content_layout.addSpacing(15)
 
+        # Application Menu Section
+        apps_label = QLabel("<b>Application Menu Shortcuts</b>")
+        self.content_layout.addWidget(apps_label)
+        for file_path in desktop_files:
+            name = self.parse_desktop_name(file_path)
+            checkbox = QCheckBox(name)
+            if existing_apps is not None:
+                checkbox.setChecked(os.path.basename(file_path) in existing_apps)
+            else:
+                checkbox.setChecked(True)
+            self.content_layout.addWidget(checkbox)
+            self.apps_checkboxes.append((checkbox, file_path))
+
+        # Add stretch at the end to push everything to the top
+        self.content_layout.addStretch(1)
+
+        # Global Select/Deselect
         self.select_button_layout = QHBoxLayout()
         self.select_all_button = QPushButton("Select All")
         self.select_all_button.clicked.connect(self.select_all)
@@ -370,7 +406,6 @@ class SelectShortcutsDialog(QDialog):
     def parse_desktop_name(file_path: str) -> str:
         """Reads a .desktop file and gets its 'Name' entry."""
         try:
-            # configparser needs a section header
             with open(file_path, 'r') as f:
                 content = f.read()
             if not content.strip().startswith('[Desktop Entry]'):
@@ -386,20 +421,18 @@ class SelectShortcutsDialog(QDialog):
         except Exception as e:
             print(f"Error parsing {file_path} for name: {e}")
 
-        return os.path.basename(file_path)  # Fallback
+        return os.path.basename(file_path)
 
     def select_all(self):
-        for checkbox, _ in self.checkboxes:
+        for checkbox, _ in self.desktop_checkboxes + self.apps_checkboxes:
             checkbox.setChecked(True)
 
     def deselect_all(self):
-        for checkbox, _ in self.checkboxes:
+        for checkbox, _ in self.desktop_checkboxes + self.apps_checkboxes:
             checkbox.setChecked(False)
 
-    def get_selected_files(self) -> list:
-        """Returns a list of file paths for the checked items."""
-        selected = []
-        for checkbox, file_path in self.checkboxes:
-            if checkbox.isChecked():
-                selected.append(file_path)
-        return selected
+    def get_selected_files(self) -> tuple[list, list]:
+        """Returns (desktop_selected, apps_selected) lists of file paths."""
+        desktop_selected = [fp for cb, fp in self.desktop_checkboxes if cb.isChecked()]
+        apps_selected = [fp for cb, fp in self.apps_checkboxes if cb.isChecked()]
+        return desktop_selected, apps_selected

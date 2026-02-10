@@ -418,11 +418,15 @@ class DownloadItemWidget(QWidget):
 
             proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
             env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{wine_prefix_path}\" "
+            cmd_prefix = ""
 
             print("[Install] Applying user environment configuration:")
             for key, value in config.items():
                 print(f"  {key}={value}")
-                env_prefix += f"{key}=\"{value}\" "
+                if key == "MANGOHUD" and value == "1":
+                    cmd_prefix = "mangohud"
+                else:
+                    env_prefix += f"{key}=\"{value}\" "
 
             self.run_process = QProcess(self)
             self.run_process.setWorkingDirectory(launcher_dir)
@@ -432,13 +436,16 @@ class DownloadItemWidget(QWidget):
             
             if is_flatpak:
                 # In Flatpak, we MUST use flatpak-spawn --host to run on the host.
-                # Crucially, we must use 'env' to pass environment variables to the host.
                 args = ["--host", "env"]
                 args.append(f"PROTONPATH={settings_manager.get('PROTONPATH', 'GE-Proton')}")
                 args.append(f"WINEPREFIX={wine_prefix_path}")
                 
                 for key, value in config.items():
-                    args.append(f"{key}={value}")
+                    if key != "MANGOHUD":
+                        args.append(f"{key}={value}")
+                
+                if cmd_prefix:
+                    args.append(cmd_prefix)
                 
                 args.extend(["umu-run", launcher_to_run])
                 
@@ -447,7 +454,7 @@ class DownloadItemWidget(QWidget):
                 self.run_process.start("flatpak-spawn", args)
             else:
                 # Original shell-based execution for non-flatpak
-                command_string = f"{env_prefix} exec umu-run \"{launcher_to_run}\""
+                command_string = f"{env_prefix} exec {cmd_prefix + ' ' if cmd_prefix else ''}umu-run \"{launcher_to_run}\""
                 print(f"Executing: /bin/sh -c \"{command_string}\" ")
                 self.run_process.finished.connect(self.on_run_finished)
                 self.run_process.start("/bin/sh", ["-c", command_string])
@@ -532,14 +539,11 @@ class DownloadItemWidget(QWidget):
                     dialog = SelectShortcutsDialog(desktop_files, self.parentWidget())
                     if dialog.exec() == QDialog.DialogCode.Accepted:
                         selected_files = dialog.get_selected_files()
-
-                        if selected_files:
-                            print(f"User selected {len(selected_files)} shortcuts to create. Processing...")
-                            self.create_desktop_shortcuts(selected_files)
-                        else:
-                            print("User selected no shortcuts.")
+                        print(f"User selected {len(selected_files)} shortcuts to create. Processing...")
+                        self.create_desktop_shortcuts(desktop_files, selected_files)
                     else:
-                        print("User cancelled shortcut creation.")
+                        print("User cancelled shortcut creation dialog. Still creating helper scripts.")
+                        self.create_desktop_shortcuts(desktop_files, [])
 
                 else:
                     print("No .desktop files found in proton_shortcuts.")
@@ -555,7 +559,7 @@ class DownloadItemWidget(QWidget):
         self.current_install_config = None
         self.current_wine_prefix = None
 
-    def create_desktop_shortcuts(self, desktop_files: list):
+    def create_desktop_shortcuts(self, all_desktop_files: list, selected_files: list):
         """
         Parses the found .desktop files, creates a helper .sh script for
         the launch command, and saves the .desktop file to the user's
@@ -579,6 +583,56 @@ class DownloadItemWidget(QWidget):
                                              str(game_name))
         os.makedirs(shortcut_scripts_path, exist_ok=True)
 
+        # 1. ALWAYS create helper .sh scripts for ALL detected shortcuts
+        for original_path in all_desktop_files:
+            try:
+                with open(original_path, 'r') as f:
+                    content = f.read()
+                if not content.strip().startswith('[Desktop Entry]'):
+                    content = '[Desktop Entry]\n' + content
+
+                config_parser = configparser.ConfigParser(strict=False)
+                config_parser.optionxform = str
+                config_parser.read_string(content)
+
+                if 'Desktop Entry' not in config_parser:
+                    continue
+
+                entry = config_parser['Desktop Entry']
+                working_dir = entry.get('Path')
+                exe_name = entry.get('StartupWMClass')
+                if not exe_name:
+                    exe_name = entry.get('Name', 'game') + ".exe"
+
+                if not working_dir:
+                    continue
+
+                exe_path = os.path.join(working_dir, exe_name)
+                config = self.current_install_config or {}
+
+                proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
+                env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.current_wine_prefix}\" "
+                cmd_prefix = ""
+
+                for key, value in config.items():
+                    if key == "MANGOHUD" and value == "1":
+                        cmd_prefix = "mangohud "
+                    else:
+                        env_prefix += f"{key}=\"{value}\" "
+
+                command_to_run = f"{env_prefix} {cmd_prefix}umu-run \"{exe_path}\""
+                script_name = os.path.splitext(os.path.basename(original_path))[0] + ".sh"
+                script_path = os.path.join(shortcut_scripts_path, script_name)
+                script_content = f"#!/bin/sh\n\n# Auto-generated by Gameyfin\n{command_to_run}\n"
+
+                with open(script_path, 'w') as f:
+                    f.write(script_content)
+                os.chmod(script_path, 0o755)
+
+            except Exception as e:
+                print(f"Failed to create helper script for {original_path}: {e}")
+
+        # 2. Manage system .desktop files based on user selection
         dirs = list()
         desktop_dir = os.path.join(home_dir, get_xdg_user_dir("DESKTOP"))
         applications_dir = os.path.join(home_dir, ".local/share/applications")
@@ -588,26 +642,20 @@ class DownloadItemWidget(QWidget):
         for dir in dirs:
             os.makedirs(dir, exist_ok=True)
 
-            for original_path in desktop_files:
+            for original_path in selected_files:
                 try:
-                    print(f"Processing: {os.path.basename(original_path)}")
+                    print(f"Processing system shortcut: {os.path.basename(original_path)}")
 
-                    # configparser needs a section header
                     with open(original_path, 'r') as f:
                         content = f.read()
                     if not content.strip().startswith('[Desktop Entry]'):
                         content = '[Desktop Entry]\n' + content
 
-                    # Use strict=False to allow duplicate keys
                     config_parser = configparser.ConfigParser(strict=False)
-
-                    # Tell configparser to preserve key case (e.g., 'Type' not 'type')
                     config_parser.optionxform = str
-
                     config_parser.read_string(content)
 
                     if 'Desktop Entry' not in config_parser:
-                        print(f"Skipping {os.path.basename(original_path)}: Cannot find [Desktop Entry] section.")
                         continue
 
                     entry = config_parser['Desktop Entry']
@@ -633,43 +681,13 @@ class DownloadItemWidget(QWidget):
 
                         if found_icon_path:
                             config_parser.set('Desktop Entry', 'Icon', found_icon_path)
-                            print(f"Updated icon path to: {found_icon_path}")
                         else:
                             print(f"Warning: Could not find icon '{icon_name}' in {icons_base_dir}")
 
-                    working_dir = entry.get('Path')
-                    exe_name = entry.get('StartupWMClass')
-                    if not exe_name:
-                        exe_name = entry.get('Name', 'game') + ".exe"
-                        print(f"Warning: No StartupWMClass. Guessing exe name: {exe_name}")
-
-                    if not working_dir:
-                        print(f"Skipping {os.path.basename(original_path)}: No 'Path' entry found.")
-                        continue
-
-                    exe_path = os.path.join(working_dir, exe_name)
-                    config = self.current_install_config or {}
-
-                    proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
-                    env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.current_wine_prefix}\" "
-
-                    for key, value in config.items():
-                        env_prefix += f"{key}=\"{value}\" "
-
-                    command_to_run = f"{env_prefix} umu-run \"{exe_path}\""
-
                     script_name = os.path.splitext(os.path.basename(original_path))[0] + ".sh"
                     script_path = os.path.join(shortcut_scripts_path, script_name)
-                    script_content = f"#!/bin/sh\n\n# Auto-generated by Gameyfin\n{command_to_run}\n"
-
-                    with open(script_path, 'w') as f:
-                        f.write(script_content)
-
-                    os.chmod(script_path, 0o755)
-                    print(f"Created helper script at: {script_path}")
 
                     config_parser.set('Desktop Entry', 'Exec', f'\"{script_path}\"')
-
                     config_parser.set('Desktop Entry', 'Type', 'Application')
                     config_parser.set('Desktop Entry', 'Categories', 'Application;Game;')
 
@@ -680,11 +698,11 @@ class DownloadItemWidget(QWidget):
                         config_parser.write(f)
 
                     os.chmod(new_file_path, 0o755)
-
-                    print(f"Successfully created shortcut at: {new_file_path}")
+                    print(f"Successfully created system shortcut at: {new_file_path}")
 
                 except Exception as e:
-                    print(f"Failed to process shortcut {original_path}: {e}")
+                    print(f"Failed to process system shortcut {original_path}: {e}")
+
 
     @staticmethod
     def format_size(nbytes: int) -> str:
