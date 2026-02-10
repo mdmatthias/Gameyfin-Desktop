@@ -80,6 +80,16 @@
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="2.2.0-dev" date="2026-02-10">
+            <description>
+                <ul>
+                    <li>(Linux only) add prefix manager tab</li>
+                    <li>(Linux only) separate desktop and application shortcut management</li>
+                    <li>(Linux only) launch shortcut scripts from within prefix manager</li>
+                    <li>(Linux only) add mangohud option in prefix config</li>
+                </ul>
+            </description>
+        </release>
         <release version="2.1.5" date="2026-01-22">
             <description>
                 <ul>
