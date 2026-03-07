@@ -65,8 +65,13 @@ class PrefixItemWidget(QWidget):
         script_path = self.script_combo.itemData(index)
         if script_path:
             try:
-                subprocess.Popen([script_path], cwd=os.path.dirname(script_path),
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                is_flatpak = os.path.exists("/.flatpak-info")
+                if is_flatpak:
+                    subprocess.Popen(["flatpak-spawn", "--host", script_path],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                else:
+                    subprocess.Popen([script_path], cwd=os.path.dirname(script_path),
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 # Reset to placeholder
                 self.script_combo.setCurrentIndex(0)
             except Exception as e:
