@@ -17,20 +17,25 @@ A dedicated desktop client for [Gameyfin](https://github.com/gameyfin/gameyfin) 
   * Detects `.exe` files. If multiple are found, it asks you to choose which one to launch.
   * No complex configuration required.
 * **💽 Installer (Linux):**
-  * Prompts for per-install environment configuration (Wayland, GameID, Store, etc.).
-  * Extracts the downloaded archive.
+  * Prompts for per-install environment configuration (Wayland, MangoHud, GameID, Store, etc.).
+  * Extracts the downloaded archive to a customizable directory.
   * Detects `.exe` files. If multiple are found, it asks you to choose which one to launch.
   * Automatically lookup the umu-id for proton fixes by codename, folder name or manual search entry.
   * Automatically creates a wineprefix and launches the installer using `umu-run`.
   * **🛠️ Wine Tools:** Quick access to `winecfg` and `winetricks` for manual prefix configuration during installation.
+* **🍷 Prefix & Game Manager (Linux):**
+  * **Quick Launch:** Launch any game shortcut script directly from the Prefix Manager via a select box.
+  * **Post-Install Configuration:** Edit wine prefix settings (environment variables, Wayland, MangoHud) after a game is installed.
+  * **Shortcut Management:** Re-sync or clean up system shortcuts (Desktop & Application Menu) at any time.
+  * **Prefix Cleanup:** Delete prefixes with a safety warning about saved game data.
 * **⤴️ Integrated Shortcut Management (Linux):**
   * When a game installation finishes, the app automatically detects any shortcuts created by the installer.
-  * You're in Control: A dialog pops up letting you choose exactly which shortcuts (e.g., "Game" "Settings," "Uninstall") you want to add.
-  * Dual-Location: Your selected shortcuts are placed on your **Desktop** and in your system's **Application Menu**.
-  * Just like Windows: This gives you the simple, familiar "Create a desktop shortcut?" experience.
+  * **You're in Control:** A dialog pops up letting you choose exactly which shortcuts (e.g., "Game" "Settings," "Uninstall") you want to add.
+  * **Dual-Location Selection:** Choose exactly which shortcuts you want on your **Desktop** and which should go in your **Application Menu** via a redesigned management dialog.
+  * **Just like Windows:** This gives you the simple, familiar "Create a desktop shortcut?" experience.
+  * **Auto-generated Helpers:** Even if system shortcuts aren't created, helper scripts are always generated for the internal launch menu.
 
 ### 🗓️ Planned Features
-* **🍷 Post-Install Configuration (Linux):** Option to edit wine prefix settings (environment variables, winetricks) after a game is installed.
 * **Other ideas?:** Create a new issue/merge request and I will look into it.
 
 ---
@@ -39,16 +44,19 @@ A dedicated desktop client for [Gameyfin](https://github.com/gameyfin/gameyfin) 
 
 While the application can be configured using environment variables (see below), you can now manage most settings directly within the application's **Settings** tab. Settings saved in the app persist in a `settings.json` file.
 
-| Environment Variable   | Description                                                                      |
-|:-----------------------|:---------------------------------------------------------------------------------|
-| `GF_URL`               | **(Required)** The URL of your Gameyfin instance, e.g., `http://localhost:8080`. |
-| `GF_START_MINIMIZED`   | Set to `1` to start the application minimized to the tray.                       |
-| `GF_ICON_PATH`         | The absolute file path to a custom tray icon.                                    |
-| `GF_WINDOW_WIDTH`      | Window width.                                                                    |
-| `GF_WINDOW_HEIGHT`     | Window height.                                                                   |
-| `GF_THEME`             | The UI theme to use (e.g., `dark_teal.xml`, `light_blue.xml`). Set to `auto` for default. |
-| `PROTONPATH`           | **(Linux Only)** Path or name of the Proton version to use (default: `GE-Proton`).                |
-| `GF_UMU_API_URL`       | **(Linux Only)** URL for the UMU API to search for game fixes.                                    |
+| Environment Variable      | Description                                                                      |
+|:--------------------------|:---------------------------------------------------------------------------------|
+| `GF_URL`                  | **(Required)** The URL of your Gameyfin instance, e.g., `http://localhost:8080`. |
+| `GF_START_MINIMIZED`      | Set to `1` to start the application minimized to the tray.                       |
+| `GF_ICON_PATH`            | The absolute file path to a custom tray icon.                                    |
+| `GF_WINDOW_WIDTH`         | Window width.                                                                    |
+| `GF_WINDOW_HEIGHT`        | Window height.                                                                   |
+| `GF_THEME`                | The UI theme to use (e.g., `dark_teal.xml`, `light_blue.xml`). Set to `auto` for default. |
+| `PROTONPATH`              | **(Linux Only)** Path or name of the Proton version to use (default: `GE-Proton`).                |
+| `GF_UMU_API_URL`          | **(Linux Only)** URL for the UMU API to search for game fixes.                                    |
+| `GF_DEFAULT_DOWNLOAD_DIR` | Default directory for downloaded files.                                          |
+| `GF_DEFAULT_UNZIP_DIR`    | Default base directory for extracting ZIP archives.                              |
+| `GF_PROMPT_UNZIP_DIR`     | Set to `1` to always prompt for an extraction path when installing.              |
 
 ---
 
