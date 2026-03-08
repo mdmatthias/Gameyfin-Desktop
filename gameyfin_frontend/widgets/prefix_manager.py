@@ -521,7 +521,10 @@ class PrefixManagerWidget(QWidget):
         confirm = QMessageBox.question(
             self, 
             "Confirm Delete",
-            f"Are you sure you want to delete the prefix '{prefix_name}'?\n\nPath: {prefix_path}\n\nThis cannot be undone!",
+            f"Are you sure you want to delete the prefix '{prefix_name}'?\n\n"
+            f"Path: {prefix_path}\n\n"
+            "⚠️ NOTE: Prefixes often contain your saved games. If you delete this prefix, you will LOSE ALL SAVE DATA for this game!\n\n"
+            "This action cannot be undone. Do you wish to proceed?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )

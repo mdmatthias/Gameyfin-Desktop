@@ -64,6 +64,30 @@ class SettingsWidget(QWidget):
         icon_layout.addWidget(self.icon_path_edit)
         icon_layout.addWidget(self.icon_browse_btn)
         self.form_layout.addRow("Custom Tray Icon:", icon_layout)
+
+        # Download and Unzip Settings
+        self.download_dir_edit = QLineEdit()
+        self.download_dir_edit.setText(settings_manager.get("GF_DEFAULT_DOWNLOAD_DIR"))
+        self.download_dir_btn = QPushButton("Browse...")
+        self.download_dir_btn.clicked.connect(lambda: self.browse_directory(self.download_dir_edit, "Select Download Directory"))
+        download_dir_layout = QHBoxLayout()
+        download_dir_layout.addWidget(self.download_dir_edit)
+        download_dir_layout.addWidget(self.download_dir_btn)
+        self.form_layout.addRow("Default Download Dir:", download_dir_layout)
+
+        self.unzip_dir_edit = QLineEdit()
+        self.unzip_dir_edit.setPlaceholderText("(same as ZIP file)")
+        self.unzip_dir_edit.setText(settings_manager.get("GF_DEFAULT_UNZIP_DIR"))
+        self.unzip_dir_btn = QPushButton("Browse...")
+        self.unzip_dir_btn.clicked.connect(lambda: self.browse_directory(self.unzip_dir_edit, "Select Unzip Directory"))
+        unzip_dir_layout = QHBoxLayout()
+        unzip_dir_layout.addWidget(self.unzip_dir_edit)
+        unzip_dir_layout.addWidget(self.unzip_dir_btn)
+        self.form_layout.addRow("Default Unzip Dir:", unzip_dir_layout)
+
+        self.prompt_unzip_check = QCheckBox()
+        self.prompt_unzip_check.setChecked(bool(settings_manager.get("GF_PROMPT_UNZIP_DIR")))
+        self.form_layout.addRow("Prompt for Unzip Dir:", self.prompt_unzip_check)
         
         self.layout.addLayout(self.form_layout)
         
@@ -77,6 +101,11 @@ class SettingsWidget(QWidget):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Icon", "", "Images (*.png *.jpg *.ico);;All Files (*)")
         if file_path:
             self.icon_path_edit.setText(file_path)
+
+    def browse_directory(self, line_edit, title):
+        dir_path = QFileDialog.getExistingDirectory(self, title, line_edit.text())
+        if dir_path:
+            line_edit.setText(dir_path)
 
     def save_settings(self):
         try:
@@ -96,6 +125,9 @@ class SettingsWidget(QWidget):
         settings_manager.set("GF_START_MINIMIZED", 1 if self.minimized_check.isChecked() else 0)
         settings_manager.set("GF_THEME", self.theme_combo.currentText())
         settings_manager.set("GF_ICON_PATH", self.icon_path_edit.text())
+        settings_manager.set("GF_DEFAULT_DOWNLOAD_DIR", self.download_dir_edit.text())
+        settings_manager.set("GF_DEFAULT_UNZIP_DIR", self.unzip_dir_edit.text())
+        settings_manager.set("GF_PROMPT_UNZIP_DIR", 1 if self.prompt_unzip_check.isChecked() else 0)
         
         # Apply settings immediately
         if hasattr(self.window(), 'apply_settings'):

@@ -288,8 +288,12 @@ class GameyfinWindow(QMainWindow):
             self.hide()
 
     def on_download_requested(self, download: QWebEngineDownloadRequest):
+        default_download_dir = settings_manager.get("GF_DEFAULT_DOWNLOAD_DIR")
+        if not default_download_dir or not os.path.exists(default_download_dir):
+            default_download_dir = os.path.expanduser("~/Downloads")
+
         suggested_path = os.path.join(
-            os.path.expanduser("~/Downloads"),
+            default_download_dir,
             os.path.basename(download.downloadFileName())
         )
 

@@ -42,6 +42,7 @@ class DownloadItemWidget(QWidget):
 
         self.monitor_thread = None
         self.monitor_worker = None
+        self.current_target_dir = None
 
         self.icon_label = QLabel()
         self.filename_label = QLabel()
@@ -160,8 +161,39 @@ class DownloadItemWidget(QWidget):
             self.status_label.setStyleSheet("color: red;")
             return
 
-        target_dir = os.path.splitext(zip_path)[0]
-        os.makedirs(target_dir, exist_ok=True)
+        # Determine target directory
+        default_unzip_dir = settings_manager.get("GF_DEFAULT_UNZIP_DIR")
+        prompt_unzip = settings_manager.get("GF_PROMPT_UNZIP_DIR")
+        
+        target_base_dir = None
+        if default_unzip_dir and os.path.exists(default_unzip_dir):
+            target_base_dir = default_unzip_dir
+        else:
+            target_base_dir = os.path.dirname(zip_path)
+
+        zip_basename = os.path.splitext(os.path.basename(zip_path))[0]
+        suggested_target_dir = os.path.join(target_base_dir, zip_basename)
+
+        if prompt_unzip:
+            from PyQt6.QtWidgets import QFileDialog
+            # We use getSaveFileName because it provides an editable "File name" box 
+            # where we can pre-fill the suggested folder name. This allows the user
+            # to easily change the name of the folder being created within the default path.
+            selected_path, _ = QFileDialog.getSaveFileName(
+                self, 
+                "Select Unzip directory", 
+                suggested_target_dir
+            )
+            
+            if not selected_path:
+                self.status_label.setText("Install cancelled")
+                self.install_button.setEnabled(True)
+                return
+            self.current_target_dir = selected_path
+        else:
+            self.current_target_dir = suggested_target_dir
+
+        os.makedirs(self.current_target_dir, exist_ok=True)
 
         self.install_button.setEnabled(False)
 
@@ -173,7 +205,7 @@ class DownloadItemWidget(QWidget):
         self.progress_dialog.show()
 
         self.thread = QThread()
-        self.worker = UnzipWorker(zip_path, target_dir)
+        self.worker = UnzipWorker(zip_path, self.current_target_dir)
         self.worker.moveToThread(self.thread)
 
         self.worker.progress.connect(self.progress_dialog.setValue)
@@ -211,7 +243,8 @@ class DownloadItemWidget(QWidget):
         self.progress_dialog.close()
         self.install_button.setEnabled(True)
 
-        target_dir = os.path.splitext(self.record["path"])[0]
+        zip_path = self.record.get("path")
+        target_dir = self.current_target_dir or os.path.splitext(zip_path)[0]
 
         if sys.platform == "win32":
             # --- Windows Logic ---
@@ -538,12 +571,12 @@ class DownloadItemWidget(QWidget):
 
                     dialog = SelectShortcutsDialog(desktop_files, self.parentWidget())
                     if dialog.exec() == QDialog.DialogCode.Accepted:
-                        selected_files = dialog.get_selected_files()
-                        print(f"User selected {len(selected_files)} shortcuts to create. Processing...")
-                        self.create_desktop_shortcuts(desktop_files, selected_files)
+                        selected_desktop, selected_apps = dialog.get_selected_files()
+                        print(f"User selected shortcuts to create. Processing...")
+                        self.create_desktop_shortcuts(desktop_files, selected_desktop, selected_apps)
                     else:
                         print("User cancelled shortcut creation dialog. Still creating helper scripts.")
-                        self.create_desktop_shortcuts(desktop_files, [])
+                        self.create_desktop_shortcuts(desktop_files, [], [])
 
                 else:
                     print("No .desktop files found in proton_shortcuts.")
@@ -559,7 +592,7 @@ class DownloadItemWidget(QWidget):
         self.current_install_config = None
         self.current_wine_prefix = None
 
-    def create_desktop_shortcuts(self, all_desktop_files: list, selected_files: list):
+    def create_desktop_shortcuts(self, all_desktop_files: list, selected_desktop: list, selected_apps: list):
         """
         Parses the found .desktop files, creates a helper .sh script for
         the launch command, and saves the .desktop file to the user's
@@ -632,19 +665,18 @@ class DownloadItemWidget(QWidget):
             except Exception as e:
                 print(f"Failed to create helper script for {original_path}: {e}")
 
-        # 2. Manage system .desktop files based on user selection
-        dirs = list()
-        desktop_dir = os.path.join(home_dir, get_xdg_user_dir("DESKTOP"))
-        applications_dir = os.path.join(home_dir, ".local/share/applications")
-        dirs.append(applications_dir)
-        dirs.append(desktop_dir)
+        # 2. Manage system .desktop files
+        locs = [
+            (os.path.join(home_dir, get_xdg_user_dir("DESKTOP")), selected_desktop),
+            (os.path.join(home_dir, ".local", "share", "applications"), selected_apps)
+        ]
 
-        for dir in dirs:
-            os.makedirs(dir, exist_ok=True)
+        for target_dir, selected_list in locs:
+            os.makedirs(target_dir, exist_ok=True)
 
-            for original_path in selected_files:
+            for original_path in selected_list:
                 try:
-                    print(f"Processing system shortcut: {os.path.basename(original_path)}")
+                    print(f"Processing system shortcut: {os.path.basename(original_path)} for {target_dir}")
 
                     with open(original_path, 'r') as f:
                         content = f.read()
@@ -692,7 +724,7 @@ class DownloadItemWidget(QWidget):
                     config_parser.set('Desktop Entry', 'Categories', 'Application;Game;')
 
                     new_file_name = os.path.basename(original_path)
-                    new_file_path = os.path.join(dir, new_file_name)
+                    new_file_path = os.path.join(target_dir, new_file_name)
 
                     with open(new_file_path, 'w') as f:
                         config_parser.write(f)
@@ -701,7 +733,7 @@ class DownloadItemWidget(QWidget):
                     print(f"Successfully created system shortcut at: {new_file_path}")
 
                 except Exception as e:
-                    print(f"Failed to process system shortcut {original_path}: {e}")
+                    print(f"Failed to process system shortcut {original_path} for {target_dir}: {e}")
 
 
     @staticmethod
