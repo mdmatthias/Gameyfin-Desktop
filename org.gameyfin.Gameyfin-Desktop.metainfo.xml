@@ -80,6 +80,13 @@
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="2.3.0" date="2026-03-15">
+            <description>
+                <ul>
+                    <li>ZIP lifecycle management: The installation process is now a two-step workflow where the "Unzip" button transforms into "Install" upon completion, accompanied by a new "Remove ZIP" button for easy post-extraction cleanup.</li>
+                </ul>
+            </description>
+        </release>
         <release version="2.2.1" date="2026-03-08">
             <description>
                 <ul>
