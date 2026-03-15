@@ -53,13 +53,16 @@ class DownloadItemWidget(QWidget):
         self.open_button = QPushButton("Open File")
         self.open_folder_button = QPushButton("Open Folder")
         self.remove_button = QPushButton("Remove")
-        self.install_button = QPushButton("Install")
+        self.install_button = QPushButton("Unzip")
+        self.remove_zip_button = QPushButton("Remove ZIP")
+        self.remove_zip_button.setStyleSheet("background-color: #d9534f; color: white;")
 
         self.button_container = QWidget()
         self.button_layout = QHBoxLayout(self.button_container)
         self.button_layout.setContentsMargins(0, 0, 0, 0)
         self.button_layout.addWidget(self.cancel_button)
         self.button_layout.addWidget(self.install_button)
+        self.button_layout.addWidget(self.remove_zip_button)
         self.button_layout.addWidget(self.open_button)
         self.button_layout.addWidget(self.open_folder_button)
         self.button_layout.addWidget(self.remove_button)
@@ -73,8 +76,11 @@ class DownloadItemWidget(QWidget):
         self.cancel_button.clicked.connect(self.cancel_download)
         self.open_button.clicked.connect(self.open_file)
         self.open_folder_button.clicked.connect(self.open_folder)
-        self.install_button.clicked.connect(self.install_package)
+        self.install_button.clicked.connect(self.handle_install_unzip_click)
+        self.remove_zip_button.clicked.connect(self.remove_zip_file)
         self.remove_button.clicked.connect(lambda: self.remove_requested.emit(self))
+
+        self.remove_zip_button.hide()
 
         if self.download_item:
             self.record = {
@@ -98,10 +104,36 @@ class DownloadItemWidget(QWidget):
         return [self.icon_label, self.filename_label, self.progress_bar, self.status_label, self.button_container]
 
     def _update_install_button_visibility(self):
-        """Hides or shows the install button based on file type."""
+        """Hides or shows the install button based on file type and extraction state."""
         path = self.record.get("path", "")
-        is_zip = path.lower().endswith(".zip")
-        self.install_button.setVisible(is_zip)
+        if not path.lower().endswith(".zip"):
+            self.install_button.hide()
+            self.remove_zip_button.hide()
+            return
+
+        zip_exists = os.path.exists(path)
+        
+        # Check if it was already unzipped
+        # We use a simple heuristic: if the folder exists, we assume it's unzipped.
+        # Ideally, we'd check if self.current_target_dir is set and exists.
+        target_dir = self.current_target_dir
+        if not target_dir:
+             target_dir = os.path.splitext(path)[0]
+        
+        is_unzipped = os.path.isdir(target_dir)
+
+        if is_unzipped:
+            self.install_button.setText("Install")
+            self.install_button.show()
+            self.remove_zip_button.setVisible(zip_exists)
+        else:
+            self.install_button.setText("Unzip")
+            self.install_button.setVisible(zip_exists)
+            self.remove_zip_button.hide()
+
+        if not zip_exists and not is_unzipped:
+            self.install_button.hide()
+            self.remove_zip_button.hide()
 
     def update_ui_for_historic_state(self):
         status = self.record.get("status", "Failed")
@@ -150,14 +182,45 @@ class DownloadItemWidget(QWidget):
     def open_folder(self):
         QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(self.record["path"])))
 
+    def handle_install_unzip_click(self):
+        """Dispatch based on button text: Unzip or Install."""
+        if self.install_button.text() == "Unzip":
+            self.install_package()
+        else:
+            zip_path = self.record.get("path")
+            target_dir = self.current_target_dir or os.path.splitext(zip_path)[0]
+            self.proceed_to_installation(target_dir)
+
+    def remove_zip_file(self):
+        """Ask for confirmation and remove the zip file."""
+        zip_path = self.record.get("path")
+        if not zip_path or not os.path.exists(zip_path):
+            return
+
+        confirm = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            f"Are you sure you want to remove the ZIP file?\n\n{os.path.basename(zip_path)}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if confirm == QMessageBox.StandardButton.Yes:
+            try:
+                os.remove(zip_path)
+                print(f"Removed ZIP file: {zip_path}")
+                self._update_install_button_visibility()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to delete ZIP file:\n{e}")
+
     def install_package(self):
         """
-        Shows config dialog, then sets up the QProgressDialog
-        and starts the UnzipWorker in a new thread.
+        Sets up the QProgressDialog and starts the UnzipWorker in a new thread.
+        This ONLY handles the extraction part now.
         """
         zip_path = self.record.get("path")
         if not zip_path or not zip_path.lower().endswith(".zip") or not os.path.exists(zip_path):
-            self.status_label.setText("Install failed: File not found")
+            self.status_label.setText("Unzip failed: File not found")
             self.status_label.setStyleSheet("color: red;")
             return
 
@@ -186,7 +249,7 @@ class DownloadItemWidget(QWidget):
             )
             
             if not selected_path:
-                self.status_label.setText("Install cancelled")
+                self.status_label.setText("Unzip cancelled")
                 self.install_button.setEnabled(True)
                 return
             self.current_target_dir = selected_path
@@ -236,16 +299,23 @@ class DownloadItemWidget(QWidget):
     @pyqtSlot()
     def on_unzip_finished(self):
         """
-        Called when the worker successfully finishes.
-        Finds game metadata, gets user config, finds the launcher,
-        and then delegates to a platform-specific installer method.
+        Called when the worker successfully finishes extraction.
+        Updates UI state to show 'Install' and 'Remove ZIP'.
         """
         self.progress_dialog.close()
         self.install_button.setEnabled(True)
+        self._update_install_button_visibility()
+        
+        QMessageBox.information(self, "Unzip Complete", 
+                                "Extraction finished successfully.\n\n"
+                                "You can now press 'Install' to start the game installation.")
 
-        zip_path = self.record.get("path")
-        target_dir = self.current_target_dir or os.path.splitext(zip_path)[0]
-
+    def proceed_to_installation(self, target_dir):
+        """
+        The original logic after unzip is finished:
+        Finds game metadata, gets user config, finds the launcher,
+        and then delegates to a platform-specific installer method.
+        """
         if sys.platform == "win32":
             # --- Windows Logic ---
             launcher_paths = []
