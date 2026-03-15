@@ -227,26 +227,30 @@ class DownloadItemWidget(QWidget):
 
         # Determine target directory
         default_unzip_dir = settings_manager.get("GF_DEFAULT_UNZIP_DIR")
+        default_download_dir = settings_manager.get("GF_DEFAULT_DOWNLOAD_DIR")
         prompt_unzip = settings_manager.get("GF_PROMPT_UNZIP_DIR")
         
         target_base_dir = None
         if default_unzip_dir and os.path.exists(default_unzip_dir):
             target_base_dir = default_unzip_dir
+        elif default_download_dir:
+            # Note: we use this even if it doesn't exist yet, as we will makedirs it.
+            # But we must expand user if it's a path like ~/Downloads
+            target_base_dir = os.path.expanduser(default_download_dir)
         else:
-            target_base_dir = os.path.dirname(zip_path)
+            target_base_dir = os.path.expanduser("~/Downloads")
 
         zip_basename = os.path.splitext(os.path.basename(zip_path))[0]
         suggested_target_dir = os.path.join(target_base_dir, zip_basename)
 
         if prompt_unzip:
-            from PyQt6.QtWidgets import QFileDialog
-            # We use getSaveFileName because it provides an editable "File name" box 
-            # where we can pre-fill the suggested folder name. This allows the user
-            # to easily change the name of the folder being created within the default path.
-            selected_path, _ = QFileDialog.getSaveFileName(
+            # We use DontUseNativeDialog to avoid the Flatpak document portal which 
+            # returns read-only virtual paths starting with /run/user/...
+            selected_path = QFileDialog.getExistingDirectory(
                 self, 
                 "Select Unzip directory", 
-                suggested_target_dir
+                suggested_target_dir,
+                options=QFileDialog.Option.DontUseNativeDialog
             )
             
             if not selected_path:
@@ -257,7 +261,15 @@ class DownloadItemWidget(QWidget):
         else:
             self.current_target_dir = suggested_target_dir
 
-        os.makedirs(self.current_target_dir, exist_ok=True)
+        try:
+            os.makedirs(self.current_target_dir, exist_ok=True)
+        except Exception as e:
+            print(f"Error creating directory {self.current_target_dir}: {e}")
+            QMessageBox.critical(self, "Permission Error", 
+                                 f"Failed to create installation directory:\n{self.current_target_dir}\n\n"
+                                 f"Error: {e}")
+            self.install_button.setEnabled(True)
+            return
 
         self.install_button.setEnabled(False)
 
