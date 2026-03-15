@@ -55,7 +55,6 @@ class DownloadItemWidget(QWidget):
         self.remove_button = QPushButton("Remove")
         self.install_button = QPushButton("Unzip")
         self.remove_zip_button = QPushButton("Remove ZIP")
-        self.remove_zip_button.setStyleSheet("background-color: #d9534f; color: white;")
 
         self.button_container = QWidget()
         self.button_layout = QHBoxLayout(self.button_container)
