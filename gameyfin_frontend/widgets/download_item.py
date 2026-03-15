@@ -135,10 +135,6 @@ class DownloadItemWidget(QWidget):
             self.install_button.setEnabled(zip_exists)
             self.install_button.show()
 
-        if not zip_exists and not is_unzipped:
-            self.install_button.hide()
-            self.remove_zip_button.hide()
-
     def update_ui_for_historic_state(self):
         status = self.record.get("status", "Failed")
         self.progress_bar.show()
