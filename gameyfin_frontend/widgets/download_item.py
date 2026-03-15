@@ -9,7 +9,7 @@ from PyQt6.QtCore import pyqtSlot, QProcess, QUrl, QThread, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWebEngineCore import QWebEngineDownloadRequest
 from PyQt6.QtWidgets import QDialog, QProgressDialog, QWidget, QProgressBar, QPushButton, QHBoxLayout, QLabel, QStyle, \
-    QStackedLayout
+    QStackedLayout, QMessageBox
 
 from gameyfin_frontend.dialogs import SelectShortcutsDialog, InstallConfigDialog, SelectUmuIdDialog, \
     SelectLauncherDialog
@@ -50,7 +50,7 @@ class DownloadItemWidget(QWidget):
         self.status_label = QLabel()
 
         self.cancel_button = QPushButton("Cancel")
-        self.open_button = QPushButton("Open File")
+        self.open_button = QPushButton("Open ZIP")
         self.open_folder_button = QPushButton("Open Folder")
         self.remove_button = QPushButton("Remove")
         self.install_button = QPushButton("Unzip")
@@ -109,31 +109,34 @@ class DownloadItemWidget(QWidget):
         if not path.lower().endswith(".zip"):
             self.install_button.hide()
             self.remove_zip_button.hide()
+            self.open_button.setText("Open File")
             return
 
+        self.open_button.setText("Open ZIP")
         zip_exists = os.path.exists(path)
         
         # Check if it was already unzipped
-        # We use a simple heuristic: if the folder exists, we assume it's unzipped.
-        # Ideally, we'd check if self.current_target_dir is set and exists.
         target_dir = self.current_target_dir
         if not target_dir:
              target_dir = os.path.splitext(path)[0]
         
         is_unzipped = os.path.isdir(target_dir)
 
+        # Update button states
+        self.open_button.setEnabled(zip_exists)
+        self.remove_zip_button.setEnabled(zip_exists)
+        self.remove_zip_button.show()
+
         if is_unzipped:
             self.install_button.setText("Install")
             self.install_button.show()
-            self.remove_zip_button.setVisible(zip_exists)
         else:
             self.install_button.setText("Unzip")
             self.install_button.setVisible(zip_exists)
-            self.remove_zip_button.hide()
 
         if not zip_exists and not is_unzipped:
             self.install_button.hide()
-            self.remove_zip_button.hide()
+            # We keep remove_zip_button shown but disabled
 
     def update_ui_for_historic_state(self):
         status = self.record.get("status", "Failed")
@@ -195,6 +198,7 @@ class DownloadItemWidget(QWidget):
         """Ask for confirmation and remove the zip file."""
         zip_path = self.record.get("path")
         if not zip_path or not os.path.exists(zip_path):
+            self._update_install_button_visibility()
             return
 
         confirm = QMessageBox.question(
