@@ -128,14 +128,16 @@ class DownloadItemWidget(QWidget):
 
         if is_unzipped:
             self.install_button.setText("Install")
+            self.install_button.setEnabled(True)
             self.install_button.show()
         else:
             self.install_button.setText("Unzip")
-            self.install_button.setVisible(zip_exists)
+            self.install_button.setEnabled(zip_exists)
+            self.install_button.show()
 
         if not zip_exists and not is_unzipped:
             self.install_button.hide()
-            # We keep remove_zip_button shown but disabled
+            self.remove_zip_button.hide()
 
     def update_ui_for_historic_state(self):
         status = self.record.get("status", "Failed")
