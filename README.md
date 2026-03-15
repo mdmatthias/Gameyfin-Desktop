@@ -12,6 +12,11 @@ A dedicated desktop client for [Gameyfin](https://github.com/gameyfin/gameyfin) 
 * **📥 Download Manager:**
   * Manages all file downloads in a persistent "Downloads" tab.
   * Shows progress, speed, and a complete download history.
+* **📦 ZIP Lifecycle Management:**
+  * **Two-Step Installation:** Process is split into "Unzip" and "Install" phases for better control.
+  * **Dynamic Buttons:** The "Unzip" button transforms into "Install" once extraction is complete.
+  * **Archive Cleanup:** Dedicated "Remove ZIP" button (with confirmation) to easily delete large installers after extraction.
+  * **Persistent Options:** Buttons for opening and removing ZIPs are always visible and adapt their state based on file existence.
 * **💽 Installer (Windows):**
   * Extracts the downloaded archive.
   * Detects `.exe` files. If multiple are found, it asks you to choose which one to launch.
