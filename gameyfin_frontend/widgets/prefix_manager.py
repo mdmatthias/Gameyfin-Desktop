@@ -3,6 +3,7 @@ import json
 import glob
 import subprocess
 import configparser
+import shlex
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QListWidget, QPushButton, 
                              QHBoxLayout, QLabel, QMessageBox, QDialog, QComboBox, QListWidgetItem, QCheckBox)
 from PyQt6.QtCore import Qt
@@ -237,10 +238,13 @@ class PrefixItemWidget(QWidget):
 
                     is_flatpak = os.path.exists("/.flatpak-info")
                     if is_flatpak:
-                        # Call the script inside the flatpak from the host
-                        config_parser.set('Desktop Entry', 'Exec', f'flatpak run --command=sh org.gameyfin.Gameyfin-Desktop -c "\"{script_path}\""')
+                        inner_cmd = shlex.quote(script_path)
+                        for char in ('\\', '"', '$', '`'):
+                            inner_cmd = inner_cmd.replace(char, f'\\{char}')
+                        
+                        config_parser.set('Desktop Entry', 'Exec', f'flatpak run --command=sh org.gameyfin.Gameyfin-Desktop -c "{inner_cmd}"')
                     else:
-                        config_parser.set('Desktop Entry', 'Exec', f'\"{script_path}\"')
+                        config_parser.set('Desktop Entry', 'Exec', f'"{script_path}"')
 
                     config_parser.set('Desktop Entry', 'Type', 'Application')
                     config_parser.set('Desktop Entry', 'Categories', 'Application;Game;')
