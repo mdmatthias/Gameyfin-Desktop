@@ -547,33 +547,12 @@ class DownloadItemWidget(QWidget):
             self.run_process = QProcess(self)
             self.run_process.setWorkingDirectory(launcher_dir)
             
-            # Detect if running in Flatpak
-            is_flatpak = os.path.exists("/.flatpak-info")
-            
-            if is_flatpak:
-                # In Flatpak, we MUST use flatpak-spawn --host to run on the host.
-                args = ["--host", "env"]
-                args.append(f"PROTONPATH={settings_manager.get('PROTONPATH', 'GE-Proton')}")
-                args.append(f"WINEPREFIX={wine_prefix_path}")
-                
-                for key, value in config.items():
-                    if key != "MANGOHUD":
-                        args.append(f"{key}={value}")
-                
-                if cmd_prefix:
-                    args.append(cmd_prefix)
-                
-                args.extend(["umu-run", launcher_to_run])
-                
-                print(f"Executing (Flatpak): flatpak-spawn {' '.join(args)}")
-                self.run_process.finished.connect(self.on_run_finished)
-                self.run_process.start("flatpak-spawn", args)
-            else:
-                # Original shell-based execution for non-flatpak
-                command_string = f"{env_prefix} exec {cmd_prefix + ' ' if cmd_prefix else ''}umu-run \"{launcher_to_run}\""
-                print(f"Executing: /bin/sh -c \"{command_string}\" ")
-                self.run_process.finished.connect(self.on_run_finished)
-                self.run_process.start("/bin/sh", ["-c", command_string])
+            # Original shell-based execution for both flatpak and non-flatpak
+            # since umu-run is now integrated in the flatpak.
+            command_string = f"{env_prefix} exec {cmd_prefix + ' ' if cmd_prefix else ''}umu-run \"{launcher_to_run}\""
+            print(f"Executing: /bin/sh -c \"{command_string}\" ")
+            self.run_process.finished.connect(self.on_run_finished)
+            self.run_process.start("/bin/sh", ["-c", command_string])
 
             if self.run_process.waitForStarted():
                 print(f"Launch successful. Monitoring QProcess.")
@@ -802,7 +781,13 @@ class DownloadItemWidget(QWidget):
                     script_name = os.path.splitext(os.path.basename(original_path))[0] + ".sh"
                     script_path = os.path.join(shortcut_scripts_path, script_name)
 
-                    config_parser.set('Desktop Entry', 'Exec', f'\"{script_path}\"')
+                    is_flatpak = os.path.exists("/.flatpak-info")
+                    if is_flatpak:
+                        # Call the script inside the flatpak from the host
+                        config_parser.set('Desktop Entry', 'Exec', f'flatpak run --command=sh org.gameyfin.Gameyfin-Desktop -c "\"{script_path}\""')
+                    else:
+                        config_parser.set('Desktop Entry', 'Exec', f'\"{script_path}\"')
+
                     config_parser.set('Desktop Entry', 'Type', 'Application')
                     config_parser.set('Desktop Entry', 'Categories', 'Application;Game;')
 

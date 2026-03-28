@@ -65,13 +65,8 @@ class PrefixItemWidget(QWidget):
         script_path = self.script_combo.itemData(index)
         if script_path:
             try:
-                is_flatpak = os.path.exists("/.flatpak-info")
-                if is_flatpak:
-                    subprocess.Popen(["flatpak-spawn", "--host", script_path],
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                else:
-                    subprocess.Popen([script_path], cwd=os.path.dirname(script_path),
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.Popen([script_path], cwd=os.path.dirname(script_path),
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 # Reset to placeholder
                 self.script_combo.setCurrentIndex(0)
             except Exception as e:
@@ -240,7 +235,13 @@ class PrefixItemWidget(QWidget):
                     script_name = os.path.splitext(os.path.basename(original_path))[0] + ".sh"
                     script_path = os.path.join(self.scripts_dir, script_name)
 
-                    config_parser.set('Desktop Entry', 'Exec', f'\"{script_path}\"')
+                    is_flatpak = os.path.exists("/.flatpak-info")
+                    if is_flatpak:
+                        # Call the script inside the flatpak from the host
+                        config_parser.set('Desktop Entry', 'Exec', f'flatpak run --command=sh org.gameyfin.Gameyfin-Desktop -c "\"{script_path}\""')
+                    else:
+                        config_parser.set('Desktop Entry', 'Exec', f'\"{script_path}\"')
+
                     config_parser.set('Desktop Entry', 'Type', 'Application')
                     config_parser.set('Desktop Entry', 'Categories', 'Application;Game;')
 
