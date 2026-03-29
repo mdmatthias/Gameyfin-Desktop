@@ -16,8 +16,18 @@ finish-args:
   - --allow=multiarch
   - --filesystem=home
   - --filesystem=xdg-download
+  - --filesystem=xdg-config/MangoHud:ro
   - --talk-name=org.freedesktop.Flatpak
   - --talk-name=org.kde.StatusNotifierWatcher
+
+add-extensions:
+  org.freedesktop.Platform.VulkanLayer.MangoHud:
+    directory: lib/extensions/vulkan/MangoHud
+    version: 'stable'
+    add-ld-path: lib
+    no-autodownload: false
+    autodelete: false
+
 modules:
   - name: krb5
     buildsystem: simple
