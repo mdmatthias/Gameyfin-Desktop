@@ -177,16 +177,10 @@ class InstallConfigDialog(QDialog):
 
         proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
         
-        is_flatpak = os.path.exists("/.flatpak-info")
-        if is_flatpak:
-            args = ["--host", "env", f"PROTONPATH={proton_path}", f"WINEPREFIX={self.wine_prefix_path}", "umu-run", "winecfg"]
-            print(f"Executing (Flatpak): flatpak-spawn {' '.join(args)}")
-            QProcess.startDetached("flatpak-spawn", args)
-        else:
-            env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.wine_prefix_path}\" "
-            command_string = f"{env_prefix} umu-run winecfg"
-            print(f"Executing: /bin/sh -c \"{command_string}\"")
-            QProcess.startDetached("/bin/sh", ["-c", command_string])
+        env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.wine_prefix_path}\" "
+        command_string = f"{env_prefix} umu-run winecfg"
+        print(f"Executing: /bin/sh -c \"{command_string}\"")
+        QProcess.startDetached("/bin/sh", ["-c", command_string])
 
     @pyqtSlot()
     def run_winetricks(self):

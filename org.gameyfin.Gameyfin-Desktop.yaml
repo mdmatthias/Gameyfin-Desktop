@@ -10,11 +10,24 @@ finish-args:
   - --share=network
   - --socket=session-bus
   - --socket=system-bus
-  - --device=dri
-  - --filesystem=xdg-download
+  - --socket=pulseaudio
+  - --device=all
+  - --allow=devel
+  - --allow=multiarch
   - --filesystem=home
+  - --filesystem=xdg-download
+  - --filesystem=xdg-config/MangoHud:ro
   - --talk-name=org.freedesktop.Flatpak
   - --talk-name=org.kde.StatusNotifierWatcher
+
+add-extensions:
+  org.freedesktop.Platform.VulkanLayer.MangoHud:
+    directory: lib/extensions/vulkan/MangoHud
+    version: 'stable'
+    add-ld-path: lib
+    no-autodownload: false
+    autodelete: false
+
 modules:
   - name: krb5
     buildsystem: simple
@@ -28,17 +41,36 @@ modules:
       - cd src && ./configure --prefix=/app --disable-static --disable-rpath
       - cd src && make -j${FLATPAK_BUILDER_N_JOBS}
       - cd src && make install
-  - name: umu-host-wrapper
+  - python-dependencies.json
+
+  - name: umu-launcher
     buildsystem: simple
     build-commands:
-      - install -D umu-run.sh /app/bin/umu-run
+      # 1. Create the site-packages directory
+      - mkdir -p /app/lib/python3.13/site-packages
+
+      # 2. Copy the entire 'umu' package folder
+      # This includes __init__.py, __main__.py, umu_run.py, etc.
+      - cp -r umu /app/lib/python3.13/site-packages/
+
+      # 3. Create the launcher script exactly like the native one
+      - |
+        cat <<EOF > /app/bin/umu-run
+        #!/usr/bin/python3
+        import re
+        import sys
+        from umu.__main__ import main
+        if __name__ == "__main__":
+            sys.argv[0] = re.sub(r"(-script\.pyw|\.exe)?$", "", sys.argv[0])
+            sys.exit(main())
+        EOF
+
+      # 4. Make it executable
+      - chmod +x /app/bin/umu-run
     sources:
-      - type: script
-        dest-filename: umu-run.sh
-        commands:
-          - '#!/bin/sh'
-          - 'exec flatpak-spawn --host umu-run "$@"'
-  - python-dependencies.json
+      - type: git
+        url: https://github.com/Open-Wine-Components/umu-launcher.git
+        tag: 1.4.0
   - name: gameyfin-desktop
     buildsystem: simple
     build-commands:
