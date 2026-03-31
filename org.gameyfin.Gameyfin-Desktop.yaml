@@ -9,91 +9,146 @@ command: gameyfin-desktop
 separate-locales: false
 
 finish-args:
+  # --- Networking & Webview Support ---
+  - --share=network
   - --share=ipc
   - --socket=x11
   - --socket=wayland
-  - --share=network
-  - --socket=session-bus
-  - --socket=system-bus
+  - --socket=session-bus # Required for QtWebEngine / Self-hosted auth
+  - --talk-name=org.freedesktop.secrets # Keyring access for logins
+
+  # --- Audio & Hardware ---
   - --socket=pulseaudio
   - --device=all
   - --allow=devel
   - --allow=multiarch
+  - --allow=bluetooth
+  - --allow=per-app-dev-shm # Required for Proton/umu-launcher
+
+  # --- Filesystem (Downloader & Gaming) ---
   - --filesystem=home
-  - --filesystem=xdg-download
+  - --filesystem=xdg-download:create # For your Download Manager
+  - --filesystem=~/.steam:rw
+  - --filesystem=~/.local/share/umu:create
+  - --filesystem=/run/media # SD Card Support
+  - --filesystem=/run/udev:ro # Controller Support
+  - --filesystem=xdg-run/gamescope-0:rw
   - --filesystem=xdg-config/MangoHud:ro
+
+  # --- System Integration (Buses) ---
   - --talk-name=org.freedesktop.Flatpak
   - --talk-name=org.kde.StatusNotifierWatcher
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.freedesktop.PowerManagement
+  - --talk-name=org.freedesktop.FileManager1 # To "Open Folder" after download
+  - --system-talk-name=org.freedesktop.UDisks2
+  - --system-talk-name=org.freedesktop.UPower
+
+  # --- Environment Variables ---
+  - --env=PATH=/app/bin:/app/utils/bin:/usr/bin:/usr/lib/extensions/vulkan/MangoHud/bin
+  - --env=XDG_CONFIG_DIRS=/etc/xdg:/usr/lib/x86_64-linux-gnu/GL:/usr/lib/i386-linux-gnu/GL
+  - --env=XDG_DATA_DIRS=/app/share:/usr/lib/extensions/vulkan/share:/usr/share:/usr/share/runtime/share
 
 add-extensions:
+  # MangoHud (Gaming Overlay)
   org.freedesktop.Platform.VulkanLayer.MangoHud:
     directory: lib/extensions/vulkan/MangoHud
-    version: 'stable'
+    version: '25.08'
     add-ld-path: lib
     no-autodownload: false
     autodelete: false
 
+  # 32-bit Compatibility (For older games)
   org.freedesktop.Platform.Compat.i386:
     directory: lib/i386-linux-gnu
     version: '25.08'
 
-  org.freedesktop.Platform.Compat.i386.Debug:
-    directory: lib/debug/lib/i386-linux-gnu
-    version: '25.08'
-    no-autodownload: true
-
+  # 32-bit Graphics Drivers
   org.freedesktop.Platform.GL32:
     directory: lib/i386-linux-gnu/GL
     version: '1.4'
     versions: 25.08;1.4
     subdirectories: true
-    no-autodownload: true
-    autodelete: false
     add-ld-path: lib
-    merge-dirs: vulkan/icd.d;glvnd/egl_vendor.d;OpenCL/vendors;lib/dri;lib/d3d;vulkan/explicit_layer.d;vulkan/implicit_layer.d
-    download-if: active-gl-driver
-    enable-if: active-gl-driver
-    autoprune-unless: active-gl-driver
+    merge-dirs: vulkan/icd.d;glvnd/egl_vendor.d;OpenCL/vendors;lib/dri;lib/d3d
 
-  org.freedesktop.Platform.VAAPI.Intel.i386:
-    directory: lib/i386-linux-gnu/dri/intel-vaapi-driver
-    version: '25.08'
-    versions: '25.08'
-    autodelete: false
-    no-autodownload: true
-    add-ld-path: lib
-    download-if: have-intel-gpu
-    autoprune-unless: have-intel-gpu
-
+  # Steam / Proton Utilities
   com.valvesoftware.Steam.Utility:
     subdirectories: true
     directory: utils
     version: stable
-    versions: stable;beta;test
     add-ld-path: lib
     merge-dirs: bin
-    no-autodownload: true
-    autodelete: true
 
 x-compat-i386-opts: &compat_i386_opts
   prepend-pkg-config-path: /app/lib32/pkgconfig:/usr/lib/i386-linux-gnu/pkgconfig
   ldflags: -L/app/lib32
   append-path: /usr/lib/sdk/toolchain-i386/bin
-  env:
-    CC: i686-unknown-linux-gnu-gcc
-    CXX: i686-unknown-linux-gnu-g++
   libdir: /app/lib32
 
 modules:
   - name: pre-setup
     buildsystem: simple
     build-commands:
-      - mkdir -p /app/lib/i386-linux-gnu
-      - mkdir -p /app/lib/debug/lib/i386-linux-gnu
+      # Pre-create mount points so bwrap doesn't fail on a read-only filesystem
       - mkdir -p /app/lib/i386-linux-gnu/GL
-      - mkdir -p /app/lib/i386-linux-gnu/dri/intel-vaapi-driver
       - mkdir -p /app/lib/extensions/vulkan/MangoHud
       - mkdir -p /app/utils
+      - mkdir -p /app/etc
+      - echo "/app/lib32" > /app/etc/ld.so.conf
+      - echo "/app/lib/i386-linux-gnu" >> /app/etc/ld.so.conf
+      # Silence the amdgpu hardware ID warning
+      - mkdir -p /app/lib/i386-linux-gnu/GL/default/share/libdrm
+      - touch /app/lib/i386-linux-gnu/GL/default/share/libdrm/amdgpu.ids
+
+  # --- Extraction Tools for Winetricks ---
+  - name: 7zip
+    buildsystem: simple
+    subdir: CPP/7zip/Bundles/Alone2
+    build-commands:
+      - make -j $FLATPAK_BUILDER_N_JOBS -f makefile.gcc
+      - install -Dm755 ./_o/7zz /app/bin/7zz
+      - ln -s /app/bin/7zz /app/bin/7za
+      - ln -s /app/bin/7zz /app/bin/7z
+    sources:
+      - type: archive
+        url: https://github.com/ip7z/7zip/archive/refs/tags/25.01.tar.gz
+        sha256: 8772e4ef86540c98bf4c23a6d9e13b3a25794d4bb30986ef0b1b9f20075b34c9
+
+  - name: cabextract
+    sources:
+      - type: archive
+        url: https://www.cabextract.org.uk/cabextract-1.11.tar.gz
+        sha256: b5546db1155e4c718ff3d4b278573604f30dd64c3c5bfd4657cd089b823a3ac6
+
+  - name: unrar
+    no-autogen: true
+    make-install-args:
+      - DESTDIR=/app
+    sources:
+      - type: archive
+        url: https://www.rarlab.com/rar/unrarsrc-7.2.2.tar.gz
+        sha256: 41c00c8755cf5bf6b5d7f0d2d167ee889c2c5352e17e5c9470dbc354af1e71ab
+
+  - name: winetricks
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 winetricks /app/bin/winetricks
+    sources:
+      - type: file
+        url: https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks
+        sha256: 5f19067e411df83e079730f781031952e4f0d367e9b08f830a7d77a83d21c3fa
+
+  - name: gamemode
+    buildsystem: meson
+    config-opts:
+      - -Dwith-examples=false
+      - -Dwith-util=false
+      - -Dwith-sd-bus-provider=no-daemon
+    sources:
+      - type: git
+        url: https://github.com/FeralInteractive/gamemode.git
+        tag: 1.8.2
 
   - name: krb5
     buildsystem: simple
@@ -101,8 +156,6 @@ modules:
       - type: archive
         url: https://kerberos.org/dist/krb5/1.21/krb5-1.21.3.tar.gz
         sha256: b7a4cd5ead67fb08b980b21abd150ff7217e85ea320c9ed0c6dadd304840ad35
-    build-options:
-      cflags: "-std=gnu89 -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=implicit-function-declaration"
     build-commands:
       - cd src && ./configure --prefix=/app --disable-static --disable-rpath
       - cd src && make -j${FLATPAK_BUILDER_N_JOBS}
