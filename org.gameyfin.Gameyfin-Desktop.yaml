@@ -3,9 +3,11 @@ runtime: org.kde.Platform
 runtime-version: '6.10'
 sdk: org.kde.Sdk
 command: gameyfin-desktop
+
 sdk-extensions:
-  - org.freedesktop.Sdk.Compat.i386
-  - org.freedesktop.Sdk.Extension.toolchain-i386
+  - org.freedesktop.Sdk.Compat.i386//25.08
+  - org.freedesktop.Sdk.Extension.toolchain-i386//25.08
+
 finish-args:
   - --share=ipc
   - --socket=x11
@@ -30,6 +32,7 @@ add-extensions:
     add-ld-path: lib
     no-autodownload: false
     autodelete: false
+
   org.freedesktop.Platform.Compat.i386:
     directory: lib/i386-linux-gnu
     version: '25.08'
@@ -42,6 +45,7 @@ add-extensions:
   org.freedesktop.Platform.GL32:
     directory: lib/i386-linux-gnu/GL
     version: '1.4'
+    # Match the runtime version (25.08)
     versions: 25.08;1.4
     subdirectories: true
     no-autodownload: true
@@ -51,15 +55,6 @@ add-extensions:
     download-if: active-gl-driver
     enable-if: active-gl-driver
     autoprune-unless: active-gl-driver
-
-  x-compat-i386-opts: &compat_i386_opts
-    prepend-pkg-config-path: /app/lib32/pkgconfig:/usr/lib/i386-linux-gnu/pkgconfig
-    ldflags: -L/app/lib32
-    append-path: /usr/lib/sdk/toolchain-i386/bin
-    env:
-      CC: i686-unknown-linux-gnu-gcc
-      CXX: i686-unknown-linux-gnu-g++
-    libdir: /app/lib32
 
   org.freedesktop.Platform.VAAPI.Intel.i386:
     directory: lib/i386-linux-gnu/dri/intel-vaapi-driver
@@ -81,6 +76,16 @@ add-extensions:
     no-autodownload: true
     autodelete: true
 
+# This anchor is used in module build-options to target 32-bit compilation
+x-compat-i386-opts: &compat_i386_opts
+  prepend-pkg-config-path: /app/lib32/pkgconfig:/usr/lib/i386-linux-gnu/pkgconfig
+  ldflags: -L/app/lib32
+  append-path: /usr/lib/sdk/toolchain-i386/bin
+  env:
+    CC: i686-unknown-linux-gnu-gcc
+    CXX: i686-unknown-linux-gnu-g++
+  libdir: /app/lib32
+
 modules:
   - name: krb5
     buildsystem: simple
@@ -94,19 +99,16 @@ modules:
       - cd src && ./configure --prefix=/app --disable-static --disable-rpath
       - cd src && make -j${FLATPAK_BUILDER_N_JOBS}
       - cd src && make install
+
   - python-dependencies.json
 
   - name: umu-launcher
     buildsystem: simple
     build-commands:
-      # 1. Create the site-packages directory
-      - mkdir -p /app/lib/python3.13/site-packages
-
-      # 2. Copy the entire 'umu' package folder
-      # This includes __init__.py, __main__.py, umu_run.py, etc.
-      - cp -r umu /app/lib/python3.13/site-packages/
-
-      # 3. Create the launcher script exactly like the native one
+      # Dynamic path to handle Python versioning gracefully
+      - export PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')") && 
+        mkdir -p /app/lib/python${PY_VER}/site-packages &&
+        cp -r umu /app/lib/python${PY_VER}/site-packages/
       - |
         cat <<EOF > /app/bin/umu-run
         #!/usr/bin/python3
@@ -117,13 +119,12 @@ modules:
             sys.argv[0] = re.sub(r"(-script\.pyw|\.exe)?$", "", sys.argv[0])
             sys.exit(main())
         EOF
-
-      # 4. Make it executable
       - chmod +x /app/bin/umu-run
     sources:
       - type: git
         url: https://github.com/Open-Wine-Components/umu-launcher.git
         tag: 1.4.0
+
   - name: gameyfin-desktop
     buildsystem: simple
     build-commands:
@@ -136,7 +137,10 @@ modules:
       - install -m 644 org.gameyfin.Gameyfin-Desktop.desktop /app/share/applications/
       - mkdir -p /app/share/metainfo
       - install -m 644 org.gameyfin.Gameyfin-Desktop.metainfo.xml /app/share/metainfo/
-      - export PYTHONPATH=$PYTHONPATH:/app/lib/python3.13/site-packages && python3 make_square_icon.py gameyfin_frontend/icon.png square_icon.png
+      # Use dynamic PYTHONPATH to find dependencies
+      - export PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')") &&
+        export PYTHONPATH=$PYTHONPATH:/app/lib/python${PY_VER}/site-packages && 
+        python3 make_square_icon.py gameyfin_frontend/icon.png square_icon.png
       - mkdir -p /app/share/icons/hicolor/256x256/apps
       - install -m 644 square_icon.png /app/share/icons/hicolor/256x256/apps/org.gameyfin.Gameyfin-Desktop.png
     sources:
