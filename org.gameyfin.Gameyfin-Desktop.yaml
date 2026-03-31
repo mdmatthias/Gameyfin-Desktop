@@ -1,7 +1,7 @@
 app-id: org.gameyfin.Gameyfin-Desktop
 runtime: org.kde.Platform
 runtime-version: '6.10'
-sdk: org.freedesktop.Sdk
+sdk: org.freedesktop.Sdk//25.08
 sdk-extensions:
   - org.freedesktop.Sdk.Compat.i386
   - org.freedesktop.Sdk.Extension.toolchain-i386
