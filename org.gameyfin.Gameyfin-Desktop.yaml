@@ -150,17 +150,6 @@ modules:
         url: https://github.com/FeralInteractive/gamemode.git
         tag: 1.8.2
 
-  - name: krb5
-    buildsystem: simple
-    sources:
-      - type: archive
-        url: https://kerberos.org/dist/krb5/1.21/krb5-1.21.3.tar.gz
-        sha256: b7a4cd5ead67fb08b980b21abd150ff7217e85ea320c9ed0c6dadd304840ad35
-    build-commands:
-      - cd src && ./configure --prefix=/app --disable-static --disable-rpath
-      - cd src && make -j${FLATPAK_BUILDER_N_JOBS}
-      - cd src && make install
-
   - python-dependencies.json
 
   - name: umu-launcher
