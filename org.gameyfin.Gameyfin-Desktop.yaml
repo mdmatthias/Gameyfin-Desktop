@@ -14,8 +14,8 @@ finish-args:
   - --share=ipc
   - --socket=x11
   - --socket=wayland
-  - --socket=session-bus # Required for QtWebEngine / Self-hosted auth
-  - --talk-name=org.freedesktop.secrets # Keyring access for logins
+  - --socket=session-bus
+  - --talk-name=org.freedesktop.secrets
 
   # --- Audio & Hardware ---
   - --socket=pulseaudio
@@ -23,34 +23,36 @@ finish-args:
   - --allow=devel
   - --allow=multiarch
   - --allow=bluetooth
-  - --allow=per-app-dev-shm # Required for Proton/umu-launcher
+  - --allow=per-app-dev-shm
 
   # --- Filesystem (Downloader & Gaming) ---
   - --filesystem=home
-  - --filesystem=xdg-download:create # For your Download Manager
+  - --filesystem=xdg-download:create
   - --filesystem=~/.steam:rw
   - --filesystem=~/.local/share/umu:create
-  - --filesystem=/run/media # SD Card Support
-  - --filesystem=/run/udev:ro # Controller Support
+  - --filesystem=/run/media
+  - --filesystem=/run/udev:ro
   - --filesystem=xdg-run/gamescope-0:rw
   - --filesystem=xdg-config/MangoHud:ro
 
-  # --- System Integration (Buses) ---
+  # --- System Integration ---
   - --talk-name=org.freedesktop.Flatpak
   - --talk-name=org.kde.StatusNotifierWatcher
   - --talk-name=org.freedesktop.Notifications
   - --talk-name=org.freedesktop.PowerManagement
-  - --talk-name=org.freedesktop.FileManager1 # To "Open Folder" after download
+  - --talk-name=org.freedesktop.FileManager1
   - --system-talk-name=org.freedesktop.UDisks2
   - --system-talk-name=org.freedesktop.UPower
 
-  # --- Environment Variables ---
+  # --- THE FIXES (Environment Variables) ---
+  # Force library path so Kerberos is found (Your successful patch)
+  - --env=LD_LIBRARY_PATH=/app/lib:/app/lib32:/usr/lib/x86_64-linux-gnu
+  # Fix the "Undefined Symbol" by using System Python 3.13 libs first
+  - --env=PYTHONPATH=/app/lib/python3.13/site-packages:/usr/lib/python3.13/site-packages
+  # Standard Path setup
   - --env=PATH=/app/bin:/app/utils/bin:/usr/bin:/usr/lib/extensions/vulkan/MangoHud/bin
-  - --env=XDG_CONFIG_DIRS=/etc/xdg:/usr/lib/x86_64-linux-gnu/GL:/usr/lib/i386-linux-gnu/GL
-  - --env=XDG_DATA_DIRS=/app/share:/usr/lib/extensions/vulkan/share:/usr/share:/usr/share/runtime/share
 
 add-extensions:
-  # MangoHud (Gaming Overlay)
   org.freedesktop.Platform.VulkanLayer.MangoHud:
     directory: lib/extensions/vulkan/MangoHud
     version: '25.08'
@@ -58,21 +60,17 @@ add-extensions:
     no-autodownload: false
     autodelete: false
 
-  # 32-bit Compatibility
   org.freedesktop.Platform.Compat.i386:
     directory: lib/i386-linux-gnu
     version: '25.08'
 
-  # 32-bit Graphics Drivers
   org.freedesktop.Platform.GL32:
     directory: lib/i386-linux-gnu/GL
     version: '1.4'
     versions: 25.08;1.4
     subdirectories: true
     add-ld-path: lib
-    merge-dirs: vulkan/icd.d;glvnd/egl_vendor.d;OpenCL/vendors;lib/dri;lib/d3d
 
-  # Steam / Proton Utilities
   com.valvesoftware.Steam.Utility:
     subdirectories: true
     directory: utils
@@ -80,37 +78,27 @@ add-extensions:
     add-ld-path: lib
     merge-dirs: bin
 
-x-compat-i386-opts: &compat_i386_opts
-  prepend-pkg-config-path: /app/lib32/pkgconfig:/usr/lib/i386-linux-gnu/pkgconfig
-  ldflags: -L/app/lib32
-  append-path: /usr/lib/sdk/toolchain-i386/bin
-  libdir: /app/lib32
-
 modules:
   - name: pre-setup
     buildsystem: simple
     build-commands:
-      # Pre-create mount points
+      # Pre-create mount points and lib folders
       - mkdir -p /app/lib/i386-linux-gnu/GL
-      - mkdir -p /app/lib/extensions/vulkan/MangoHud
+      - mkdir -p /app/lib/python3.13/site-packages
       - mkdir -p /app/utils
       - mkdir -p /app/etc
       
-      # FIX: Solve the libgssapi_krb5.so.2 error by symlinking system libs
+      # FIX: The Kerberos Symlinks (Satisfies the ImportError)
       - ln -s /usr/lib/x86_64-linux-gnu/libgssapi_krb5.so.2 /app/lib/libgssapi_krb5.so.2
       - ln -s /usr/lib/x86_64-linux-gnu/libkrb5.so.3 /app/lib/libkrb5.so.3
       - ln -s /usr/lib/x86_64-linux-gnu/libk5crypto.so.3 /app/lib/libk5crypto.so.3
       - ln -s /usr/lib/x86_64-linux-gnu/libkrb5support.so.0 /app/lib/libkrb5support.so.0
       
-      # Ensure ld knows where to look
-      - echo "/app/lib" > /app/etc/ld.so.conf
-      - echo "/app/lib32" >> /app/etc/ld.so.conf
-      
-      # Silence the amdgpu hardware ID warning
+      # FIX: amdgpu hardware ID silence (Heroic style)
       - mkdir -p /app/lib/i386-linux-gnu/GL/default/share/libdrm
       - touch /app/lib/i386-linux-gnu/GL/default/share/libdrm/amdgpu.ids
 
-  # --- Extraction Tools for Winetricks ---
+  # --- Tools for Winetricks ---
   - name: 7zip
     buildsystem: simple
     subdir: CPP/7zip/Bundles/Alone2
@@ -118,7 +106,6 @@ modules:
       - make -j $FLATPAK_BUILDER_N_JOBS -f makefile.gcc
       - install -Dm755 ./_o/7zz /app/bin/7zz
       - ln -s /app/bin/7zz /app/bin/7za
-      - ln -s /app/bin/7zz /app/bin/7z
     sources:
       - type: archive
         url: https://github.com/ip7z/7zip/archive/refs/tags/25.01.tar.gz
@@ -132,8 +119,7 @@ modules:
 
   - name: unrar
     no-autogen: true
-    make-install-args:
-      - DESTDIR=/app
+    make-install-args: [DESTDIR=/app]
     sources:
       - type: archive
         url: https://www.rarlab.com/rar/unrarsrc-7.2.2.tar.gz
@@ -146,15 +132,11 @@ modules:
     sources:
       - type: file
         url: https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks
-        # Updated checksum for 2026/latest master
         sha256: 28d86bfd3243ee845c1a9a89a6dc83359e9cb84f1b73d5818f01a68cd366f2b2
 
   - name: gamemode
     buildsystem: meson
-    config-opts:
-      - -Dwith-examples=false
-      - -Dwith-util=false
-      - -Dwith-sd-bus-provider=no-daemon
+    config-opts: [-Dwith-examples=false, -Dwith-util=false, -Dwith-sd-bus-provider=no-daemon]
     sources:
       - type: git
         url: https://github.com/FeralInteractive/gamemode.git
@@ -165,9 +147,8 @@ modules:
   - name: umu-launcher
     buildsystem: simple
     build-commands:
-      - export PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')") && 
-        mkdir -p /app/lib/python${PY_VER}/site-packages &&
-        cp -r umu /app/lib/python${PY_VER}/site-packages/
+      - mkdir -p /app/lib/python3.13/site-packages
+      - cp -r umu /app/lib/python3.13/site-packages/
       - |
         cat <<EOF > /app/bin/umu-run
         #!/usr/bin/python3
@@ -194,12 +175,8 @@ modules:
       - install -m 755 gameyfin-desktop.sh /app/bin/gameyfin-desktop
       - mkdir -p /app/share/applications
       - install -m 644 org.gameyfin.Gameyfin-Desktop.desktop /app/share/applications/
-      - mkdir -p /app/share/metainfo
-      - install -m 644 org.gameyfin.Gameyfin-Desktop.metainfo.xml /app/share/metainfo/
-      - export PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')") &&
-        export PYTHONPATH=$PYTHONPATH:/app/lib/python${PY_VER}/site-packages && 
-        python3 make_square_icon.py gameyfin_frontend/icon.png square_icon.png
       - mkdir -p /app/share/icons/hicolor/256x256/apps
+      - python3 make_square_icon.py gameyfin_frontend/icon.png square_icon.png
       - install -m 644 square_icon.png /app/share/icons/hicolor/256x256/apps/org.gameyfin.Gameyfin-Desktop.png
     sources:
       - type: dir
