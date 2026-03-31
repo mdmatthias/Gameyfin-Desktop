@@ -5,8 +5,6 @@ sdk: org.freedesktop.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Compat.i386
   - org.freedesktop.Sdk.Extension.toolchain-i386
-runtime-version: '25.08' 
-
 command: gameyfin-desktop
 separate-locales: false
 
@@ -105,7 +103,6 @@ modules:
   - name: umu-launcher
     buildsystem: simple
     build-commands:
-      # Dynamic pathing for Python 3.13 (or whatever version the SDK uses)
       - export PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')") && 
         mkdir -p /app/lib/python${PY_VER}/site-packages &&
         cp -r umu /app/lib/python${PY_VER}/site-packages/
