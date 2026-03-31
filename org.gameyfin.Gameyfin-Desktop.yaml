@@ -133,11 +133,11 @@ modules:
   - name: winetricks
     buildsystem: simple
     build-commands:
-      - install -Dm755 winetricks /app/bin/winetricks
+      - install -Dm755 src/winetricks /app/bin/winetricks
     sources:
-      - type: file
-        url: https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks
-        sha256: 5f19067e411df83e079730f781031952e4f0d367e9b08f830a7d77a83d21c3fa
+      - type: git
+        url: https://github.com/Winetricks/winetricks.git
+        tag: '20260125' # This locks it to a specific working version
 
   - name: gamemode
     buildsystem: meson
