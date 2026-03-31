@@ -153,24 +153,10 @@
       ]
     },
     {
-      "name": "python3-PyQt6-Qt6",
-      "buildsystem": "simple",
-      "build-commands": [
-        "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"PyQt6-Qt6==6.10.1\" --no-build-isolation"
-      ],
-      "sources": [
-        {
-          "type": "file",
-          "url": "https://files.pythonhosted.org/packages/f4/7e/9867361252e2a4717dba95c64a0f3a793603f4a52cb9a46abbb041e960f5/pyqt6_qt6-6.10.1-py3-none-manylinux_2_34_x86_64.whl",
-          "sha256": "04069aea421703b1269c8a1bcf017e36463af284a044239a4ebda3bde0a629fb"
-        }
-      ]
-    },
-    {
       "name": "python3-PyQt6",
       "buildsystem": "simple",
       "build-commands": [
-        "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"PyQt6==6.10.1\" --no-build-isolation"
+        "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"PyQt6==6.8.1\" --no-build-isolation"
       ],
       "sources": [
         {
@@ -181,24 +167,10 @@
       ]
     },
     {
-      "name": "python3-PyQt6-WebEngine-Qt6",
-      "buildsystem": "simple",
-      "build-commands": [
-        "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"PyQt6-WebEngine-Qt6==6.10.1\" --no-build-isolation"
-      ],
-      "sources": [
-        {
-          "type": "file",
-          "url": "https://files.pythonhosted.org/packages/47/75/e678f19d4913d12837dd94b50e66e3f41ad87522b4ae328b11b3edf0997a/pyqt6_webengine_qt6-6.10.1-py3-none-manylinux_2_34_x86_64.whl",
-          "sha256": "ca1404eb035e3343fc1b88bd418f47fed4fe907012812788902598783c582901"
-        }
-      ]
-    },
-    {
       "name": "python3-PyQt6-WebEngine",
       "buildsystem": "simple",
       "build-commands": [
-        "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"PyQt6-WebEngine==6.10.0\" --no-build-isolation"
+        "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"PyQt6-WebEngine==6.8.0\" --no-build-isolation"
       ],
       "sources": [
         {
