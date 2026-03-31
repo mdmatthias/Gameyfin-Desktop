@@ -1,12 +1,14 @@
 app-id: org.gameyfin.Gameyfin-Desktop
 runtime: org.kde.Platform
 runtime-version: '6.10'
-sdk: org.kde.Sdk
-command: gameyfin-desktop
-
+sdk: org.freedesktop.Sdk
 sdk-extensions:
-  - org.freedesktop.Sdk.Compat.i386//25.08
-  - org.freedesktop.Sdk.Extension.toolchain-i386//25.08
+  - org.freedesktop.Sdk.Compat.i386
+  - org.freedesktop.Sdk.Extension.toolchain-i386
+runtime-version: '25.08' 
+
+command: gameyfin-desktop
+separate-locales: false
 
 finish-args:
   - --share=ipc
@@ -45,7 +47,6 @@ add-extensions:
   org.freedesktop.Platform.GL32:
     directory: lib/i386-linux-gnu/GL
     version: '1.4'
-    # Match the runtime version (25.08)
     versions: 25.08;1.4
     subdirectories: true
     no-autodownload: true
@@ -76,7 +77,6 @@ add-extensions:
     no-autodownload: true
     autodelete: true
 
-# This anchor is used in module build-options to target 32-bit compilation
 x-compat-i386-opts: &compat_i386_opts
   prepend-pkg-config-path: /app/lib32/pkgconfig:/usr/lib/i386-linux-gnu/pkgconfig
   ldflags: -L/app/lib32
@@ -105,7 +105,7 @@ modules:
   - name: umu-launcher
     buildsystem: simple
     build-commands:
-      # Dynamic path to handle Python versioning gracefully
+      # Dynamic pathing for Python 3.13 (or whatever version the SDK uses)
       - export PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')") && 
         mkdir -p /app/lib/python${PY_VER}/site-packages &&
         cp -r umu /app/lib/python${PY_VER}/site-packages/
@@ -137,7 +137,6 @@ modules:
       - install -m 644 org.gameyfin.Gameyfin-Desktop.desktop /app/share/applications/
       - mkdir -p /app/share/metainfo
       - install -m 644 org.gameyfin.Gameyfin-Desktop.metainfo.xml /app/share/metainfo/
-      # Use dynamic PYTHONPATH to find dependencies
       - export PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')") &&
         export PYTHONPATH=$PYTHONPATH:/app/lib/python${PY_VER}/site-packages && 
         python3 make_square_icon.py gameyfin_frontend/icon.png square_icon.png
