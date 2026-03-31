@@ -85,6 +85,16 @@ x-compat-i386-opts: &compat_i386_opts
   libdir: /app/lib32
 
 modules:
+  - name: pre-setup
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/lib/i386-linux-gnu
+      - mkdir -p /app/lib/debug/lib/i386-linux-gnu
+      - mkdir -p /app/lib/i386-linux-gnu/GL
+      - mkdir -p /app/lib/i386-linux-gnu/dri/intel-vaapi-driver
+      - mkdir -p /app/lib/extensions/vulkan/MangoHud
+      - mkdir -p /app/utils
+
   - name: krb5
     buildsystem: simple
     sources:
