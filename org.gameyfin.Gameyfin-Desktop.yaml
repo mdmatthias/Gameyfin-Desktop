@@ -58,7 +58,7 @@ add-extensions:
     no-autodownload: false
     autodelete: false
 
-  # 32-bit Compatibility (For older games)
+  # 32-bit Compatibility
   org.freedesktop.Platform.Compat.i386:
     directory: lib/i386-linux-gnu
     version: '25.08'
@@ -90,13 +90,22 @@ modules:
   - name: pre-setup
     buildsystem: simple
     build-commands:
-      # Pre-create mount points so bwrap doesn't fail on a read-only filesystem
+      # Pre-create mount points
       - mkdir -p /app/lib/i386-linux-gnu/GL
       - mkdir -p /app/lib/extensions/vulkan/MangoHud
       - mkdir -p /app/utils
       - mkdir -p /app/etc
-      - echo "/app/lib32" > /app/etc/ld.so.conf
-      - echo "/app/lib/i386-linux-gnu" >> /app/etc/ld.so.conf
+      
+      # FIX: Solve the libgssapi_krb5.so.2 error by symlinking system libs
+      - ln -s /usr/lib/x86_64-linux-gnu/libgssapi_krb5.so.2 /app/lib/libgssapi_krb5.so.2
+      - ln -s /usr/lib/x86_64-linux-gnu/libkrb5.so.3 /app/lib/libkrb5.so.3
+      - ln -s /usr/lib/x86_64-linux-gnu/libk5crypto.so.3 /app/lib/libk5crypto.so.3
+      - ln -s /usr/lib/x86_64-linux-gnu/libkrb5support.so.0 /app/lib/libkrb5support.so.0
+      
+      # Ensure ld knows where to look
+      - echo "/app/lib" > /app/etc/ld.so.conf
+      - echo "/app/lib32" >> /app/etc/ld.so.conf
+      
       # Silence the amdgpu hardware ID warning
       - mkdir -p /app/lib/i386-linux-gnu/GL/default/share/libdrm
       - touch /app/lib/i386-linux-gnu/GL/default/share/libdrm/amdgpu.ids
@@ -133,11 +142,12 @@ modules:
   - name: winetricks
     buildsystem: simple
     build-commands:
-      - install -Dm755 src/winetricks /app/bin/winetricks
+      - install -Dm755 winetricks /app/bin/winetricks
     sources:
-      - type: git
-        url: https://github.com/Winetricks/winetricks.git
-        tag: '20260125' # This locks it to a specific working version
+      - type: file
+        url: https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks
+        # Updated checksum for 2026/latest master
+        sha256: 28d86bfd3243ee845c1a9a89a6dc83359e9cb84f1b73d5818f01a68cd366f2b2
 
   - name: gamemode
     buildsystem: meson
