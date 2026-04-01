@@ -169,8 +169,7 @@
       "name": "python3-PyQt6-WebEngine",
       "buildsystem": "simple",
       "build-commands": [
-        "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"PyQt6-WebEngine==6.8.0\" --no-build-isolation"
-      ],
+"pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"PyQt6-WebEngine==6.10.0\" --no-build-isolation"      ],
       "sources": [
         {
           "type": "file",
