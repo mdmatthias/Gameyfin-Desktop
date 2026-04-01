@@ -156,7 +156,7 @@
       "name": "python3-PyQt6",
       "buildsystem": "simple",
       "build-commands": [
-"pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"PyQt6==6.10.1\" --no-build-isolation"      ],
+"pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"PyQt6==6.10.1\" --no-build-isolation --no-deps"      ],
       "sources": [
         {
           "type": "file",
@@ -169,7 +169,7 @@
       "name": "python3-PyQt6-WebEngine",
       "buildsystem": "simple",
       "build-commands": [
-"pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"PyQt6-WebEngine==6.10.0\" --no-build-isolation"      ],
+"pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"PyQt6-WebEngine==6.10.0\" --no-build-isolation --no-deps"      ],
       "sources": [
         {
           "type": "file",
