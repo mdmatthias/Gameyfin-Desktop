@@ -80,6 +80,14 @@
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="2.4.19-dev" date="2026-04-02">
+            <description>
+                <ul>
+                    <li>Integrated umu launcher in Flatpak build. All dependencies are now included to install it easier on Steamdeck</li>
+                    <li>This is still experimental, you will need to use desktop mode to install games and add the shortcuts on your desktop to Steam to be able to run games in Steam gamemode.</li>
+                </ul>
+            </description>
+        </release>
         <release version="2.3.0" date="2026-03-15">
             <description>
                 <ul>

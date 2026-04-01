@@ -137,46 +137,6 @@
           "sha256": "b500a0c1f5ef8f46a8cf037d1aa5bdf9ea4eb618180b6332539dfbdd0647ad0d"
         }
       ]
-    },
-    {
-      "name": "python3-PyQt6-sip",
-      "buildsystem": "simple",
-      "build-commands": [
-        "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"PyQt6-sip==13.10.3\" --no-build-isolation"
-      ],
-      "sources": [
-        {
-          "type": "file",
-          "url": "https://files.pythonhosted.org/packages/4a/f1/38b625b0638681659bc3c7eaa548b65862a305d26b48835b67cdd6add720/pyqt6_sip-13.10.3-cp313-cp313-manylinux1_x86_64.manylinux_2_5_x86_64.whl",
-          "sha256": "d02c138c6eacb13ef668bfe6becfb6ab40bb40135f34a36ef31b7dc860976493"
-        }
-      ]
-    },
-    {
-      "name": "python3-PyQt6",
-      "buildsystem": "simple",
-      "build-commands": [
-"pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"PyQt6==6.10.1\" --no-build-isolation --no-deps"      ],
-      "sources": [
-        {
-          "type": "file",
-          "url": "https://files.pythonhosted.org/packages/41/76/df4b4b268595032d0fae863e4d4ad962b541db01b1bb6d12f2bc9c66b74b/pyqt6-6.10.1-cp39-abi3-manylinux_2_34_x86_64.whl",
-          "sha256": "46aee0453606097ba35645806fb8cb4019d3825781ff94c5070da7f97bb243d8"
-        }
-      ]
-    },
-    {
-      "name": "python3-PyQt6-WebEngine",
-      "buildsystem": "simple",
-      "build-commands": [
-"pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"PyQt6-WebEngine==6.10.0\" --no-build-isolation --no-deps"      ],
-      "sources": [
-        {
-          "type": "file",
-          "url": "https://files.pythonhosted.org/packages/7b/d6/dd16a44378deecaeea747eb85c3cb816ac5bc30ea8622d647588415f57ad/pyqt6_webengine-6.10.0-1-cp39-abi3-manylinux_2_34_x86_64.whl",
-          "sha256": "95dc3c0c36c0e4eb4024e4fdbcfa1c5593a88e16de1563431a422084bec26974"
-        }
-      ]
     }
   ]
 }

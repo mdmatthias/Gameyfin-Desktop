@@ -1,10 +1,9 @@
 app-id: org.gameyfin.Gameyfin-Desktop
 runtime: org.kde.Platform
 runtime-version: '6.10'
-sdk: org.freedesktop.Sdk//25.08
-sdk-extensions:
-  - org.freedesktop.Sdk.Compat.i386
-  - org.freedesktop.Sdk.Extension.toolchain-i386
+sdk: org.kde.Sdk
+base: com.riverbankcomputing.PyQt.BaseApp
+base-version: '6.10'
 command: gameyfin-desktop
 separate-locales: false
 
@@ -20,20 +19,24 @@ finish-args:
   # --- Audio & Hardware ---
   - --socket=pulseaudio
   - --device=all
+  - --device=input
   - --allow=devel
   - --allow=multiarch
   - --allow=bluetooth
   - --allow=per-app-dev-shm
 
-  # --- Filesystem (Downloader & Gaming) ---
+  # --- Filesystem ---
   - --filesystem=home
   - --filesystem=xdg-download:create
-  - --filesystem=~/.steam:rw
-  - --filesystem=~/.local/share/umu:create
   - --filesystem=/run/media
   - --filesystem=/run/udev:ro
   - --filesystem=xdg-run/gamescope-0:rw
   - --filesystem=xdg-config/MangoHud:ro
+  - --filesystem=~/.local/share/umu:rw
+  - --filesystem=xdg-data/umu:rw
+  - --filesystem=~/.steam:rw
+  - --filesystem=~/.local/share/Steam:rw
+  - --filesystem=~/.var/app/com.valvesoftware.Steam:rw
 
   # --- System Integration ---
   - --talk-name=org.freedesktop.Flatpak
@@ -44,15 +47,19 @@ finish-args:
   - --system-talk-name=org.freedesktop.UDisks2
   - --system-talk-name=org.freedesktop.UPower
 
-  # --- THE FIXES (Environment Variables) ---
-  # Force library path so Kerberos is found (Your successful patch)
-  - --env=LD_LIBRARY_PATH=/app/lib:/app/lib32:/usr/lib/x86_64-linux-gnu
-  # Fix the "Undefined Symbol" by using System Python 3.13 libs first
-  - --env=PYTHONPATH=/app/lib/python3.13/site-packages:/usr/lib/python3.13/site-packages
   # Standard Path setup
-  - --env=PATH=/app/bin:/app/utils/bin:/usr/bin:/usr/lib/extensions/vulkan/MangoHud/bin
+  - --env=PATH=/app/bin:/app/utils/bin:/usr/bin:/app/lib/extensions/vulkan/MangoHud/bin:/app/lib/i386-linux-gnu/extensions/vulkan/MangoHud/bin
+  - --env=SteamVirtualGamepadInfo=
+  - --env=QTWEBENGINEPROCESS_PATH=/app/bin/QtWebEngineProcess
 
 add-extensions:
+  org.freedesktop.Platform.VulkanLayer.MangoHud.i386:
+    directory: lib/i386-linux-gnu/extensions/vulkan/MangoHud
+    version: '25.08'
+    add-ld-path: lib
+    no-autodownload: false
+    autodelete: false
+
   org.freedesktop.Platform.VulkanLayer.MangoHud:
     directory: lib/extensions/vulkan/MangoHud
     version: '25.08'
@@ -82,19 +89,14 @@ modules:
   - name: pre-setup
     buildsystem: simple
     build-commands:
-      # Pre-create mount points and lib folders
       - mkdir -p /app/lib/i386-linux-gnu/GL
       - mkdir -p /app/lib/python3.13/site-packages
       - mkdir -p /app/utils
       - mkdir -p /app/etc
-      
-      # FIX: The Kerberos Symlinks (Satisfies the ImportError)
-      - ln -s /usr/lib/x86_64-linux-gnu/libgssapi_krb5.so.2 /app/lib/libgssapi_krb5.so.2
-      - ln -s /usr/lib/x86_64-linux-gnu/libkrb5.so.3 /app/lib/libkrb5.so.3
-      - ln -s /usr/lib/x86_64-linux-gnu/libk5crypto.so.3 /app/lib/libk5crypto.so.3
-      - ln -s /usr/lib/x86_64-linux-gnu/libkrb5support.so.0 /app/lib/libkrb5support.so.0
-      
-      # FIX: amdgpu hardware ID silence (Heroic style)
+      - mkdir -p /app/lib/extensions/vulkan/MangoHud
+      - mkdir -p /app/lib/i386-linux-gnu/extensions/vulkan/MangoHud
+
+      # FIX: amdgpu hardware ID silence
       - mkdir -p /app/lib/i386-linux-gnu/GL/default/share/libdrm
       - touch /app/lib/i386-linux-gnu/GL/default/share/libdrm/amdgpu.ids
 
@@ -147,13 +149,13 @@ modules:
   - name: umu-launcher
     buildsystem: simple
     build-commands:
-      - mkdir -p /app/lib/python3.13/site-packages
-      - cp -r umu /app/lib/python3.13/site-packages/
+      - python3 -c 'import sysconfig; print(sysconfig.get_path("purelib", vars={"base":"/app"}))' > site_path.txt
+      - mkdir -p $(cat site_path.txt) && cp -r umu $(cat site_path.txt)/
       - |
         cat <<EOF > /app/bin/umu-run
         #!/usr/bin/python3
-        import re
         import sys
+        import re
         from umu.__main__ import main
         if __name__ == "__main__":
             sys.argv[0] = re.sub(r"(-script\.pyw|\.exe)?$", "", sys.argv[0])
@@ -175,6 +177,8 @@ modules:
       - install -m 755 gameyfin-desktop.sh /app/bin/gameyfin-desktop
       - mkdir -p /app/share/applications
       - install -m 644 org.gameyfin.Gameyfin-Desktop.desktop /app/share/applications/
+      - mkdir -p /app/share/metainfo
+      - install -m 644 org.gameyfin.Gameyfin-Desktop.metainfo.xml /app/share/metainfo/
       - mkdir -p /app/share/icons/hicolor/256x256/apps
       - install -m 644 gameyfin_frontend/icon.png /app/share/icons/hicolor/256x256/apps/org.gameyfin.Gameyfin-Desktop.png
     sources:
