@@ -178,7 +178,11 @@ class InstallConfigDialog(QDialog):
         proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
         
         env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.wine_prefix_path}\" "
-        command_string = f"{env_prefix} umu-run winecfg"
+        umu_command = "umu-run"
+        if self.mangohud_checkbox.isChecked():
+            umu_command = f"mangohud {umu_command}"
+
+        command_string = f"{env_prefix} {umu_command} winecfg"
         print(f"Executing: /bin/sh -c \"{command_string}\"")
         QProcess.startDetached("/bin/sh", ["-c", command_string])
 
