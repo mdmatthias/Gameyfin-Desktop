@@ -1,11 +1,15 @@
 import configparser
 import os
-import sys  # <-- Added
+import sys
 from os import getenv
 from os.path import relpath
 
-from PyQt6.QtCore import pyqtSlot, QProcess  # <-- Added QProcess
-from PyQt6.QtWidgets import QVBoxLayout, QFormLayout, QCheckBox, QLineEdit, QPushButton, QStyle, QHBoxLayout, QWidget,     QComboBox, QPlainTextEdit, QDialogButtonBox, QLabel, QInputDialog, QDialog, QMessageBox, QListWidget, QScrollArea
+from PyQt6.QtCore import pyqtSlot, QProcess
+from PyQt6.QtWidgets import (
+    QVBoxLayout, QFormLayout, QCheckBox, QLineEdit, QPushButton, QStyle, 
+    QHBoxLayout, QWidget, QComboBox, QPlainTextEdit, QDialogButtonBox, 
+    QLabel, QInputDialog, QDialog, QMessageBox, QListWidget, QScrollArea
+)
 
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.settings import settings_manager
@@ -179,8 +183,6 @@ class InstallConfigDialog(QDialog):
         
         env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.wine_prefix_path}\" "
         umu_command = "umu-run"
-        if self.mangohud_checkbox.isChecked():
-            umu_command = f"mangohud {umu_command}"
 
         command_string = f"{env_prefix} {umu_command} winecfg"
         print(f"Executing: /bin/sh -c \"{command_string}\"")
@@ -188,7 +190,7 @@ class InstallConfigDialog(QDialog):
 
     @pyqtSlot()
     def run_winetricks(self):
-        """Runs winetricks in the correct prefix."""
+        """Runs winetricks in the correct prefix using the bundled binary."""
         if not self.wine_prefix_path:
             return
 
@@ -196,18 +198,13 @@ class InstallConfigDialog(QDialog):
 
         proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
         
-        is_flatpak = os.path.exists("/.flatpak-info")
-        if is_flatpak:
-            # Note: winetricks often needs a terminal or some environment to run properly.
-            # Here we just spawn it on the host.
-            args = ["--host", "env", f"PROTONPATH={proton_path}", f"WINEPREFIX={self.wine_prefix_path}", "winetricks"]
-            print(f"Executing (Flatpak): flatpak-spawn {' '.join(args)}")
-            QProcess.startDetached("flatpak-spawn", args)
-        else:
-            env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.wine_prefix_path}\" "
-            command_string = f"{env_prefix} winetricks"
-            print(f"Executing: /bin/sh -c \"{command_string}\"")
-            QProcess.startDetached("/bin/sh", ["-c", command_string])
+        env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.wine_prefix_path}\" "
+        
+        umu_command = "umu-run"
+        
+        command_string = f"{env_prefix} {umu_command} winetricks"
+        print(f"Executing: /bin/sh -c \"{command_string}\"")
+        QProcess.startDetached("/bin/sh", ["-c", command_string])
 
     def get_config(self) -> dict:
         """
