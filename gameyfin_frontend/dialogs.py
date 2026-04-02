@@ -202,7 +202,7 @@ class InstallConfigDialog(QDialog):
         
         umu_command = "umu-run"
         
-        command_string = f"{env_prefix} {umu_command} winetricks"
+        command_string = f"{env_prefix} {umu_command} winetricks --gui"
         print(f"Executing: /bin/sh -c \"{command_string}\"")
         QProcess.startDetached("/bin/sh", ["-c", command_string])
 
