@@ -88,6 +88,10 @@ class SettingsWidget(QWidget):
         self.prompt_unzip_check = QCheckBox()
         self.prompt_unzip_check.setChecked(bool(settings_manager.get("GF_PROMPT_UNZIP_DIR")))
         self.form_layout.addRow("Prompt for Unzip Dir:", self.prompt_unzip_check)
+
+        self.use_flatpak_shortcut_check = QCheckBox()
+        self.use_flatpak_shortcut_check.setChecked(bool(settings_manager.get("GF_USE_FLATPAK_FOR_SHORTCUTS", 1)))
+        self.form_layout.addRow("Use Flatpak for Shortcuts:", self.use_flatpak_shortcut_check)
         
         self.layout.addLayout(self.form_layout)
         
@@ -128,6 +132,7 @@ class SettingsWidget(QWidget):
         settings_manager.set("GF_DEFAULT_DOWNLOAD_DIR", self.download_dir_edit.text())
         settings_manager.set("GF_DEFAULT_UNZIP_DIR", self.unzip_dir_edit.text())
         settings_manager.set("GF_PROMPT_UNZIP_DIR", 1 if self.prompt_unzip_check.isChecked() else 0)
+        settings_manager.set("GF_USE_FLATPAK_FOR_SHORTCUTS", 1 if self.use_flatpak_shortcut_check.isChecked() else 0)
         
         # Apply settings immediately
         if hasattr(self.window(), 'apply_settings'):

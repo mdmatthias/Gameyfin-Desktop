@@ -793,8 +793,10 @@ class DownloadItemWidget(QWidget):
                     script_name = os.path.splitext(os.path.basename(original_path))[0] + ".sh"
                     script_path = os.path.join(shortcut_scripts_path, script_name)
 
-                    is_flatpak = os.path.exists("/.flatpak-info")
-                    if is_flatpak:
+                    is_flatpak_env = os.path.exists("/.flatpak-info")
+                    use_flatpak_setting = settings_manager.get("GF_USE_FLATPAK_FOR_SHORTCUTS", 1)
+
+                    if is_flatpak_env and use_flatpak_setting:
                         inner_cmd = shlex.quote(script_path)
                         for char in ('\\', '"', '$', '`'):
                             inner_cmd = inner_cmd.replace(char, f'\\{char}')
