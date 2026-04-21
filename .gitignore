@@ -8,3 +8,4 @@ gameyfin_frontend/__pycache__
 /resize_screenshots.py
 /Gameyfin-Desktop.flatpak
 /repo/
+.aider*
