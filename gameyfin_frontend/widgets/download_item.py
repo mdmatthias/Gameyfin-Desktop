@@ -550,9 +550,6 @@ class DownloadItemWidget(QWidget):
 
             print("[Install] Applying user environment configuration:")
             for key, value in config.items():
-                if key == "MANGOHUD" and value == "1":
-                    umu_command = f"mangohud {umu_command}"
-                    continue
                 print(f"  {key}={value}")
                 env_prefix += f"{key}=\"{value}\" "
 
@@ -722,9 +719,6 @@ class DownloadItemWidget(QWidget):
                 umu_command = "umu-run"
 
                 for key, value in config.items():
-                    if key == "MANGOHUD" and value == "1":
-                        umu_command = f"mangohud {umu_command}"
-                        continue
                     env_prefix += f"{key}=\"{value}\" "
 
                 command_to_run = f"{env_prefix}{umu_command} \"{exe_path}\""
@@ -794,9 +788,9 @@ class DownloadItemWidget(QWidget):
                     script_path = os.path.join(shortcut_scripts_path, script_name)
 
                     is_flatpak_env = os.path.exists("/.flatpak-info")
-                    use_flatpak_setting = settings_manager.get("GF_USE_FLATPAK_FOR_SHORTCUTS", 1)
+                    use_host_umu = self.current_install_config.get("USE_HOST_UMU", "0")
 
-                    if is_flatpak_env and use_flatpak_setting:
+                    if is_flatpak_env and str(use_host_umu) == "1":
                         inner_cmd = shlex.quote(script_path)
                         for char in ('\\', '"', '$', '`'):
                             inner_cmd = inner_cmd.replace(char, f'\\{char}')
