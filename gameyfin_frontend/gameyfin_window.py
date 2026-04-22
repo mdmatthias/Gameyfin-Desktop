@@ -9,6 +9,7 @@ from PyQt6.QtWebEngineCore import (QWebEngineScript,
 
 from gameyfin_frontend.widgets.download_manager import DownloadManagerWidget
 from gameyfin_frontend.widgets.prefix_manager import PrefixManagerWidget
+from gameyfin_frontend.workers import StreamDownloadWorker
 
 from .settings_widget import SettingsWidget
 from .settings import settings_manager
@@ -99,6 +100,12 @@ class GameyfinWindow(QMainWindow):
         settings.setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, False)
         settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, False)
         settings.setAttribute(QWebEngineSettings.WebAttribute.DnsPrefetchEnabled, False)
+
+        self._cookies = {}
+        cookie_store = self.profile.cookieStore()
+        cookie_store.cookieAdded.connect(self._on_cookie_added)
+        cookie_store.cookieRemoved.connect(self._on_cookie_removed)
+        cookie_store.loadAllCookies()
 
         self.browser = QWebEngineView()
         base_url = QUrl(settings_manager.get("GF_URL"))
@@ -287,36 +294,68 @@ class GameyfinWindow(QMainWindow):
             event.ignore()
             self.hide()
 
+    def _on_cookie_added(self, cookie):
+        name = bytes(cookie.name()).decode('utf-8', errors='replace')
+        value = bytes(cookie.value()).decode('utf-8', errors='replace')
+        self._cookies[name] = value
+
+    def _on_cookie_removed(self, cookie):
+        name = bytes(cookie.name()).decode('utf-8', errors='replace')
+        self._cookies.pop(name, None)
+
     def on_download_requested(self, download: QWebEngineDownloadRequest):
+        url = download.url().toString()
+        filename = os.path.basename(download.downloadFileName())
+        zip_basename = os.path.splitext(filename)[0]
+
         default_download_dir = settings_manager.get("GF_DEFAULT_DOWNLOAD_DIR")
-        if not default_download_dir or not os.path.exists(default_download_dir):
-            default_download_dir = os.path.expanduser("~/Downloads")
+        prompt_download = settings_manager.get("GF_PROMPT_DOWNLOAD_DIR")
 
-        suggested_path = os.path.join(
-            default_download_dir,
-            os.path.basename(download.downloadFileName())
-        )
+        if default_download_dir and os.path.exists(default_download_dir):
+            target_base = default_download_dir
+        else:
+            target_base = os.path.expanduser("~/Downloads")
 
-        path, _ = QFileDialog.getSaveFileName(self, "Save File As", suggested_path)
+        suggested_dir = os.path.join(target_base, zip_basename)
 
-        if not path:
-            download.cancel()
-            return
+        if prompt_download:
+            selected = QFileDialog.getExistingDirectory(
+                self, "Select download location", target_base,
+                options=QFileDialog.Option.DontUseNativeDialog
+            )
+            if not selected:
+                download.cancel()
+                return
+            # Always create a game subfolder inside the selected directory
+            # so removing it never deletes the parent folder.
+            if os.path.basename(selected) == zip_basename:
+                target_dir = selected
+            else:
+                target_dir = os.path.join(selected, zip_basename)
+        else:
+            target_dir = suggested_dir
 
-        download.setDownloadFileName(path)
+        download.cancel()
 
-        # --- Extract the download size from the download button text ---
+        cookies = dict(self._cookies)
+
         def handle_js_result(result):
             total_size = self.parse_size(result)
-            download.accept()
-            self.download_manager.add_download(download, total_size)
+            record = {
+                "path": target_dir,
+                "filename": filename,
+                "url": url,
+                "status": "Downloading",
+                "total_bytes": total_size,
+            }
+            worker = StreamDownloadWorker(url, target_dir, cookies, estimated_total=total_size)
+            self.download_manager.add_download(worker, record)
             self.tab_widget.setCurrentWidget(self.download_manager)
 
         js = """(function() {
             let el = document.querySelector('button .text-xs');
             return el ? el.innerText : "";
         })();"""
-
         self.browser.page().runJavaScript(js, 0, handle_js_result)
 
     def apply_settings(self):

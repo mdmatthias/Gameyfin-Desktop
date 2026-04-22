@@ -115,6 +115,48 @@
       ]
     },
     {
+      "name": "python3-pycryptodome",
+      "buildsystem": "simple",
+      "build-commands": [
+        "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"pycryptodome==3.23.0\" --no-build-isolation"
+      ],
+      "sources": [
+        {
+          "type": "file",
+          "url": "https://files.pythonhosted.org/packages/5f/e9/a09476d436d0ff1402ac3867d933c61805ec2326c6ea557aeeac3825604e/pycryptodome-3.23.0-cp37-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+          "sha256": "c8987bd3307a39bc03df5c8e0e3d8be0c4c3518b7f044b0f4c15d1aa78f52575"
+        }
+      ]
+    },
+    {
+      "name": "python3-stream-inflate",
+      "buildsystem": "simple",
+      "build-commands": [
+        "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"stream-inflate==0.0.43\" --no-build-isolation"
+      ],
+      "sources": [
+        {
+          "type": "file",
+          "url": "https://files.pythonhosted.org/packages/18/dc/bb0dea372951aad8a06ef1660658ae79f0c3fc3ea5d01bb25c4724114560/stream_inflate-0.0.43-cp313-cp313-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+          "sha256": "375111ade63156ad59634bf747fc6a27d5610da41de14b0366d136787856b7dd"
+        }
+      ]
+    },
+    {
+      "name": "python3-stream-unzip",
+      "buildsystem": "simple",
+      "build-commands": [
+        "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"stream-unzip~=0.0.101\" --no-build-isolation"
+      ],
+      "sources": [
+        {
+          "type": "file",
+          "url": "https://files.pythonhosted.org/packages/2e/7d/bebed31a14aeff51bbe39885a7d225b69622df72330541a1f73a196ef342/stream_unzip-0.0.101-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+          "sha256": "b6d9ae3132c75bc1f7cfcdf776f20764a47a0e03e9083a1268d746a80348f0ec"
+        }
+      ]
+    },
+    {
       "name": "python3-qt-material",
       "buildsystem": "simple",
       "build-commands": [

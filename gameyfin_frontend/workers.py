@@ -1,118 +1,140 @@
 import os
-import zipfile
+import time
 
+import requests
+from stream_unzip import stream_unzip
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QThread
 
 
-class UnzipWorker(QObject):
-    """
-    Runs the zip extraction in a separate thread to avoid freezing the UI.
-    """
+class StreamDownloadWorker(QObject):
     progress = pyqtSignal(int)
     current_file = pyqtSignal(str)
+    bytes_received = pyqtSignal('long long', 'long long')
     finished = pyqtSignal()
     error = pyqtSignal(str)
 
-    def __init__(self, zip_path: str, target_dir: str):
+    def __init__(self, url: str, target_dir: str, cookies: dict = None, estimated_total: int = 0):
         super().__init__()
-        self.zip_path = zip_path
+        self.url = url
         self.target_dir = target_dir
+        self.cookies = cookies or {}
+        self.estimated_total = estimated_total
         self._is_running = True
+        self._cancelled = False
+        self._session = requests.Session()
+        self._response = None
 
     @pyqtSlot()
     def run(self):
-        """Starts the extraction process."""
         try:
-            with zipfile.ZipFile(self.zip_path, 'r') as zip_ref:
-                file_list = zip_ref.infolist()
-                total_files = len(file_list)
+            real_target = os.path.realpath(self.target_dir)
+            os.makedirs(self.target_dir, exist_ok=True)
 
-                if total_files == 0:
-                    self.finished.emit()
+            self._response = self._session.get(
+                self.url, stream=True, cookies=self.cookies, timeout=30
+            )
+            self._response.raise_for_status()
+
+            total = int(self._response.headers.get('content-length', 0)) or self.estimated_total
+            received = 0
+            chunk_size = 65536
+            last_signal_time = 0.0
+
+            def http_chunks():
+                nonlocal received, last_signal_time
+                for chunk in self._response.iter_content(chunk_size):
+                    if not self._is_running:
+                        return
+                    received += len(chunk)
+                    now = time.monotonic()
+                    if now - last_signal_time >= 0.1:
+                        self.bytes_received.emit(received, total)
+                        if total > 0:
+                            self.progress.emit(min(int(received / total * 100), 99))
+                        last_signal_time = now
+                    yield chunk
+
+            for file_name, _file_size, unzipped_chunks in stream_unzip(http_chunks()):
+                if not self._is_running:
+                    for _ in unzipped_chunks:
+                        pass
+                    self.error.emit("Download cancelled by user.")
                     return
 
-                for i, member in enumerate(file_list):
-                    if not self._is_running:
-                        self.error.emit("Extraction cancelled by user.")
-                        return
+                name_str = file_name.decode('utf-8', errors='replace')
+                self.current_file.emit(f"Extracting: {name_str}")
 
-                    zip_ref.extract(member, path=self.target_dir)
+                target_path = os.path.realpath(os.path.join(self.target_dir, name_str))
+                if not target_path.startswith(real_target + os.sep) and target_path != real_target:
+                    for _ in unzipped_chunks:
+                        pass
+                    continue
 
-                    percentage = int(((i + 1) / total_files) * 100)
-                    self.progress.emit(percentage)
-                    self.current_file.emit(f"Extracting: {member.filename}")
+                if name_str.endswith('/'):
+                    os.makedirs(target_path, exist_ok=True)
+                    for _ in unzipped_chunks:
+                        pass
+                    continue
 
-                self.finished.emit()
+                parent_dir = os.path.dirname(target_path)
+                if parent_dir:
+                    os.makedirs(parent_dir, exist_ok=True)
+
+                with open(target_path, 'wb') as f:
+                    for chunk in unzipped_chunks:
+                        if not self._is_running:
+                            self.error.emit("Download cancelled by user.")
+                            return
+                        f.write(chunk)
+
+            self.progress.emit(100)
+            self.finished.emit()
 
         except Exception as e:
-            self.error.emit(str(e))
+            if self._cancelled:
+                self.error.emit("Download cancelled by user.")
+            else:
+                self.error.emit(str(e))
 
     def stop(self):
-        """Flags the worker to stop."""
+        self._cancelled = True
         self._is_running = False
+        if self._response:
+            self._response.close()
+        self._session.close()
+
 
 class ProcessMonitorWorker(QThread):
-
     """Monitors a process by its PID and emits when it's finished."""
 
     finished = pyqtSignal()
 
-
-
     def __init__(self, pid, parent=None):
-
         super().__init__(parent)
-
         self.pid = pid
-
         self._running = True
-
-
 
     def run(self):
-
         if not self.pid > 0:
-
             print(f"ProcessMonitor: Invalid PID ({self.pid}), stopping.")
-
             return
 
-
-
         print(f"ProcessMonitor: Monitoring PID {self.pid}")
-
         self._running = True
-
         while self._running:
-
             try:
-
                 os.kill(self.pid, 0)
-
             except OSError:
-
                 print(f"ProcessMonitor: PID {self.pid} finished.")
-
                 self._running = False
-
                 self.finished.emit()
-
                 break
-
             else:
-
                 if not self._running:
-
                     break
-
                 self.msleep(1000)
-
-
 
         print(f"ProcessMonitor: Stopping monitor for {self.pid}")
 
-
-
     def stop(self):
-
         self._running = False

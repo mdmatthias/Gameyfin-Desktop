@@ -44,16 +44,13 @@ class DownloadManagerWidget(QWidget):
         self.downloads_layout.addWidget(widgets[4], row, 4)
         self.widget_map[controller] = widgets
 
-    def add_download(self, download_item, total_size: int = 0):
-        controller = DownloadItemWidget(self.umu_database,
-                                        download_item=download_item,
-                                        initial_total_size=total_size
-                                        )
+    def add_download(self, worker, record: dict):
+        controller = DownloadItemWidget(self.umu_database, worker=worker, record=record)
 
         controller.finished.connect(self.on_download_finished)
         controller.remove_requested.connect(self.remove_download_item)
 
-        existing_controller = self.find_controller_by_url(download_item.url().toString())
+        existing_controller = self.find_controller_by_url(record["url"])
         if existing_controller:
             self.remove_download_item(existing_controller)
 
@@ -90,23 +87,21 @@ class DownloadManagerWidget(QWidget):
     def save_history(self):
         try:
             # Rebuild records from widget_map to ensure correct order
-            self.download_records = [c.record for c in self.widget_map.keys()]
-            # Ensure they are saved in the order they appear (newest first)
+            label_to_controller = {
+                widgets[1]: controller
+                for controller, widgets in self.widget_map.items()
+            }
 
-            # A simple map-based rebuild might mess up the order.
-            # Let's get them from the layout instead.
             records = []
             for row in range(self.downloads_layout.rowCount() - 1):  # -1 to skip stretch
-                item = self.downloads_layout.itemAtPosition(row, 1)  # Get filename label
+                item = self.downloads_layout.itemAtPosition(row, 1)
                 if item:
                     widget = item.widget()
-                    if not widget: continue  # Widget might be in deletion process
-                    filename = widget.text()
-                    # Find the controller associated with this filename
-                    for controller in self.widget_map.keys():
-                        if os.path.basename(controller.record["path"]) == filename:
-                            records.append(controller.record)
-                            break
+                    if not widget:
+                        continue
+                    controller = label_to_controller.get(widget)
+                    if controller:
+                        records.append(controller.record)
 
             self.download_records = records
 

@@ -29,9 +29,8 @@ class SettingsManager:
             "GF_UMU_API_URL": "https://umu.openwinecomponents.org/umu_api.php",
             "GF_UMU_DB_STORES": ["none", "gog", "amazon", "battlenet", "ea", "egs", "epic", "humble", "itchio", "origin", "steam", "uplay", "ubisoft"],
             "GF_THEME": "auto",
-            "GF_DEFAULT_DOWNLOAD_DIR": QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DownloadLocation),
-            "GF_DEFAULT_UNZIP_DIR": "",
-            "GF_PROMPT_UNZIP_DIR": 0
+            "GF_DEFAULT_DOWNLOAD_DIR": "",
+            "GF_PROMPT_DOWNLOAD_DIR": 0
         }
         
         self.settings = self.defaults.copy()

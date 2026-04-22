@@ -12,11 +12,10 @@ A dedicated desktop client for [Gameyfin](https://github.com/gameyfin/gameyfin) 
 * **📥 Download Manager:**
   * Manages all file downloads in a persistent "Downloads" tab.
   * Shows progress, speed, and a complete download history.
-* **📦 ZIP Lifecycle Management:**
-  * **Two-Step Installation:** Process is split into "Unzip" and "Install" phases for better control.
-  * **Dynamic Buttons:** The "Unzip" button transforms into "Install" once extraction is complete.
-  * **Archive Cleanup:** Dedicated "Remove ZIP" button (with confirmation) to easily delete large installers after extraction.
-  * **Persistent Options:** Buttons for opening and removing ZIPs are always visible and adapt their state based on file existence.
+* **⚡ Streaming Download & Extraction:**
+  * Downloads and extracts ZIP archives simultaneously using `stream-unzip` — no intermediate ZIP file is ever saved to disk.
+  * Saves disk space and skips the separate unzip step entirely.
+  * Once the download completes, the **Install** button appears immediately.
 * **💽 Installer (Windows):**
   * Extracts the downloaded archive.
   * Detects `.exe` files. If multiple are found, it asks you to choose which one to launch.
@@ -59,9 +58,8 @@ While the application can be configured using environment variables (see below),
 | `GF_THEME`                | The UI theme to use (e.g., `dark_teal.xml`, `light_blue.xml`). Set to `auto` for default. |
 | `PROTONPATH`              | **(Linux Only)** Path or name of the Proton version to use (default: `GE-Proton`).                |
 | `GF_UMU_API_URL`          | **(Linux Only)** URL for the UMU API to search for game fixes.                                    |
-| `GF_DEFAULT_DOWNLOAD_DIR` | Default directory for downloaded files.                                          |
-| `GF_DEFAULT_UNZIP_DIR`    | Default base directory for extracting ZIP archives.                              |
-| `GF_PROMPT_UNZIP_DIR`     | Set to `1` to always prompt for an extraction path when installing.              |
+| `GF_DEFAULT_DOWNLOAD_DIR` | Default directory where game archives are extracted (defaults to `~/Downloads`). |
+| `GF_PROMPT_DOWNLOAD_DIR`  | Set to `1` to always prompt for a download directory when a download starts.     |
 
 ---
 
@@ -142,10 +140,10 @@ The application saves all data (settings, download history, cookies, local stora
 
 
 #### Download Progress
-The download progress bar provides an estimation. The total size is calculated based on the uncompressed files within the archive, not the size of the `.zip` file being downloaded. See [this issue](https://github.com/gameyfin/gameyfin/issues/707#issuecomment-2038166299) for more details.
+The download progress bar is based on the total size reported by the Gameyfin server. Since the server does not always send a `Content-Length` header, the size shown is estimated from the download button label in the UI. See [this issue](https://github.com/gameyfin/gameyfin/issues/707#issuecomment-2038166299) for more details.
 
 ### AI notice
-Build with the help from Gemini. If you see something that could be better or looks weird, please let me know!
+Build with the help from Gemini,Claude,Gemma4. If you see something that could be better or looks weird, please let me know!
 
 ### 🖼️ Screenshots
 

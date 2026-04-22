@@ -65,8 +65,9 @@ class SettingsWidget(QWidget):
         icon_layout.addWidget(self.icon_browse_btn)
         self.form_layout.addRow("Custom Tray Icon:", icon_layout)
 
-        # Download and Unzip Settings
+        # Extraction Settings
         self.download_dir_edit = QLineEdit()
+        self.download_dir_edit.setPlaceholderText("(defaults to ~/Downloads/<game-name>)")
         self.download_dir_edit.setText(settings_manager.get("GF_DEFAULT_DOWNLOAD_DIR"))
         self.download_dir_btn = QPushButton("Browse...")
         self.download_dir_btn.clicked.connect(lambda: self.browse_directory(self.download_dir_edit, "Select Download Directory"))
@@ -75,19 +76,9 @@ class SettingsWidget(QWidget):
         download_dir_layout.addWidget(self.download_dir_btn)
         self.form_layout.addRow("Default Download Dir:", download_dir_layout)
 
-        self.unzip_dir_edit = QLineEdit()
-        self.unzip_dir_edit.setPlaceholderText("(same as ZIP file)")
-        self.unzip_dir_edit.setText(settings_manager.get("GF_DEFAULT_UNZIP_DIR"))
-        self.unzip_dir_btn = QPushButton("Browse...")
-        self.unzip_dir_btn.clicked.connect(lambda: self.browse_directory(self.unzip_dir_edit, "Select Unzip Directory"))
-        unzip_dir_layout = QHBoxLayout()
-        unzip_dir_layout.addWidget(self.unzip_dir_edit)
-        unzip_dir_layout.addWidget(self.unzip_dir_btn)
-        self.form_layout.addRow("Default Unzip Dir:", unzip_dir_layout)
-
-        self.prompt_unzip_check = QCheckBox()
-        self.prompt_unzip_check.setChecked(bool(settings_manager.get("GF_PROMPT_UNZIP_DIR")))
-        self.form_layout.addRow("Prompt for Unzip Dir:", self.prompt_unzip_check)
+        self.prompt_download_check = QCheckBox()
+        self.prompt_download_check.setChecked(bool(settings_manager.get("GF_PROMPT_DOWNLOAD_DIR")))
+        self.form_layout.addRow("Prompt for Download Dir:", self.prompt_download_check)
         
         self.layout.addLayout(self.form_layout)
         
@@ -126,8 +117,7 @@ class SettingsWidget(QWidget):
         settings_manager.set("GF_THEME", self.theme_combo.currentText())
         settings_manager.set("GF_ICON_PATH", self.icon_path_edit.text())
         settings_manager.set("GF_DEFAULT_DOWNLOAD_DIR", self.download_dir_edit.text())
-        settings_manager.set("GF_DEFAULT_UNZIP_DIR", self.unzip_dir_edit.text())
-        settings_manager.set("GF_PROMPT_UNZIP_DIR", 1 if self.prompt_unzip_check.isChecked() else 0)
+        settings_manager.set("GF_PROMPT_DOWNLOAD_DIR", 1 if self.prompt_download_check.isChecked() else 0)
         
         # Apply settings immediately
         if hasattr(self.window(), 'apply_settings'):
