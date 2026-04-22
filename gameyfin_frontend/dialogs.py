@@ -34,6 +34,7 @@ class InstallConfigDialog(QDialog):
 
         self.wayland_checkbox = QCheckBox("Enable Wayland")
         self.mangohud_checkbox = QCheckBox("Enable MangoHud")
+        self.wow64_checkbox = QCheckBox("Enable WOW64")
 
         self.gameid_input = QLineEdit()
         self.gameid_input.setText(default_game_id)
@@ -70,6 +71,9 @@ class InstallConfigDialog(QDialog):
             if initial_config.get("MANGOHUD") == "1":
                 self.mangohud_checkbox.setChecked(True)
             
+            if initial_config.get("PROTON_USE_WOW64") == "1":
+                self.wow64_checkbox.setChecked(True)
+
             if "GAMEID" in initial_config:
                 self.gameid_input.setText(initial_config["GAMEID"])
             
@@ -79,7 +83,7 @@ class InstallConfigDialog(QDialog):
             # Populate extra vars
             extra_lines = []
             for k, v in initial_config.items():
-                if k not in ["PROTON_ENABLE_WAYLAND", "MANGOHUD", "GAMEID", "STORE"]:
+                if k not in ["PROTON_ENABLE_WAYLAND", "MANGOHUD", "GAMEID", "STORE", "PROTON_USE_WOW64"]:
                     extra_lines.append(f"{k}={v}")
             self.extra_vars_input.setPlainText("\n".join(extra_lines))
 
@@ -90,6 +94,7 @@ class InstallConfigDialog(QDialog):
 
         main_layout.addWidget(self.wayland_checkbox)
         main_layout.addWidget(self.mangohud_checkbox)
+        main_layout.addWidget(self.wow64_checkbox)
 
         form_layout.addRow("Umu protonfix:", self.gameid_widget)
         form_layout.addRow("Store:", self.store_combo)
@@ -212,7 +217,8 @@ class InstallConfigDialog(QDialog):
         """
         config = {
             "PROTON_ENABLE_WAYLAND": "1" if self.wayland_checkbox.isChecked() else "0",
-            "MANGOHUD": "1" if self.mangohud_checkbox.isChecked() else "0"
+            "MANGOHUD": "1" if self.mangohud_checkbox.isChecked() else "0",
+            "PROTON_USE_WOW64": "1" if self.wow64_checkbox.isChecked() else "0"
         }
 
         game_id = self.gameid_input.text().strip()
