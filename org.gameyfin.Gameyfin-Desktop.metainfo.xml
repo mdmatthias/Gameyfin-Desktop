@@ -80,6 +80,18 @@
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="2.5.0" date="2026-04-22">
+            <description>
+                <ul>
+                    <li>
+                        <strong>⚡ Streaming Download &amp; Extraction:</strong>
+                        Downloads and extracts ZIP archives simultaneously using stream-unzip — no intermediate ZIP file is ever saved to disk.
+                    </li>
+                    <li>Saves disk space and skips the separate unzip step entirely.</li>
+                    <li>Once the download completes, the <strong>Install</strong> button appears immediately.</li>
+                </ul>
+            </description>
+        </release>
         <release version="2.4.22" date="2026-04-22">
             <description>
                 <ul>
