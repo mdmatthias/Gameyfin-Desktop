@@ -111,13 +111,16 @@ Choose your platform below to get started.
 
 **Option 2: Running from Source (Python)**
 1. **Dependencies:** Install Python, required libraries, and `umu-launcher`.
+   - stream-unzip is currently not available in the arch/fedora repo's, you will need to install it with pip with the --break-system-packages flag
    *   **Arch:**
        ```bash
        sudo pacman -Syu python-pyqt6 python-pyqt6-webengine python-dotenv python-requests python-qt-material umu-launcher
+       pip install --user --break-system-packages stream-unzip
        ```
    *   **Fedora:**
        ```bash
        sudo dnf install python3-pyqt6 python3-pyqt6-webengine python3-dotenv python3-requests python3-qt-material umu-launcher
+       pip install --user --break-system-packages stream-unzip
        ```
    *   **Pip (General):**
        ```bash
