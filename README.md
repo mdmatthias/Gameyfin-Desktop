@@ -30,7 +30,7 @@ A dedicated desktop client for [Gameyfin](https://github.com/gameyfin/gameyfin) 
   * **🛠️ Wine Tools:** Quick access to `winecfg` and `winetricks` for manual prefix configuration during installation.
 * **🍷 Prefix & Game Manager (Linux):**
   * **Quick Launch:** Launch any game shortcut script directly from the Prefix Manager via a select box.
-  * **Post-Install Configuration:** Edit wine prefix settings (environment variables, Wayland, MangoHud) after a game is installed.
+  * **Post-Install Configuration:** Edit wine prefix settings (environment variables, Wayland, MangoHud, WOW64) after a game is installed.
   * **Shortcut Management:** Re-sync or clean up system shortcuts (Desktop & Application Menu) at any time.
   * **Prefix Cleanup:** Delete prefixes with a safety warning about saved game data.
 * **⤴️ Integrated Shortcut Management (Linux):**
@@ -91,16 +91,10 @@ Choose your platform below to get started.
 #### 🐧 Linux
 
 **Option 1: Flatpak (Recommended)**
-1. **Dependencies:** Ensure `umu-launcher` is installed on your host system (required for the installer feature).
-   ```bash
-   # Arch
-   sudo pacman -S umu-launcher
-
-   # Fedora
-   sudo dnf install umu-launcher
-
-   ```
+1. **Dependencies:** None required! The Flatpak build now includes the `umu-launcher` and all necessary dependencies.
 2. **Install:** Download the latest `Gameyfin-Desktop-vX.X.X.flatpak` from the [Releases](https://github.com/mdmatthias/Gameyfin-Desktop/releases) page.
+
+> **Note for SteamOS/Bazzite users:** You will need to use desktop mode to install games and add shortcuts to Steam to run them in Big Picture mode.
    Install it by running:
    ```bash
    flatpak install Gameyfin-Desktop-vX.X.X.flatpak
