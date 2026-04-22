@@ -54,6 +54,9 @@ class InstallConfigDialog(QDialog):
         self.gameid_widget = QWidget()
         self.gameid_widget.setLayout(self.gameid_layout)
 
+        self.protonpath_input = QLineEdit()
+        self.protonpath_input.setText(settings_manager.get("PROTONPATH", "GE-Proton"))
+
         self.store_combo = QComboBox()
         stores = settings_manager.get("GF_UMU_DB_STORES", ["none", "gog", "amazon", "battlenet", "ea", "egs",
                                                            "humble", "itchio", "steam", "ubisoft", "zoomplatform"])
@@ -62,28 +65,31 @@ class InstallConfigDialog(QDialog):
 
         self.extra_vars_input = QPlainTextEdit()
         self.extra_vars_input.setPlaceholderText("KEY1=VALUE1\nKEY2=VALUE2")
-        
+
         # Apply initial config if provided
         if initial_config:
             if initial_config.get("PROTON_ENABLE_WAYLAND") == "1":
                 self.wayland_checkbox.setChecked(True)
-            
+
             if initial_config.get("MANGOHUD") == "1":
                 self.mangohud_checkbox.setChecked(True)
-            
+
             if initial_config.get("PROTON_USE_WOW64") == "1":
                 self.wow64_checkbox.setChecked(True)
 
             if "GAMEID" in initial_config:
                 self.gameid_input.setText(initial_config["GAMEID"])
-            
+
             if "STORE" in initial_config:
                 self.store_combo.setCurrentText(initial_config["STORE"])
-                
+
+            if "PROTONPATH" in initial_config:
+                self.protonpath_input.setText(initial_config["PROTONPATH"])
+
             # Populate extra vars
             extra_lines = []
             for k, v in initial_config.items():
-                if k not in ["PROTON_ENABLE_WAYLAND", "MANGOHUD", "GAMEID", "STORE", "PROTON_USE_WOW64"]:
+                if k not in ["PROTON_ENABLE_WAYLAND", "MANGOHUD", "GAMEID", "STORE", "PROTON_USE_WOW64", "PROTONPATH"]:
                     extra_lines.append(f"{k}={v}")
             self.extra_vars_input.setPlainText("\n".join(extra_lines))
 
@@ -97,6 +103,7 @@ class InstallConfigDialog(QDialog):
         main_layout.addWidget(self.wow64_checkbox)
 
         form_layout.addRow("Umu protonfix:", self.gameid_widget)
+        form_layout.addRow("Proton Path:", self.protonpath_input)
         form_layout.addRow("Store:", self.store_combo)
         main_layout.addLayout(form_layout)
 
@@ -185,7 +192,7 @@ class InstallConfigDialog(QDialog):
         os.makedirs(self.wine_prefix_path, exist_ok=True)
 
         proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
-        
+
         env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.wine_prefix_path}\" "
         umu_command = "umu-run"
 
@@ -202,11 +209,11 @@ class InstallConfigDialog(QDialog):
         os.makedirs(self.wine_prefix_path, exist_ok=True)
 
         proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
-        
+
         env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.wine_prefix_path}\" "
-        
+
         umu_command = "umu-run"
-        
+
         command_string = f"{env_prefix} {umu_command} winetricks --gui"
         print(f"Executing: /bin/sh -c \"{command_string}\"")
         QProcess.startDetached("/bin/sh", ["-c", command_string])
@@ -228,6 +235,8 @@ class InstallConfigDialog(QDialog):
         store = self.store_combo.currentText()
         if store and store != "none":
             config["STORE"] = store
+
+        config["PROTONPATH"] = self.protonpath_input.text().strip()
 
         extra_vars_text = self.extra_vars_input.toPlainText().strip()
         if extra_vars_text:

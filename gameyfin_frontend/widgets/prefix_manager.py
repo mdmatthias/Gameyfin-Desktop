@@ -150,12 +150,13 @@ class PrefixItemWidget(QWidget):
                     continue
 
                 exe_path = os.path.join(working_dir, exe_name)
-                proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
+                proton_path = install_config.get("PROTONPATH") or settings_manager.get("PROTONPATH") or "GE-Proton"
                 env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.prefix_path}\" "
                 umu_command = "umu-run"
 
                 for key, value in install_config.items():
-                    env_prefix += f"{key}=\"{value}\" "
+                    if key not in ["PROTONPATH", "WINEPREFIX"]:
+                        env_prefix += f"{key}=\"{value}\" "
 
                 command_to_run = f"{env_prefix}{umu_command} \"{exe_path}\""
                 
@@ -434,7 +435,7 @@ class PrefixManagerWidget(QWidget):
                 matches = re.findall(r'(\w+)="(.*?)"', env_part)
                 
                 for key, value in matches:
-                    if key not in ["PROTONPATH", "WINEPREFIX"]:
+                    if key not in ["WINEPREFIX"]:
                          config[key] = value
                          
         except Exception as e:
@@ -455,14 +456,15 @@ class PrefixManagerWidget(QWidget):
             print("No .sh scripts found to update.")
             return
             
-        proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
+        proton_path = config.get("PROTONPATH") or settings_manager.get("PROTONPATH") or "GE-Proton"
         
         # Construct the environment part and command prefix
         env_part = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{prefix_path}\" "
         umu_command = "umu-run"
 
         for key, value in config.items():
-            env_part += f"{key}=\"{value}\" "
+            if key not in ["PROTONPATH", "WINEPREFIX"]:
+                env_part += f"{key}=\"{value}\" "
             
         count = 0
         for script_path in sh_files:
