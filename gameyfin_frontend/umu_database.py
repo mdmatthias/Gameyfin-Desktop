@@ -1,6 +1,8 @@
 import re
 import sys
 import requests
+import json
+import os
 from collections import defaultdict
 from typing import Dict, List
 from .settings import settings_manager
@@ -15,8 +17,10 @@ class UmuDatabase:
 
         # Stores data as: {"Game Title": [entry1, entry2, ...]}
         self._games_by_title: Dict[str, List[dict]] = defaultdict(list)
+        self.cache_file_path = os.path.join(settings_manager.settings_dir, "umu_cache.json")
 
-        print("Initializing Umu database and fetching all entries...")
+        print("Initializing Umu database...")
+        self._load_cache_from_disk()
         self.refresh_cache()
         self._ROMAN_REPLACEMENTS = (
             (r'\bX\b', ' 10 '),
@@ -48,6 +52,27 @@ class UmuDatabase:
             title = entry.get("title")
             if title:
                 self._games_by_title[title].append(entry)
+        self._save_cache_to_disk()
+
+    def _load_cache_from_disk(self):
+        """Loads the cached Umu database from a local JSON file."""
+        if os.path.exists(self.cache_file_path):
+            try:
+                with open(self.cache_file_path, 'r') as f:
+                    data = json.load(f)
+                    self._games_by_title = defaultdict(list, data)
+                print(f"UmuDatabase: Loaded cache from {self.cache_file_path}")
+            except Exception as e:
+                print(f"UmuDatabase: Failed to load cache from disk: {e}")
+
+    def _save_cache_to_disk(self):
+        """Saves the current title cache to a local JSON file."""
+        try:
+            with open(self.cache_file_path, 'w') as f:
+                json.dump(dict(self._games_by_title), f)
+            print(f"UmuDatabase: Cache saved to {self.cache_file_path}")
+        except Exception as e:
+            print(f"UmuDatabase: Failed to save cache to disk: {e}")
 
     def refresh_cache(self):
         """
@@ -57,9 +82,13 @@ class UmuDatabase:
             return
 
         print("Refreshing UmuDatabase cache...")
-        all_entries_raw = self.list_all()
-        self._build_title_cache(all_entries_raw)
-        print("Cache refresh complete.")
+        try:
+            all_entries_raw = self.list_all()
+            if isinstance(all_entries_raw, list):
+                self._build_title_cache(all_entries_raw)
+                print("Cache refresh complete.")
+        except Exception as e:
+            print(f"UmuDatabase: Failed to refresh cache: {e}. Proceeding with empty cache.")
 
     def _request_umu_api(self, params=None):
         """
