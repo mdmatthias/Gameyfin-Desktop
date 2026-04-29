@@ -83,7 +83,7 @@ class GameyfinWindow(QMainWindow):
         
         icon_path = get_app_icon_path(settings_manager.get("GF_ICON_PATH"), theme=settings_manager.get("GF_THEME"))
 
-        profile_path = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
+        profile_path = settings_manager.get_config_dir()
         os.makedirs(profile_path, exist_ok=True)
 
         self.profile = QWebEngineProfile("gameyfin-profile", self)
@@ -119,8 +119,9 @@ class GameyfinWindow(QMainWindow):
         self.browser.setPage(self.custom_page)
         self.browser.setUrl(base_url)
 
-        self.download_manager = DownloadManagerWidget(profile_path, umu_database, self)
+        self.download_manager = DownloadManagerWidget(umu_database, self)
         self.prefix_manager = PrefixManagerWidget(umu_database, self)
+        self.download_manager.prefix_manager = self.prefix_manager
 
         # --- Settings Setup ---
         self.settings_widget = SettingsWidget(self)
@@ -182,9 +183,8 @@ class GameyfinWindow(QMainWindow):
             widget.deleteLater()
             self.tab_widget.removeTab(index)
 
-    def add_new_browser_tab(self, url):
+    def _setup_new_view(self) -> QWebEngineView:
         view = QWebEngineView()
-        # External tabs are not restricted
         base_url = QUrl(settings_manager.get("GF_URL"))
         page = CustomWebEnginePage(self.profile, view, restricted_host=None, main_host=base_url.host())
         page.new_tab_requested.connect(self.add_new_browser_tab)
@@ -192,33 +192,24 @@ class GameyfinWindow(QMainWindow):
         page.logout_detected.connect(self.handle_logout)
         page.create_window_callback = self.create_new_window_for_page
         view.setPage(page)
-        view.setUrl(url)
         
+        view.titleChanged.connect(lambda title: self.update_tab_title(view, title))
+        view.iconChanged.connect(lambda icon: self.update_tab_icon(view, icon))
+        return view
+
+    def add_new_browser_tab(self, url):
+        view = self._setup_new_view()
+        view.setUrl(url)
         index = self.tab_widget.addTab(view, url.host() or "External")
         self.tab_widget.setCurrentIndex(index)
         view.show()
-        
-        view.titleChanged.connect(lambda title: self.update_tab_title(view, title))
-        view.iconChanged.connect(lambda icon: self.update_tab_icon(view, icon))
-        return page
+        return view.page()
 
     def create_new_window_for_page(self, _type):
-        view = QWebEngineView()
-        base_url = QUrl(settings_manager.get("GF_URL"))
-        page = CustomWebEnginePage(self.profile, view, restricted_host=None, main_host=base_url.host())
-        page.new_tab_requested.connect(self.add_new_browser_tab)
-        page.main_tab_redirect_requested.connect(self.redirect_to_main_tab)
-        page.logout_detected.connect(self.handle_logout)
-        page.create_window_callback = self.create_new_window_for_page
-        view.setPage(page)
-        
+        view = self._setup_new_view()
         index = self.tab_widget.addTab(view, "Loading...")
         self.tab_widget.setCurrentIndex(index)
-        
-        view.titleChanged.connect(lambda title: self.update_tab_title(view, title))
-        view.iconChanged.connect(lambda icon: self.update_tab_icon(view, icon))
-
-        return page
+        return view.page()
 
     def handle_logout(self, url):
         # Close all external tabs (starting from the end to avoid index shift issues)

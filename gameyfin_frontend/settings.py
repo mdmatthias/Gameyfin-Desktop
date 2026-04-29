@@ -19,6 +19,11 @@ class SettingsManager:
         os.makedirs(self.settings_dir, exist_ok=True)
         self.settings_file = os.path.join(self.settings_dir, "settings.json")
         
+        # Legacy config directory for backward compatibility
+        self.legacy_config_dir = os.path.join(
+            os.path.expanduser("~"), ".config", "gameyfin"
+        )
+
         self.defaults = {
             "GF_URL": "http://localhost:8080",
             "GF_WINDOW_WIDTH": 1420,
@@ -72,6 +77,39 @@ class SettingsManager:
     def set(self, key, value):
         self.settings[key] = value
         self.save()
+
+    def get_config_dir(self) -> str:
+        return self.settings_dir
+
+    def get_prefixes_dirs(self) -> list:
+        """Return list of prefix directories to scan (new + legacy for backward compat)."""
+        dirs = [os.path.join(self.settings_dir, "prefixes")]
+        legacy = os.path.join(self.legacy_config_dir, "prefixes")
+        if os.path.exists(legacy):
+            dirs.append(legacy)
+        return dirs
+
+    def get_prefixes_dir(self) -> str:
+        """Return the new (primary) prefix directory for creating new prefixes."""
+        return os.path.join(self.settings_dir, "prefixes")
+
+    def get_shortcuts_dirs(self, game_name: str) -> list:
+        """Return list of shortcut script dirs to scan (new + legacy for backward compat)."""
+        dirs = [os.path.join(self.settings_dir, "shortcut_scripts", game_name)]
+        legacy = os.path.join(self.legacy_config_dir, "shortcut_scripts", game_name)
+        if os.path.exists(legacy):
+            dirs.append(legacy)
+        return dirs
+
+    def get_shortcuts_dir(self, game_name: str) -> str:
+        """Return the new (primary) shortcut dir for creating new scripts."""
+        return os.path.join(self.settings_dir, "shortcut_scripts", game_name)
+
+    def get_downloads_json_path(self) -> str:
+        return os.path.join(self.settings_dir, "downloads.json")
+
+    def get_umu_cache_path(self) -> str:
+        return os.path.join(self.settings_dir, "umu_cache.json")
 
 # Global instance
 settings_manager = SettingsManager()

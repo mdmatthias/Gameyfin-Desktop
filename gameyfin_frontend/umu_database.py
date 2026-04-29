@@ -17,7 +17,7 @@ class UmuDatabase:
 
         # Stores data as: {"Game Title": [entry1, entry2, ...]}
         self._games_by_title: Dict[str, List[dict]] = defaultdict(list)
-        self.cache_file_path = os.path.join(settings_manager.settings_dir, "umu_cache.json")
+        self.cache_file_path = settings_manager.get_umu_cache_path()
 
         print("Initializing Umu database...")
         self._load_cache_from_disk()

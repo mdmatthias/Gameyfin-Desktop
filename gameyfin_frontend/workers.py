@@ -37,7 +37,7 @@ class StreamDownloadWorker(QObject):
 
             total = int(self._response.headers.get('content-length', 0)) or self.estimated_total
             received = 0
-            chunk_size = 65536
+            chunk_size = 131072
             last_signal_time = 0.0
 
             def http_chunks():

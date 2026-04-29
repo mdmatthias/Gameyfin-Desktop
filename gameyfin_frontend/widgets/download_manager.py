@@ -4,16 +4,18 @@ import os
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (QGridLayout, QWidget, QScrollArea, QVBoxLayout, QPushButton, QHBoxLayout, QSpacerItem, QSizePolicy)
 
+from gameyfin_frontend.settings import settings_manager
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.widgets.download_item import DownloadItemWidget
 
 
 class DownloadManagerWidget(QWidget):
 
-    def __init__(self, data_path: str, umu_database: UmuDatabase, parent=None):
+    def __init__(self, umu_database: UmuDatabase, parent=None):
         super().__init__(parent)
         self.umu_database = umu_database
-        self.json_path = os.path.join(data_path, "downloads.json")
+        self.prefix_manager = None
+        self.json_path = settings_manager.get_downloads_json_path()
         self.download_records = []
         self.widget_map = {}
 
@@ -48,6 +50,7 @@ class DownloadManagerWidget(QWidget):
         controller = DownloadItemWidget(self.umu_database, worker=worker, record=record)
 
         controller.finished.connect(self.on_download_finished)
+        controller.installation_finished.connect(self.on_installation_finished)
         controller.remove_requested.connect(self.remove_download_item)
 
         existing_controller = self.find_controller_by_url(record["url"])
@@ -62,6 +65,12 @@ class DownloadManagerWidget(QWidget):
 
     def on_download_finished(self, record: dict):
         self.save_history()
+        if self.prefix_manager:
+            self.prefix_manager.refresh_prefixes()
+
+    def on_installation_finished(self):
+        if self.prefix_manager:
+            self.prefix_manager.refresh_prefixes()
 
     def load_history(self):
         try:

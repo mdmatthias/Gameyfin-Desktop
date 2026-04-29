@@ -30,6 +30,7 @@ from gameyfin_frontend.settings import settings_manager
 class DownloadItemWidget(QWidget):
     remove_requested = pyqtSignal(QWidget)
     finished = pyqtSignal(dict)
+    installation_finished = pyqtSignal()
 
     def __init__(self, umu_database: UmuDatabase, worker: StreamDownloadWorker = None, record: dict = None,
                  parent=None):
@@ -340,10 +341,9 @@ class DownloadItemWidget(QWidget):
         wine_prefix_path = None
         if sys.platform == "linux":
             try:
-                home_dir = os.path.expanduser("~")
                 folder_name = os.path.basename(target_dir)
                 pfx_name = f"{folder_name.lower()}_pfx"
-                wine_prefix_path = os.path.join(home_dir, ".config", "gameyfin", "prefixes", pfx_name)
+                wine_prefix_path = os.path.join(settings_manager.get_prefixes_dir(), pfx_name)
 
                 self.current_wine_prefix = wine_prefix_path
                 print(f"Getting WINEPREFIX for dialog: {wine_prefix_path}")
@@ -473,6 +473,8 @@ class DownloadItemWidget(QWidget):
     def on_run_finished(self, exit_code=None, exit_status=None):
         print(f"umu-run process finished with code {exit_code}, status {exit_status}.")
 
+        self.installation_finished.emit()
+
         if self.current_wine_prefix and os.path.isdir(self.current_wine_prefix):
             shortcuts_dir = os.path.join(self.current_wine_prefix, "drive_c", "proton_shortcuts")
             print(f"Checking for shortcuts in: {shortcuts_dir}")
@@ -512,17 +514,12 @@ class DownloadItemWidget(QWidget):
             self.current_install_config = {}
 
         home_dir = os.path.expanduser("~")
-
         prefix_basename = os.path.basename(self.current_wine_prefix)
         game_name = prefix_basename.removesuffix("_pfx")
         if not game_name:
             game_name = "unknown-game"
 
-        shortcut_scripts_path = os.path.join(home_dir,
-                                             ".config",
-                                             "gameyfin",
-                                             "shortcut_scripts",
-                                             str(game_name))
+        shortcut_scripts_path = settings_manager.get_shortcuts_dir(game_name)
         os.makedirs(shortcut_scripts_path, exist_ok=True)
 
         for original_path in all_desktop_files:
@@ -626,7 +623,7 @@ class DownloadItemWidget(QWidget):
                     is_flatpak_env = os.path.exists("/.flatpak-info")
                     use_host_umu = self.current_install_config.get("USE_HOST_UMU", "0")
 
-                    if is_flatpak_env and str(use_host_umu) == "1":
+                    if is_flatpak_env and use_host_umu == "0":
                         inner_cmd = shlex.quote(script_path)
                         for char in ('\\', '"', '$', '`'):
                             inner_cmd = inner_cmd.replace(char, f'\\{char}')
