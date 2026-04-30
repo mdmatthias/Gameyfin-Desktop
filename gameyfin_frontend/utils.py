@@ -107,9 +107,10 @@ def copy_icon_from_source(source_dir: str, icon_name: str) -> str | None:
 
     Checks sizes in order: 256x256, 128x128, 64x64, 48x48, 32x32.
     Looks for both <icon>.png and the icon name as-is.
+    Searches multiple possible locations where icons may be stored.
 
     Args:
-        source_dir: Base directory containing icons/<size>/apps/ structure.
+        source_dir: Base directory (e.g. proton_shortcuts/ or drive_c/).
         icon_name: The icon name to search for.
 
     Returns:
@@ -117,16 +118,85 @@ def copy_icon_from_source(source_dir: str, icon_name: str) -> str | None:
     """
     sizes_to_check = ["256x256", "128x128", "64x64", "48x48", "32x32"]
 
-    for size in sizes_to_check:
-        path_with_png = os.path.join(source_dir, size, "apps", f"{icon_name}.png")
-        path_as_is = os.path.join(source_dir, size, "apps", icon_name)
+    # Possible locations to search for icons, relative to source_dir
+    # source_dir is typically the proton_shortcuts/ directory containing the .desktop file
+    search_dirs = [
+        "icons",                                # Direct icons/ subdirectory
+        "drive_c/icons",                        # drive_c/icons/
+        "drive_c/proton_shortcuts/icons",       # drive_c/proton_shortcuts/icons/ (from game root)
+        "../drive_c/proton_shortcuts/icons",    # proton_shortcuts/../drive_c/proton_shortcuts/icons/
+    ]
 
-        if os.path.exists(path_with_png):
-            return path_with_png
-        if os.path.exists(path_as_is):
-            return path_as_is
+    for search_base in search_dirs:
+        for size in sizes_to_check:
+            path_with_png = os.path.join(source_dir, search_base, size, "apps", f"{icon_name}.png")
+            path_as_is = os.path.join(source_dir, search_base, size, "apps", icon_name)
+
+            if os.path.exists(path_with_png):
+                return path_with_png
+            if os.path.exists(path_as_is):
+                return path_as_is
+
+    # Fallback: search without size directory
+    for search_base in search_dirs:
+        for ext in [".png", ""]:
+            path_with_png = os.path.join(source_dir, search_base, "apps", f"{icon_name}{ext}")
+            if os.path.exists(path_with_png):
+                return path_with_png
 
     return None
+
+
+def install_icon_for_shortcut(icon_path: str, icon_name: str) -> str | None:
+    """
+    Copies an icon file to the gameyfin icons directory and returns the absolute path.
+    Using an absolute path in the Icon field is more reliable than theme lookup,
+    especially inside Flatpak sandboxes where icon theme directories may not be accessible.
+
+    Args:
+        icon_path: Source path to the icon file.
+        icon_name: Base name from the .desktop file (used for uniqueness).
+
+    Returns:
+        Absolute path to the installed icon file, or None if installation failed.
+    """
+    if not icon_path or not os.path.exists(icon_path):
+        return None
+
+    # Determine the icon size directory from the source path
+    parts = icon_path.split(os.sep)
+    size_dir = None
+    for i, part in enumerate(parts):
+        if part in ["256x256", "128x128", "64x64", "48x48", "32x32"]:
+            size_dir = part
+            break
+
+    if not size_dir:
+        size_dir = "256x256"
+
+    # Install to ~/.local/share/icons/gameyfin/<size>/apps/
+    icon_install_dir = os.path.join(
+        os.path.expanduser("~"), ".local", "share", "icons", "gameyfin",
+        size_dir, "apps"
+    )
+    os.makedirs(icon_install_dir, exist_ok=True)
+
+    # Derive a unique name from the original icon filename (strip extension)
+    base_name = os.path.splitext(os.path.basename(icon_path))[0]
+    safe_name = base_name.replace("/", "_").replace("\\", "_")
+    dest_filename = f"{safe_name}.png"
+    dest_path = os.path.join(icon_install_dir, dest_filename)
+
+    # Copy the icon file
+    import shutil
+    try:
+        shutil.copy2(icon_path, dest_path)
+        print(f"Installed icon to: {dest_path}")
+        # Return absolute path — desktop environments support this in the Icon field
+        return dest_path
+    except Exception as e:
+        print(f"Failed to install icon: {e}")
+        return None
 
 
 def build_flatpak_exec_command(inner_cmd: str) -> str:
@@ -234,3 +304,124 @@ def get_xdg_user_dir(dir_name: str) -> Path:
 
     # Key wasn't found in the file
     return fallback_dir
+
+
+def create_shortcuts(
+    all_desktop_files: list,
+    scripts_dir: str,
+    wine_prefix: str,
+    install_config: dict,
+    proton_path: str = "GE-Proton",
+    selected_desktop: list | None = None,
+    selected_apps: list | None = None,
+    remove_unselected: bool = False,
+):
+    """
+    Creates helper .sh scripts and system .desktop shortcuts for a game.
+
+    Args:
+        all_desktop_files: List of paths to detected .desktop files.
+        scripts_dir: Directory where helper .sh scripts are stored.
+        wine_prefix: WINEPREFIX path for the game.
+        install_config: Dict of install configuration (env vars, USE_HOST_UMU, etc.).
+        proton_path: Proton version string. Defaults to "GE-Proton".
+        selected_desktop: Desktop files to place on the user's Desktop.
+        selected_apps: Desktop files to place in ~/.local/share/applications.
+        remove_unselected: If True, removes system shortcuts not in selected lists.
+    """
+    os.makedirs(scripts_dir, exist_ok=True)
+
+    # 1. Create/update .sh helper scripts for ALL detected desktop files
+    for original_path in all_desktop_files:
+        try:
+            config_parser = parse_desktop_file(original_path)
+            if config_parser is None:
+                continue
+
+            entry = config_parser["Desktop Entry"]
+            working_dir = entry.get("Path")
+            exe_name = entry.get("StartupWMClass")
+            if not exe_name:
+                exe_name = entry.get("Name", "game") + ".exe"
+
+            if not working_dir:
+                continue
+
+            exe_path = os.path.join(working_dir, exe_name)
+            env_prefix = build_umu_env_prefix(proton_path, wine_prefix, install_config)
+            command_to_run = f"{env_prefix} umu-run \"{exe_path}\""
+
+            script_name = os.path.splitext(os.path.basename(original_path))[0] + ".sh"
+            script_path = os.path.join(scripts_dir, script_name)
+            script_content = f"#!/bin/sh\n\n# Auto-generated by Gameyfin\n{command_to_run}\n"
+
+            with open(script_path, "w") as f:
+                f.write(script_content)
+            os.chmod(script_path, 0o755)
+            print(f"Created/Updated helper script: {script_path}")
+
+        except Exception as e:
+            print(f"Failed to create helper script for {original_path}: {e}")
+
+    # 2. Manage system .desktop files (Desktop + Applications)
+    home_dir = os.path.expanduser("~")
+    locs = [
+        (os.path.join(home_dir, get_xdg_user_dir("DESKTOP")), selected_desktop or []),
+        (os.path.join(home_dir, ".local", "share", "applications"), selected_apps or []),
+    ]
+
+    for target_dir, selected_list in locs:
+        os.makedirs(target_dir, exist_ok=True)
+
+        # Remove those NOT selected for this specific location
+        if remove_unselected:
+            to_remove = [f for f in all_desktop_files if f not in selected_list]
+            for original_path in to_remove:
+                target_path = os.path.join(target_dir, os.path.basename(original_path))
+                if os.path.exists(target_path):
+                    try:
+                        os.remove(target_path)
+                        print(f"Removed system shortcut: {target_path}")
+                    except Exception as e:
+                        print(f"Failed to remove system shortcut {target_path}: {e}")
+
+        # Create/Update those selected for this specific location
+        for original_path in selected_list:
+            try:
+                config_parser = parse_desktop_file(original_path)
+                if config_parser is None:
+                    continue
+
+
+                # Icon handling - find and install icon to system directory
+                icon_name = entry.get("Icon")
+                if icon_name:
+                    source_dir = os.path.dirname(original_path)
+                    found_icon_path = copy_icon_from_source(source_dir, icon_name)
+                    if found_icon_path:
+                        installed_icon = install_icon_for_shortcut(found_icon_path, icon_name)
+                        if installed_icon:
+                            config_parser.set("Desktop Entry", "Icon", installed_icon)
+
+                script_name = os.path.splitext(os.path.basename(original_path))[0] + ".sh"
+                script_path = os.path.join(scripts_dir, script_name)
+
+                use_host_umu = install_config.get("USE_HOST_UMU", "0")
+
+                if use_host_umu == "0":
+                    flatpak_exec = build_flatpak_exec_command(script_path)
+                    config_parser.set("Desktop Entry", "Exec", flatpak_exec)
+                else:
+                    config_parser.set("Desktop Entry", 'Exec', f'"{script_path}"')
+
+                config_parser.set("Desktop Entry", "Type", "Application")
+                config_parser.set("Desktop Entry", "Categories", "Application;Game;")
+
+                new_file_path = os.path.join(target_dir, os.path.basename(original_path))
+                with open(new_file_path, "w") as f:
+                    config_parser.write(f)
+                os.chmod(new_file_path, 0o755)
+                print(f"Successfully created system shortcut at: {new_file_path}")
+
+            except Exception as e:
+                print(f"Failed to process system shortcut {original_path}: {e}")
