@@ -1,7 +1,7 @@
 import os
 import sys
 from PyQt6.QtWidgets import QMainWindow, QFileDialog, QTabWidget, QApplication, QTabBar
-from PyQt6.QtGui import QCloseEvent, QIcon, QDesktopServices
+from PyQt6.QtGui import QCloseEvent, QDesktopServices
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtCore import QUrl, QStandardPaths, pyqtSignal, Qt
 from PyQt6.QtWebEngineCore import (QWebEngineScript,
@@ -13,7 +13,7 @@ from gameyfin_frontend.workers import StreamDownloadWorker
 
 from .settings_widget import SettingsWidget
 from .settings import settings_manager
-from .utils import get_app_icon_path
+from .utils import get_effective_icon
 
 
 class CustomWebEnginePage(QWebEnginePage):
@@ -81,8 +81,6 @@ class GameyfinWindow(QMainWindow):
         self.setGeometry(0, 0, settings_manager.get("GF_WINDOW_WIDTH"), settings_manager.get("GF_WINDOW_HEIGHT"))
         self.is_really_quitting = False
         
-        icon_path = get_app_icon_path(settings_manager.get("GF_ICON_PATH"), theme=settings_manager.get("GF_THEME"))
-
         profile_path = settings_manager.get_config_dir()
         os.makedirs(profile_path, exist_ok=True)
 
@@ -138,16 +136,11 @@ class GameyfinWindow(QMainWindow):
         self.tab_widget.tabBar().setTabButton(gameyfin_tab_index, QTabBar.ButtonPosition.RightSide, None)
         
         # Set the icon for that tab
-        is_light_variant = "icon_light.png" in icon_path
-        has_custom_path = settings_manager.get("GF_ICON_PATH")
-        
-        if has_custom_path or is_light_variant:
-            tab_icon = QIcon(icon_path)
-        else:
-            tab_icon = QIcon.fromTheme("org.gameyfin.Gameyfin-Desktop")
-            if tab_icon.isNull():
-                tab_icon = QIcon(icon_path)
-                
+        tab_icon = get_effective_icon(
+            custom_path=settings_manager.get("GF_ICON_PATH"),
+            theme=settings_manager.get("GF_THEME")
+        )
+
         self.tab_widget.setTabIcon(gameyfin_tab_index, tab_icon)
 
         downloads_index = self.tab_widget.addTab(self.download_manager, "Downloads")
@@ -378,22 +371,11 @@ class GameyfinWindow(QMainWindow):
                             page.set_main_host(new_host)
 
         # 3. Update Icon
-        # Logic matches main initialization
-        custom_icon_path = settings_manager.get("GF_ICON_PATH")
-        theme = settings_manager.get("GF_THEME")
-        
-        internal_icon_path = get_app_icon_path(custom_icon_path, theme=theme)
-        
-        is_light_variant = "icon_light.png" in internal_icon_path
-        has_custom_path = custom_icon_path is not None and custom_icon_path != ""
-        
-        if has_custom_path or is_light_variant:
-             app_icon = QIcon(internal_icon_path)
-        else:
-             app_icon = QIcon.fromTheme("org.gameyfin.Gameyfin-Desktop")
-             if app_icon.isNull():
-                 app_icon = QIcon(internal_icon_path)
-             
+        app_icon = get_effective_icon(
+            custom_path=settings_manager.get("GF_ICON_PATH"),
+            theme=settings_manager.get("GF_THEME")
+        )
+
         self.setWindowIcon(app_icon)
         # Update tab icon (index 0 is browser)
         self.tab_widget.setTabIcon(0, app_icon)

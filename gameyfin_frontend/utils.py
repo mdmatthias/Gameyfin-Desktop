@@ -1,8 +1,148 @@
+import configparser
 import os
 import sys
 from pathlib import Path
-from PyQt6.QtGui import QGuiApplication
+from PyQt6.QtGui import QGuiApplication, QIcon
 from PyQt6.QtCore import Qt
+
+
+def get_effective_icon(custom_path: str = None, theme: str = None, icon_theme_name: str = "org.gameyfin.Gameyfin-Desktop") -> QIcon:
+    """
+    Returns the appropriate QIcon based on the selected theme,
+    system theme (Light/Dark), or a custom path if provided.
+
+    Args:
+        custom_path: Optional custom icon file path.
+        theme: Theme string (e.g. "auto", "material_light", etc.).
+        icon_theme_name: Fallback QIcon.fromTheme name.
+
+    Returns:
+        A QIcon ready to use.
+    """
+    internal_icon_path = get_app_icon_path(custom_path, theme=theme)
+
+    is_light_variant = "icon_light.png" in internal_icon_path
+    has_custom_path = custom_path is not None and custom_path != ""
+
+    if has_custom_path or is_light_variant:
+        return QIcon(internal_icon_path)
+
+    icon = QIcon.fromTheme(icon_theme_name)
+    if icon.isNull():
+        icon = QIcon(internal_icon_path)
+    return icon
+
+
+def build_umu_command(proton_path: str, wine_prefix: str, config: dict, command: str) -> str:
+    """
+    Builds a shell command string with UMU environment variables prepended.
+
+    Args:
+        proton_path: Proton version (e.g. "GE-Proton").
+        wine_prefix: WINEPREFIX path.
+        config: Dict of additional environment variables.
+        command: The command to execute (e.g. "umu-run /path/to/exe").
+
+    Returns:
+        A string like: PROTONPATH="GE-Proton" WINEPREFIX="/path" KEY="val" umu-run /path/to/exe
+    """
+    env_prefix = f'PROTONPATH="{proton_path}" WINEPREFIX="{wine_prefix}" '
+    for key, value in config.items():
+        if key not in ("PROTONPATH", "WINEPREFIX"):
+            env_prefix += f'{key}="{value}" '
+    return f"{env_prefix}{command}"
+
+
+def build_umu_env_prefix(proton_path: str, wine_prefix: str, config: dict) -> str:
+    """
+    Builds just the environment variable prefix string for UMU commands.
+
+    Args:
+        proton_path: Proton version (e.g. "GE-Proton").
+        wine_prefix: WINEPREFIX path.
+        config: Dict of additional environment variables.
+
+    Returns:
+        Environment prefix string.
+    """
+    env_prefix = f'PROTONPATH="{proton_path}" WINEPREFIX="{wine_prefix}" '
+    for key, value in config.items():
+        if key not in ("PROTONPATH", "WINEPREFIX"):
+            env_prefix += f'{key}="{value}" '
+    return env_prefix
+
+
+def parse_desktop_file(path: str) -> configparser.ConfigParser | None:
+    """
+    Parses a .desktop file, adding [Desktop Entry] header if missing.
+
+    Args:
+        path: Path to the .desktop file.
+
+    Returns:
+        A ConfigParser object with the parsed content, or None on failure.
+    """
+    try:
+        with open(path, 'r') as f:
+            content = f.read()
+        if not content.strip().startswith('[Desktop Entry]'):
+            content = '[Desktop Entry]\n' + content
+
+        config_parser = configparser.ConfigParser(strict=False)
+        config_parser.optionxform = str
+        config_parser.read_string(content)
+
+        if 'Desktop Entry' not in config_parser:
+            return None
+
+        return config_parser
+    except Exception as e:
+        print(f"Error parsing {path}: {e}")
+        return None
+
+
+def copy_icon_from_source(source_dir: str, icon_name: str) -> str | None:
+    """
+    Finds the best available icon file from a source directory.
+
+    Checks sizes in order: 256x256, 128x128, 64x64, 48x48, 32x32.
+    Looks for both <icon>.png and the icon name as-is.
+
+    Args:
+        source_dir: Base directory containing icons/<size>/apps/ structure.
+        icon_name: The icon name to search for.
+
+    Returns:
+        Path to the found icon file, or None if not found.
+    """
+    sizes_to_check = ["256x256", "128x128", "64x64", "48x48", "32x32"]
+
+    for size in sizes_to_check:
+        path_with_png = os.path.join(source_dir, size, "apps", f"{icon_name}.png")
+        path_as_is = os.path.join(source_dir, size, "apps", icon_name)
+
+        if os.path.exists(path_with_png):
+            return path_with_png
+        if os.path.exists(path_as_is):
+            return path_as_is
+
+    return None
+
+
+def build_flatpak_exec_command(inner_cmd: str) -> str:
+    """
+    Builds a flatpak Exec command string with proper escaping.
+
+    Args:
+        inner_cmd: The command to run inside the flatpak container.
+
+    Returns:
+        A properly escaped flatpak exec string.
+    """
+    # Escape special characters for the flatpak -c shell context
+    for char in ('\\', '"', '$', '`'):
+        inner_cmd = inner_cmd.replace(char, f'\\{char}')
+    return f'flatpak run --command=sh org.gameyfin.Gameyfin-Desktop -c "{inner_cmd}"'
 
 
 def resource_path(relative_path: str) -> str:

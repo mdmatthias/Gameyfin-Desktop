@@ -2,15 +2,17 @@ import os
 import json
 import glob
 import subprocess
-import configparser
-import shlex
+
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QListWidget, QPushButton, 
                              QHBoxLayout, QLabel, QMessageBox, QDialog, QComboBox, QListWidgetItem, QCheckBox)
 from PyQt6.QtCore import Qt
 from gameyfin_frontend.dialogs import InstallConfigDialog, SelectShortcutsDialog
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.settings import settings_manager
-from gameyfin_frontend.utils import get_xdg_user_dir
+from gameyfin_frontend.utils import (
+    get_xdg_user_dir, parse_desktop_file, copy_icon_from_source,
+    build_umu_env_prefix, build_flatpak_exec_command
+)
 
 import re
 
@@ -137,17 +139,8 @@ class PrefixItemWidget(QWidget):
         # This ensures the selectbox always has all options.
         for original_path in all_desktop_files:
             try:
-                # configparser needs a section header
-                with open(original_path, 'r') as f:
-                    content = f.read()
-                if not content.strip().startswith('[Desktop Entry]'):
-                    content = '[Desktop Entry]\n' + content
-
-                config_parser = configparser.ConfigParser(strict=False)
-                config_parser.optionxform = str
-                config_parser.read_string(content)
-
-                if 'Desktop Entry' not in config_parser:
+                config_parser = parse_desktop_file(original_path)
+                if config_parser is None:
                     continue
 
                 entry = config_parser['Desktop Entry']
@@ -161,14 +154,9 @@ class PrefixItemWidget(QWidget):
 
                 exe_path = os.path.join(working_dir, exe_name)
                 proton_path = install_config.get("PROTONPATH") or settings_manager.get("PROTONPATH") or "GE-Proton"
-                env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.prefix_path}\" "
-                umu_command = "umu-run"
 
-                for key, value in install_config.items():
-                    if key not in ["PROTONPATH", "WINEPREFIX"]:
-                        env_prefix += f"{key}=\"{value}\" "
-
-                command_to_run = f"{env_prefix}{umu_command} \"{exe_path}\""
+                env_prefix = build_umu_env_prefix(proton_path, self.prefix_path, install_config)
+                command_to_run = f"{env_prefix} umu-run \"{exe_path}\""
                 
                 script_name = os.path.splitext(os.path.basename(original_path))[0] + ".sh"
                 script_path = os.path.join(self.primary_scripts_dir, script_name)
@@ -205,37 +193,18 @@ class PrefixItemWidget(QWidget):
             # Create/Update those selected for this specific location
             for original_path in selected_list:
                 try:
-                    with open(original_path, 'r') as f:
-                        content = f.read()
-                    if not content.strip().startswith('[Desktop Entry]'):
-                        content = '[Desktop Entry]\n' + content
-
-                    config_parser = configparser.ConfigParser(strict=False)
-                    config_parser.optionxform = str
-                    config_parser.read_string(content)
-
-                    if 'Desktop Entry' not in config_parser:
+                    config_parser = parse_desktop_file(original_path)
+                    if config_parser is None:
                         continue
 
-                    entry = config_parser['Desktop Entry']
-                    
+                    entry = config_parser["Desktop Entry"]
+
                     # Icon handling
-                    icon_name = entry.get('Icon')
+                    icon_name = entry.get("Icon")
                     if icon_name:
-                        icons_base_dir = os.path.join(os.path.dirname(original_path), "icons")
-                        sizes_to_check = ["256x256", "128x128", "64x64", "48x48", "32x32"]
-                        found_icon_path = None
-                        for size in sizes_to_check:
-                            p_png = os.path.join(icons_base_dir, size, "apps", f"{icon_name}.png")
-                            p_as_is = os.path.join(icons_base_dir, size, "apps", icon_name)
-                            if os.path.exists(p_png):
-                                found_icon_path = p_png
-                                break
-                            elif os.path.exists(p_as_is):
-                                found_icon_path = p_as_is
-                                break
+                        found_icon_path = copy_icon_from_source(os.path.dirname(original_path), icon_name)
                         if found_icon_path:
-                            config_parser.set('Desktop Entry', 'Icon', found_icon_path)
+                            config_parser.set("Desktop Entry", "Icon", found_icon_path)
 
                     script_name = os.path.splitext(os.path.basename(original_path))[0] + ".sh"
                     script_path = os.path.join(self.primary_scripts_dir, script_name)
@@ -244,27 +213,22 @@ class PrefixItemWidget(QWidget):
                     use_host_umu = install_config.get("USE_HOST_UMU", "0")
 
                     if is_flatpak and use_host_umu == "0":
-                        inner_cmd = shlex.quote(script_path)
-                        for char in ('\\', '"', '$', '`'):
-                            inner_cmd = inner_cmd.replace(char, f'\\{char}')
-                        
-                        config_parser.set('Desktop Entry', 'Exec', f'flatpak run --command=sh org.gameyfin.Gameyfin-Desktop -c "{inner_cmd}"')
+                        flatpak_exec = build_flatpak_exec_command(script_path)
+                        config_parser.set("Desktop Entry", "Exec", flatpak_exec)
                     else:
-                        config_parser.set('Desktop Entry', 'Exec', f'"{script_path}"')
+                        config_parser.set("Desktop Entry", "Exec", f'"{script_path}"')
 
-                    config_parser.set('Desktop Entry', 'Type', 'Application')
-                    config_parser.set('Desktop Entry', 'Categories', 'Application;Game;')
+                    config_parser.set("Desktop Entry", "Type", "Application")
+                    config_parser.set("Desktop Entry", "Categories", "Application;Game;")
 
                     new_file_path = os.path.join(target_dir, os.path.basename(original_path))
-                    with open(new_file_path, 'w') as f:
+                    with open(new_file_path, "w") as f:
                         config_parser.write(f)
                     os.chmod(new_file_path, 0o755)
                     print(f"Successfully created system shortcut at: {new_file_path}")
 
                 except Exception as e:
                     print(f"Failed to process system shortcut {original_path} for {target_dir}: {e}")
-
-
 
 
 class PrefixManagerWidget(QWidget):
@@ -491,15 +455,11 @@ class PrefixManagerWidget(QWidget):
             return
             
         proton_path = config.get("PROTONPATH") or settings_manager.get("PROTONPATH") or "GE-Proton"
-        
-        # Construct the environment part and command prefix
-        env_part = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{prefix_path}\" "
-        umu_command = "umu-run"
+        proton_path = config.get("PROTONPATH") or settings_manager.get("PROTONPATH") or "GE-Proton"
 
-        for key, value in config.items():
-            if key not in ["PROTONPATH", "WINEPREFIX"]:
-                env_part += f"{key}=\"{value}\" "
-            
+        env_part = build_umu_env_prefix(proton_path, prefix_path, config)
+
+        count = 0
         count = 0
         for script_path in sh_files:
             try:

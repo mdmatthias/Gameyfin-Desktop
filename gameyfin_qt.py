@@ -8,7 +8,7 @@ from gameyfin_frontend import GameyfinWindow
 from dotenv import load_dotenv
 
 from gameyfin_frontend.umu_database import UmuDatabase
-from gameyfin_frontend.utils import resource_path, get_app_icon_path
+from gameyfin_frontend.utils import get_effective_icon
 
 from gameyfin_frontend.settings import settings_manager
 
@@ -42,19 +42,7 @@ if __name__ == "__main__":
 
     # Set window icon
     custom_icon_path = settings_manager.get("GF_ICON_PATH")
-    internal_icon_path = get_app_icon_path(custom_icon_path, theme=theme)
-
-    is_light_variant = "icon_light.png" in internal_icon_path
-    has_custom_path = custom_icon_path is not None and custom_icon_path != ""
-
-    if has_custom_path or is_light_variant:
-        app_icon = QIcon(internal_icon_path)
-    else:
-        app_icon = QIcon.fromTheme("org.gameyfin.Gameyfin-Desktop")
-        if app_icon.isNull():
-            app_icon = QIcon(internal_icon_path)
-            
-    app.setWindowIcon(app_icon)
+    app.setWindowIcon(get_effective_icon(custom_icon_path, theme=theme))
 
     window = GameyfinWindow(umu_database)
 

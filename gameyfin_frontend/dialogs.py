@@ -1,4 +1,3 @@
-import configparser
 import os
 import sys
 from os import getenv
@@ -13,6 +12,7 @@ from PyQt6.QtWidgets import (
 
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.settings import settings_manager
+from gameyfin_frontend.utils import parse_desktop_file, build_umu_env_prefix
 
 
 class InstallConfigDialog(QDialog):
@@ -192,11 +192,8 @@ class InstallConfigDialog(QDialog):
         os.makedirs(self.wine_prefix_path, exist_ok=True)
 
         proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
-
-        env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.wine_prefix_path}\" "
-        umu_command = "umu-run"
-
-        command_string = f"{env_prefix} {umu_command} winecfg"
+        env_prefix = build_umu_env_prefix(proton_path, self.wine_prefix_path, {})
+        command_string = f"{env_prefix} umu-run winecfg"
         print(f"Executing: /bin/sh -c \"{command_string}\"")
         QProcess.startDetached("/bin/sh", ["-c", command_string])
 
@@ -209,12 +206,8 @@ class InstallConfigDialog(QDialog):
         os.makedirs(self.wine_prefix_path, exist_ok=True)
 
         proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
-
-        env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.wine_prefix_path}\" "
-
-        umu_command = "umu-run"
-
-        command_string = f"{env_prefix} {umu_command} winetricks --gui"
+        env_prefix = build_umu_env_prefix(proton_path, self.wine_prefix_path, {})
+        command_string = f"{env_prefix} umu-run winetricks --gui"
         print(f"Executing: /bin/sh -c \"{command_string}\"")
         QProcess.startDetached("/bin/sh", ["-c", command_string])
 
@@ -428,16 +421,8 @@ class SelectShortcutsDialog(QDialog):
     def parse_desktop_name(file_path: str) -> str:
         """Reads a .desktop file and gets its 'Name' entry."""
         try:
-            with open(file_path, 'r') as f:
-                content = f.read()
-            if not content.strip().startswith('[Desktop Entry]'):
-                content = '[Desktop Entry]\n' + content
-
-            config_parser = configparser.ConfigParser(strict=False)
-            config_parser.optionxform = str
-            config_parser.read_string(content)
-
-            if 'Desktop Entry' in config_parser:
+            config_parser = parse_desktop_file(file_path)
+            if config_parser is not None:
                 return config_parser['Desktop Entry'].get('Name', os.path.basename(file_path))
 
         except Exception as e:

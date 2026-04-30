@@ -1,0 +1,17 @@
+/.idea
+/.venv
+/.env
+/gameyfin_frontend/.gameyfin-app-data
+/__pycache__
+/gameyfin_frontend/__pycache__
+/build.log
+/resize_screenshots.py
+/Gameyfin-Desktop.flatpak
+/repo/
+/.aider*
+/.claude
+/.qwen
+/build
+/build-dir
+/.flatpak-builder
+/*.png
