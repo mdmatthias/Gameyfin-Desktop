@@ -119,6 +119,18 @@ class DownloadItemWidget(QWidget):
     def get_widgets_for_grid(self) -> list[QWidget]:
         return [self.icon_label, self.filename_label, self.progress_bar, self.status_label, self.button_container]
 
+    def _show_completed_buttons(self):
+        self.cancel_button.hide()
+        self.install_button.show()
+        self.open_folder_button.show()
+        self.remove_button.show()
+
+    def _show_failed_buttons(self):
+        self.cancel_button.hide()
+        self.install_button.hide()
+        self.open_folder_button.hide()
+        self.remove_button.show()
+
     def update_ui_for_historic_state(self):
         status = self.record.get("status", "Failed")
         self.progress_bar.show()
@@ -128,10 +140,7 @@ class DownloadItemWidget(QWidget):
             size = self.record.get("total_bytes", 0)
             self.status_label.setText(f"Completed ({self.format_size(size)})")
 
-            self.cancel_button.hide()
-            self.install_button.show()
-            self.open_folder_button.show()
-            self.remove_button.show()
+            self._show_completed_buttons()
 
             target_dir = self.record.get("path", "")
             if not os.path.isdir(target_dir):
@@ -146,10 +155,7 @@ class DownloadItemWidget(QWidget):
             self.progress_bar.hide()
             self.status_label.setText(status)
 
-            self.cancel_button.hide()
-            self.install_button.hide()
-            self.open_folder_button.hide()
-            self.remove_button.show()
+            self._show_failed_buttons()
 
     def _on_remove_clicked(self):
         target_dir = self.record.get("path", "")
@@ -222,10 +228,7 @@ class DownloadItemWidget(QWidget):
         self.status_label.setText(f"Completed ({self.format_size(total)})")
         self.status_label.setStyleSheet("")
 
-        self.cancel_button.hide()
-        self.install_button.show()
-        self.open_folder_button.show()
-        self.remove_button.show()
+        self._show_completed_buttons()
 
         self.record["status"] = "Completed"
         self.finished.emit(self.record)
@@ -236,10 +239,7 @@ class DownloadItemWidget(QWidget):
         self.status_label.setText(f"Failed: {message}")
         self.status_label.setStyleSheet("color: red;")
 
-        self.cancel_button.hide()
-        self.install_button.hide()
-        self.open_folder_button.hide()
-        self.remove_button.show()
+        self._show_failed_buttons()
 
         self.record["status"] = "Failed"
         self.finished.emit(self.record)
