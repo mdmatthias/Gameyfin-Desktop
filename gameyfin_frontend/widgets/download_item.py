@@ -131,6 +131,48 @@ class DownloadItemWidget(QWidget):
         self.open_folder_button.hide()
         self.remove_button.show()
 
+    def _find_launcher_paths(self, target_dir: str) -> list[str]:
+        """Walk target_dir and collect all .exe files."""
+        launcher_paths = []
+        try:
+            for root, dirs, files in os.walk(target_dir):
+                for file in files:
+                    if file.lower().endswith(".exe"):
+                        launcher_paths.append(os.path.join(root, file))
+        except Exception as e:
+            print(f"Error searching for launcher: {e}")
+        return launcher_paths
+
+    def _handle_launcher_selection(self, target_dir: str) -> str | None:
+        """Search for .exe files and let user select one if multiple found.
+
+        Returns the selected launcher path, or None if user cancelled or
+        an error occurred.
+        """
+        launcher_paths = self._find_launcher_paths(target_dir)
+
+        if not launcher_paths:
+            self.status_label.setText("Install complete, no .exe found.")
+            self.status_label.setStyleSheet("color: #E67E22;")
+            QDesktopServices.openUrl(QUrl.fromLocalFile(target_dir))
+            return None
+
+        if len(launcher_paths) == 1:
+            return launcher_paths[0]
+
+        dialog = SelectLauncherDialog(target_dir, launcher_paths, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            launcher_to_run = dialog.get_selected_launcher()
+            if not launcher_to_run:
+                self.status_label.setText("Install complete, no launcher selected.")
+                self.status_label.setStyleSheet("color: #E67E22;")
+                return None
+            return launcher_to_run
+        else:
+            self.status_label.setText("Install complete, launch cancelled.")
+            self.status_label.setStyleSheet("")
+            return None
+
     def update_ui_for_historic_state(self):
         status = self.record.get("status", "Failed")
         self.progress_bar.show()
@@ -246,41 +288,11 @@ class DownloadItemWidget(QWidget):
 
     def proceed_to_installation(self, target_dir):
         if sys.platform == "win32":
-            launcher_paths = []
-            try:
-                for root, dirs, files in os.walk(target_dir):
-                    for file in files:
-                        if file.lower().endswith(".exe"):
-                            launcher_paths.append(os.path.join(root, file))
-            except Exception as e:
-                print(f"Error searching for launcher: {e}")
-                self.on_download_error(f"Install OK, but failed to find launcher: {e}")
-                return
+            launcher_to_run = self._handle_launcher_selection(target_dir)
+            if launcher_to_run is None:
+                return  # User cancelled or error
 
-            if not launcher_paths:
-                self.status_label.setText("Install complete, no .exe found.")
-                self.status_label.setStyleSheet("color: #E67E22;")
-                QDesktopServices.openUrl(QUrl.fromLocalFile(target_dir))
-                return
-
-            launcher_to_run = None
-            if len(launcher_paths) == 1:
-                launcher_to_run = launcher_paths[0]
-            else:
-                dialog = SelectLauncherDialog(target_dir, launcher_paths, self)
-                if dialog.exec() == QDialog.DialogCode.Accepted:
-                    launcher_to_run = dialog.get_selected_launcher()
-                    if not launcher_to_run:
-                        self.status_label.setText("Install complete, no launcher selected.")
-                        self.status_label.setStyleSheet("color: #E67E22;")
-                        return
-                else:
-                    self.status_label.setText("Install complete, launch cancelled.")
-                    self.status_label.setStyleSheet("")
-                    return
-
-            if launcher_to_run:
-                self._start_windows_installation(launcher_to_run)
+            self._start_windows_installation(launcher_to_run)
             return
 
         # --- Linux Logic ---
@@ -364,41 +376,14 @@ class DownloadItemWidget(QWidget):
 
         self.current_install_config = dialog.get_config()
 
-        launcher_paths = []
-        launcher_to_run = None
+        launcher_to_run = self._handle_launcher_selection(target_dir)
+        if launcher_to_run is None:
+            return  # User cancelled or no .exe found
 
-        try:
-            for root, dirs, files in os.walk(target_dir):
-                for file in files:
-                    if file.lower().endswith(".exe"):
-                        launcher_paths.append(os.path.join(root, file))
-        except Exception as e:
-            print(f"Error searching for launcher: {e}")
-            self.on_download_error(f"Install OK, but failed to find launcher: {e}")
-            return
-
-        if not launcher_paths:
-            self.status_label.setText("Install complete, no .exe found.")
-            self.status_label.setStyleSheet("color: #E67E22;")
-            QDesktopServices.openUrl(QUrl.fromLocalFile(target_dir))
-        elif len(launcher_paths) == 1:
-            launcher_to_run = launcher_paths[0]
+        if sys.platform == "linux":
+            self._start_linux_installation(launcher_to_run, target_dir, self.current_install_config)
         else:
-            dialog = SelectLauncherDialog(target_dir, launcher_paths, self)
-            if dialog.exec() == QDialog.DialogCode.Accepted:
-                launcher_to_run = dialog.get_selected_launcher()
-                if not launcher_to_run:
-                    self.status_label.setText("Install complete, no launcher selected.")
-                    self.status_label.setStyleSheet("color: #E67E22;")
-            else:
-                self.status_label.setText("Install complete, launch cancelled.")
-                self.status_label.setStyleSheet("")
-
-        if launcher_to_run:
-            if sys.platform == "linux":
-                self._start_linux_installation(launcher_to_run, target_dir, self.current_install_config)
-            else:
-                raise NotImplementedError("Other platforms not yet implemented.")
+            raise NotImplementedError("Other platforms not yet implemented.")
 
     def _start_windows_installation(self, launcher_to_run: str):
         try:
