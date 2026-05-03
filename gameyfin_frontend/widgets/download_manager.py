@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 
 from PyQt6.QtGui import QCloseEvent
@@ -7,6 +8,8 @@ from PyQt6.QtWidgets import (QGridLayout, QWidget, QScrollArea, QVBoxLayout, QPu
 from gameyfin_frontend.settings import settings_manager
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.widgets.download_item import DownloadItemWidget
+
+logger = logging.getLogger(__name__)
 
 
 class DownloadManagerWidget(QWidget):
@@ -89,8 +92,8 @@ class DownloadManagerWidget(QWidget):
             # Add a stretch row at the bottom to push all items to the top
             self.downloads_layout.setRowStretch(self.downloads_layout.rowCount(), 1)
 
-        except Exception as e:
-            print(f"Error loading download history: {e}")
+        except (json.JSONDecodeError, OSError) as e:
+            logger.error("Error loading download history: %s", e)
             self.download_records = []
 
     def save_history(self):
@@ -116,8 +119,8 @@ class DownloadManagerWidget(QWidget):
 
             with open(self.json_path, 'w') as f:
                 json.dump(self.download_records, f, indent=4)
-        except Exception as e:
-            print(f"Error saving download history: {e}")
+        except OSError as e:
+            logger.error("Error saving download history: %s", e)
 
     def closeEvent(self, event: QCloseEvent):
         self.save_history()

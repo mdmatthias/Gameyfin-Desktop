@@ -14,3 +14,4 @@ gameyfin_frontend/__pycache__
 build
 build-dir
 .flatpak-builder
+.qwenignore

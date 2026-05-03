@@ -1,9 +1,11 @@
-import os
-import json
 import glob
+import json
+import logging
+import os
+import re
 import subprocess
 
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QListWidget, QPushButton, 
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QListWidget, QPushButton,
                              QHBoxLayout, QLabel, QMessageBox, QDialog, QComboBox, QListWidgetItem, QCheckBox)
 from PyQt6.QtCore import Qt
 from gameyfin_frontend.dialogs import InstallConfigDialog, SelectShortcutsDialog
@@ -13,7 +15,7 @@ from gameyfin_frontend.utils import (
     get_xdg_user_dir, create_shortcuts, build_umu_env_prefix
 )
 
-import re
+logger = logging.getLogger(__name__)
 
 class PrefixItemWidget(QWidget):
     def __init__(self, prefix_name, prefix_path, parent=None):
@@ -76,7 +78,8 @@ class PrefixItemWidget(QWidget):
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 # Reset to placeholder
                 self.script_combo.setCurrentIndex(0)
-            except Exception as e:
+            except OSError as e:
+                logger.error("Failed to launch script %s: %s", script_path, e)
                 QMessageBox.critical(self, "Launch Error", f"Failed to launch: {e}")
 
     def recreate_shortcuts(self):
@@ -129,8 +132,8 @@ class PrefixItemWidget(QWidget):
                     with open(config_path, 'r') as f:
                         install_config = json.load(f)
                     break
-                except Exception as e:
-                    print(f"Error loading config for shortcuts: {e}")
+                except (json.JSONDecodeError, OSError) as e:
+                    logger.error("Error loading config for shortcuts: %s", e)
 
         proton_path = install_config.get("PROTONPATH") or settings_manager.get("PROTONPATH") or "GE-Proton"
 
@@ -240,8 +243,8 @@ class PrefixManagerWidget(QWidget):
                 self.list_widget.addItem(item)
                 self.list_widget.setItemWidget(item, widget)
 
-        except Exception as e:
-            print(f"Error reading prefixes: {e}")
+        except OSError as e:
+            logger.error("Error reading prefixes: %s", e)
 
     def on_selection_changed(self):
         has_selection = len(self.list_widget.selectedItems()) > 0
@@ -281,13 +284,13 @@ class PrefixManagerWidget(QWidget):
             try:
                 with open(config_path, 'r') as f:
                     initial_config = json.load(f)
-            except Exception as e:
-                print(f"Error loading config for {game_name}: {e}")
+            except (json.JSONDecodeError, OSError) as e:
+                logger.error("Error loading config for %s: %s", game_name, e)
         elif scripts_dir and os.path.exists(scripts_dir):
             # Fallback: Try to parse from a .sh file
             sh_files = glob.glob(os.path.join(scripts_dir, "*.sh"))
             if sh_files:
-                print(f"Config not found, extracting from {sh_files[0]}")
+                logger.info("Config not found, extracting from %s", sh_files[0])
                 initial_config = self.extract_config_from_sh(sh_files[0])
 
         dialog = InstallConfigDialog(
@@ -309,8 +312,8 @@ class PrefixManagerWidget(QWidget):
             try:
                 with open(config_path, 'w') as f:
                     json.dump(new_config, f, indent=4)
-                print(f"Saved config to {config_path}")
-            except Exception as e:
+                logger.info("Saved config to %s", config_path)
+            except OSError as e:
                 QMessageBox.warning(self, "Save Error", f"Failed to save config: {e}")
 
             # Update scripts in the primary dir
@@ -351,8 +354,8 @@ class PrefixManagerWidget(QWidget):
                     if key not in ["WINEPREFIX"]:
                          config[key] = value
                          
-        except Exception as e:
-            print(f"Error extracting config from {script_path}: {e}")
+        except (OSError, IOError) as e:
+            logger.error("Error extracting config from %s: %s", script_path, e)
             
         return config
 
@@ -372,7 +375,7 @@ class PrefixManagerWidget(QWidget):
                 sh_files.extend(glob.glob(os.path.join(sd, "*.sh")))
 
         if not sh_files:
-            print("No .sh scripts found to update.")
+            logger.info("No .sh scripts found to update.")
             return
             
         proton_path = config.get("PROTONPATH") or settings_manager.get("PROTONPATH") or "GE-Proton"
@@ -382,7 +385,7 @@ class PrefixManagerWidget(QWidget):
         count = 0
         for script_path in sh_files:
             try:
-                print(f"Checking script: {script_path}")
+                logger.info("Checking script: %s", script_path)
                 with open(script_path, 'r') as f:
                     content = f.read()
                 
@@ -414,14 +417,14 @@ class PrefixManagerWidget(QWidget):
                         # Ensure executable
                         os.chmod(script_path, 0o755)
                         count += 1
-                        print(f"Updated script: {script_path}")
+                        logger.info("Updated script: %s", script_path)
                     else:
-                        print(f"Script {script_path} has umu-run but parsing failed.")
+                        logger.warning("Script %s has umu-run but parsing failed.", script_path)
                 else:
-                     print(f"Script {script_path} does not contain 'umu-run'.")
+                     logger.info("Script %s does not contain 'umu-run'.", script_path)
                         
-            except Exception as e:
-                print(f"Failed to update script {script_path}: {e}")
+            except (OSError, IOError) as e:
+                logger.error("Failed to update script %s: %s", script_path, e)
                 
         if count > 0:
             QMessageBox.information(self, "Scripts Updated", f"Updated {count} shortcut script(s) with new configuration.")
@@ -464,6 +467,6 @@ class PrefixManagerWidget(QWidget):
                     if os.path.exists(scripts_dir):
                         shutil.rmtree(scripts_dir)
 
-            except Exception as e:
+            except (OSError, IOError) as e:
                 QMessageBox.critical(self, "Error", f"Failed to delete prefix:\n{e}")
 

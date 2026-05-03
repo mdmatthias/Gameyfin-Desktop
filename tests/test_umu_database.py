@@ -145,11 +145,10 @@ class TestBuildTitleCache:
         fresh_umu_database._build_title_cache([])
         assert len(fresh_umu_database._games_by_title) == 0
 
-    def test_handles_non_list_input(self, fresh_umu_database, capsys):
+    def test_handles_non_list_input(self, fresh_umu_database, caplog):
         fresh_umu_database._build_title_cache("not a list")
         assert len(fresh_umu_database._games_by_title) == 0
-        captured = capsys.readouterr()
-        assert "Error" in captured.out
+        assert "ERROR" in caplog.text
 
 
 class TestCachePersistence:
@@ -170,13 +169,12 @@ class TestCachePersistence:
         fresh_umu_database._load_cache_from_disk()
         assert "Baldur's Gate II" in fresh_umu_database._games_by_title
 
-    def test_load_corrupt_cache(self, fresh_umu_database, umu_cache_file, capsys):
+    def test_load_corrupt_cache(self, fresh_umu_database, umu_cache_file, caplog):
         with open(umu_cache_file, "w") as f:
             f.write("{invalid json}")
 
         fresh_umu_database._load_cache_from_disk()
-        captured = capsys.readouterr()
-        assert "Failed to load cache" in captured.out
+        assert "Failed to load cache" in caplog.text
 
 
 class TestUmuApiMethods:

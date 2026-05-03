@@ -1,18 +1,21 @@
+import logging
 import os
 import sys
 from os import getenv
 from os.path import relpath
 
-from PyQt6.QtCore import pyqtSlot, QProcess
+from PyQt6.QtCore import pyqtSlot, QProcess, QProcessEnvironment
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QFormLayout, QCheckBox, QLineEdit, QPushButton, QStyle, 
-    QHBoxLayout, QWidget, QComboBox, QPlainTextEdit, QDialogButtonBox, 
+    QVBoxLayout, QFormLayout, QCheckBox, QLineEdit, QPushButton, QStyle,
+    QHBoxLayout, QWidget, QComboBox, QPlainTextEdit, QDialogButtonBox,
     QLabel, QInputDialog, QDialog, QMessageBox, QListWidget, QScrollArea
 )
 
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.settings import settings_manager
-from gameyfin_frontend.utils import parse_desktop_file, build_umu_env_prefix
+from gameyfin_frontend.utils import parse_desktop_file
+
+logger = logging.getLogger(__name__)
 
 
 class InstallConfigDialog(QDialog):
@@ -147,7 +150,7 @@ class InstallConfigDialog(QDialog):
 
         all_results = []
         try:
-            print(f"Searching all stores for title: {search_title}...")
+            logger.info("Searching all stores for title: %s...", search_title)
 
             results = self.umu_database.search_by_partial_title(search_title)
 
@@ -181,6 +184,7 @@ class InstallConfigDialog(QDialog):
                     self.store_combo.setCurrentText(store)
 
         except Exception as e:
+            logger.error("Search error for title '%s': %s", search_title, e)
             QMessageBox.warning(self, "Search Error", f"An error occurred during search:\n{e}")
 
     @pyqtSlot()
@@ -192,10 +196,13 @@ class InstallConfigDialog(QDialog):
         os.makedirs(self.wine_prefix_path, exist_ok=True)
 
         proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
-        env_prefix = build_umu_env_prefix(proton_path, self.wine_prefix_path, {})
-        command_string = f"{env_prefix} umu-run winecfg"
-        print(f"Executing: /bin/sh -c \"{command_string}\"")
-        QProcess.startDetached("/bin/sh", ["-c", command_string])
+
+        env = QProcessEnvironment.systemEnvironment()
+        env.insert("PROTONPATH", proton_path)
+        env.insert("WINEPREFIX", self.wine_prefix_path)
+
+        logger.info("Starting winecfg with PROTONPATH=%s WINEPREFIX=%s", proton_path, self.wine_prefix_path)
+        QProcess.startDetached("umu-run", ["winecfg"], environment=env)
 
     @pyqtSlot()
     def run_winetricks(self):
@@ -206,10 +213,13 @@ class InstallConfigDialog(QDialog):
         os.makedirs(self.wine_prefix_path, exist_ok=True)
 
         proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
-        env_prefix = build_umu_env_prefix(proton_path, self.wine_prefix_path, {})
-        command_string = f"{env_prefix} umu-run winetricks --gui"
-        print(f"Executing: /bin/sh -c \"{command_string}\"")
-        QProcess.startDetached("/bin/sh", ["-c", command_string])
+
+        env = QProcessEnvironment.systemEnvironment()
+        env.insert("PROTONPATH", proton_path)
+        env.insert("WINEPREFIX", self.wine_prefix_path)
+
+        logger.info("Starting winetricks with PROTONPATH=%s WINEPREFIX=%s", proton_path, self.wine_prefix_path)
+        QProcess.startDetached("umu-run", ["winetricks", "--gui"], environment=env)
 
     def get_config(self) -> dict:
         """
@@ -425,8 +435,8 @@ class SelectShortcutsDialog(QDialog):
             if config_parser is not None:
                 return config_parser['Desktop Entry'].get('Name', os.path.basename(file_path))
 
-        except Exception as e:
-            print(f"Error parsing {file_path} for name: {e}")
+        except (OSError, config_parser.Error) as e:
+            logger.error("Error parsing %s for name: %s", file_path, e)
 
         return os.path.basename(file_path)
 

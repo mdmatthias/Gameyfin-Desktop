@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 from PyQt6.QtWidgets import QMainWindow, QFileDialog, QTabWidget, QApplication, QTabBar
@@ -7,6 +8,8 @@ from PyQt6.QtCore import QUrl, QStandardPaths, pyqtSignal, Qt
 from PyQt6.QtWebEngineCore import (QWebEngineScript,
                                    QWebEngineDownloadRequest, QWebEngineProfile, QWebEngineSettings, QWebEnginePage)
 
+from qt_material import apply_stylesheet
+
 from gameyfin_frontend.widgets.download_manager import DownloadManagerWidget
 from gameyfin_frontend.widgets.prefix_manager import PrefixManagerWidget
 from gameyfin_frontend.workers import StreamDownloadWorker
@@ -14,6 +17,8 @@ from gameyfin_frontend.workers import StreamDownloadWorker
 from .settings_widget import SettingsWidget
 from .settings import settings_manager
 from .utils import get_effective_icon
+
+logger = logging.getLogger(__name__)
 
 
 class CustomWebEnginePage(QWebEnginePage):
@@ -263,7 +268,7 @@ class GameyfinWindow(QMainWindow):
                 "KB": 1000, "MB": 1000 ** 2, "GB": 1000 ** 3, "TB": 1000 ** 4
             }
             return int(num * multipliers.get(unit, 1))
-        except Exception:
+        except (ValueError, IndexError):
             return 0
 
     def closeEvent(self, event: QCloseEvent):
@@ -356,7 +361,7 @@ class GameyfinWindow(QMainWindow):
             new_url = QUrl(new_url_str)
             new_host = new_url.host()
             if self.browser.url() != new_url:
-                print(f"Applying new URL: {new_url.toString()}")
+                logger.info("Applying new URL: %s", new_url.toString())
                 self.browser.setUrl(new_url)
             
             # Update the main_host in all custom pages
@@ -388,7 +393,6 @@ class GameyfinWindow(QMainWindow):
         theme = settings_manager.get("GF_THEME")
         app = QApplication.instance()
         if theme and theme != "auto":
-            from qt_material import apply_stylesheet
             apply_stylesheet(app, theme=theme)
         else:
             app.setStyleSheet("")

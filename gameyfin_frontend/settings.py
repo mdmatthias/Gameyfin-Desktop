@@ -1,6 +1,10 @@
-import os
 import json
+import logging
+import os
+
 from PyQt6.QtCore import QStandardPaths
+
+logger = logging.getLogger(__name__)
 
 class SettingsManager:
     _instance = None
@@ -35,7 +39,8 @@ class SettingsManager:
             "GF_UMU_DB_STORES": ["none", "gog", "amazon", "battlenet", "ea", "egs", "epic", "humble", "itchio", "origin", "steam", "uplay", "ubisoft"],
             "GF_THEME": "auto",
             "GF_DEFAULT_DOWNLOAD_DIR": "",
-            "GF_PROMPT_DOWNLOAD_DIR": 0
+            "GF_PROMPT_DOWNLOAD_DIR": 0,
+            "GF_LOG_LEVEL": "WARNING"
         }
         
         self.settings = self.defaults.copy()
@@ -48,15 +53,15 @@ class SettingsManager:
                 with open(self.settings_file, "r") as f:
                     loaded_settings = json.load(f)
                     self.settings.update(loaded_settings)
-            except Exception as e:
-                print(f"Error loading settings: {e}")
+            except (json.JSONDecodeError, OSError) as e:
+                logger.error("Error loading settings: %s", e)
 
     def save(self):
         try:
             with open(self.settings_file, "w") as f:
                 json.dump(self.settings, f, indent=4)
-        except Exception as e:
-            print(f"Error saving settings: {e}")
+        except OSError as e:
+            logger.error("Error saving settings: %s", e)
 
     def get(self, key, fallback=None):
         # Allow override by environment variables for backward compatibility/debugging
@@ -64,8 +69,10 @@ class SettingsManager:
         if env_val is not None:
             # Try to convert to int if it looks like one and default is int
             if isinstance(self.defaults.get(key), int):
-                try: return int(env_val)
-                except: pass
+                try:
+                    return int(env_val)
+                except ValueError:
+                    pass
             return env_val
         
         val = self.settings.get(key)

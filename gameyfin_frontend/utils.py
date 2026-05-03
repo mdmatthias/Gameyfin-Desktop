@@ -1,9 +1,12 @@
 import configparser
+import logging
 import os
 import sys
 from pathlib import Path
 from PyQt6.QtGui import QGuiApplication, QIcon
 from PyQt6.QtCore import Qt
+
+logger = logging.getLogger(__name__)
 
 
 def get_effective_icon(custom_path: str = None, theme: str = None, icon_theme_name: str = "org.gameyfin.Gameyfin-Desktop") -> QIcon:
@@ -96,8 +99,8 @@ def parse_desktop_file(path: str) -> configparser.ConfigParser | None:
             return None
 
         return config_parser
-    except Exception as e:
-        print(f"Error parsing {path}: {e}")
+    except (OSError, configparser.Error) as e:
+        logger.error("Error parsing %s: %s", path, e)
         return None
 
 
@@ -191,11 +194,11 @@ def install_icon_for_shortcut(icon_path: str, icon_name: str) -> str | None:
     import shutil
     try:
         shutil.copy2(icon_path, dest_path)
-        print(f"Installed icon to: {dest_path}")
+        logger.info("Installed icon to: %s", dest_path)
         # Return absolute path — desktop environments support this in the Icon field
         return dest_path
-    except Exception as e:
-        print(f"Failed to install icon: {e}")
+    except (OSError, shutil.Error) as e:
+        logger.error("Failed to install icon: %s", e)
         return None
 
 
@@ -294,12 +297,13 @@ def get_xdg_user_dir(dir_name: str) -> Path:
 
                         return Path(path)
 
-                    except Exception:
+                    except (ValueError, IndexError):
                         # Found the key but the line was malformed
+                        logger.warning("Malformed line in %s: %s", config_file_path, line)
                         return fallback_dir
 
-    except Exception as e:
-        print(f"Error reading {config_file_path}: {e}")
+    except OSError as e:
+        logger.error("Error reading %s: %s", config_file_path, e)
         return fallback_dir
 
     # Key wasn't found in the file
@@ -358,10 +362,10 @@ def create_shortcuts(
             with open(script_path, "w") as f:
                 f.write(script_content)
             os.chmod(script_path, 0o755)
-            print(f"Created/Updated helper script: {script_path}")
+            logger.info("Created/Updated helper script: %s", script_path)
 
-        except Exception as e:
-            print(f"Failed to create helper script for {original_path}: {e}")
+        except (OSError, configparser.Error) as e:
+            logger.error("Failed to create helper script for %s: %s", original_path, e)
 
     # 2. Manage system .desktop files (Desktop + Applications)
     home_dir = os.path.expanduser("~")
@@ -381,9 +385,9 @@ def create_shortcuts(
                 if os.path.exists(target_path):
                     try:
                         os.remove(target_path)
-                        print(f"Removed system shortcut: {target_path}")
-                    except Exception as e:
-                        print(f"Failed to remove system shortcut {target_path}: {e}")
+                        logger.info("Removed system shortcut: %s", target_path)
+                    except OSError as e:
+                        logger.error("Failed to remove system shortcut %s: %s", target_path, e)
 
         # Create/Update those selected for this specific location
         for original_path in selected_list:
@@ -421,7 +425,7 @@ def create_shortcuts(
                 with open(new_file_path, "w") as f:
                     config_parser.write(f)
                 os.chmod(new_file_path, 0o755)
-                print(f"Successfully created system shortcut at: {new_file_path}")
+                logger.info("Successfully created system shortcut at: %s", new_file_path)
 
-            except Exception as e:
-                print(f"Failed to process system shortcut {original_path}: {e}")
+            except (OSError, configparser.Error) as e:
+                logger.error("Failed to process system shortcut %s: %s", original_path, e)

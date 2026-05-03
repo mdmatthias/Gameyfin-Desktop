@@ -1,9 +1,12 @@
+import logging
 import os
 import time
 
 import requests
 from stream_unzip import stream_unzip
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QThread
+
+logger = logging.getLogger(__name__)
 
 
 class StreamDownloadWorker(QObject):
@@ -90,7 +93,14 @@ class StreamDownloadWorker(QObject):
             self.progress.emit(100)
             self.finished.emit()
 
+        except requests.exceptions.RequestException as e:
+            logger.error("Network error during download: %s", e)
+            if self._cancelled:
+                self.error.emit("Download cancelled by user.")
+            else:
+                self.error.emit(f"Network error: {e}")
         except Exception as e:
+            logger.error("Unexpected error during download: %s", e)
             if self._cancelled:
                 self.error.emit("Download cancelled by user.")
             else:
@@ -116,16 +126,16 @@ class ProcessMonitorWorker(QThread):
 
     def run(self):
         if not self.pid > 0:
-            print(f"ProcessMonitor: Invalid PID ({self.pid}), stopping.")
+            logger.warning("ProcessMonitor: Invalid PID (%s), stopping.", self.pid)
             return
 
-        print(f"ProcessMonitor: Monitoring PID {self.pid}")
+        logger.info("ProcessMonitor: Monitoring PID %s", self.pid)
         self._running = True
         while self._running:
             try:
                 os.kill(self.pid, 0)
             except OSError:
-                print(f"ProcessMonitor: PID {self.pid} finished.")
+                logger.info("ProcessMonitor: PID %s finished.", self.pid)
                 self._running = False
                 self.finished.emit()
                 break
@@ -134,7 +144,7 @@ class ProcessMonitorWorker(QThread):
                     break
                 self.msleep(1000)
 
-        print(f"ProcessMonitor: Stopping monitor for {self.pid}")
+        logger.info("ProcessMonitor: Stopping monitor for %s", self.pid)
 
     def stop(self):
         self._running = False

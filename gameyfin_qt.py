@@ -1,5 +1,6 @@
 import sys
 import os
+import logging
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QIcon
@@ -15,6 +16,12 @@ from gameyfin_frontend.settings import settings_manager
 
 
 load_dotenv()
+
+log_level = settings_manager.get("GF_LOG_LEVEL", "WARNING").upper()
+logging.basicConfig(
+    level=getattr(logging, log_level, logging.WARNING),
+    format="%(asctime)s %(levelname)s %(name)s:%(filename)s:%(lineno)d %(message)s",
+)
 
 # Disable Web Security to bypass CORS issues with Authentik redirect
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-web-security"
