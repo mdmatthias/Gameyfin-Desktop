@@ -33,9 +33,18 @@ __pycache__
 LICENSE
 *.md
 !README.md
+!QWEN.md
 
 # --- Scripts & System Junk ---
 /resize_screenshots.py
 .directory
 .DS_Store
 Thumbs.db
+build_and_bundle_flatpak.sh
+build_and_run_flatpak.sh
+gameyfin-desktop.sh
+python-dependencies.json
+requirements.txt
+org.gameyfin.Gameyfin-Desktop.yaml
+org.gameyfin.Gameyfin-Desktop.metainfo.yml
+org.gameyfin.Gameyfin-Desktop.desktop

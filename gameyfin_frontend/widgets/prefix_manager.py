@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import subprocess
+from typing import Any
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QListWidget, QPushButton,
                              QHBoxLayout, QLabel, QMessageBox, QDialog, QComboBox, QListWidgetItem, QCheckBox)
@@ -18,7 +19,7 @@ from gameyfin_frontend.utils import (
 logger = logging.getLogger(__name__)
 
 class PrefixItemWidget(QWidget):
-    def __init__(self, prefix_name, prefix_path, parent=None):
+    def __init__(self, prefix_name: str, prefix_path: str, parent: QWidget | None = None):
         super().__init__(parent)
         self.prefix_name = prefix_name
         self.prefix_path = prefix_path
@@ -48,8 +49,8 @@ class PrefixItemWidget(QWidget):
 
         self.populate_scripts()
 
-
-    def populate_scripts(self):
+    def populate_scripts(self) -> None:
+        """Populate the script combo box with available .sh scripts for this prefix."""
         self.script_combo.clear()
         # Collect scripts from both new and legacy locations
         scripts = []
@@ -66,7 +67,7 @@ class PrefixItemWidget(QWidget):
             for s in scripts:
                 self.script_combo.addItem(os.path.basename(s), s)
 
-    def launch_script(self, index):
+    def launch_script(self, index: int) -> None:
         # Skip the placeholder at index 0
         if index == 0:
             return
@@ -82,7 +83,8 @@ class PrefixItemWidget(QWidget):
                 logger.error("Failed to launch script %s: %s", script_path, e)
                 QMessageBox.critical(self, "Launch Error", f"Failed to launch: {e}")
 
-    def recreate_shortcuts(self):
+    def recreate_shortcuts(self) -> None:
+        """Open the shortcut selection dialog and recreate desktop shortcuts for this prefix."""
         shortcuts_dir = os.path.join(self.prefix_path, "drive_c", "proton_shortcuts")
         if not os.path.isdir(shortcuts_dir):
             QMessageBox.warning(self, "No Shortcuts Found", 
@@ -118,7 +120,8 @@ class PrefixItemWidget(QWidget):
             self.populate_scripts()
             QMessageBox.information(self, "Shortcuts Updated", "Shortcuts have been updated.")
 
-    def create_desktop_shortcuts(self, all_desktop_files: list, selected_desktop: list, selected_apps: list):
+    def create_desktop_shortcuts(self, all_desktop_files: list[str], selected_desktop: list[str], selected_apps: list[str]) -> None:
+        """Create/update desktop shortcuts using the stored install config for this prefix."""
         # Load config.json if available (check both new and legacy locations)
         prefix_basename = os.path.basename(self.prefix_path)
         game_name = prefix_basename.removesuffix("_pfx")
@@ -150,7 +153,7 @@ class PrefixItemWidget(QWidget):
 
 
 class PrefixManagerWidget(QWidget):
-    def __init__(self, umu_database: UmuDatabase, parent=None):
+    def __init__(self, umu_database: UmuDatabase, parent: QWidget | None = None):
         super().__init__(parent)
         self.umu_database = umu_database
         self.prefixes_dir = settings_manager.get_prefixes_dir()
@@ -158,7 +161,7 @@ class PrefixManagerWidget(QWidget):
         self.init_ui()
         self.refresh_prefixes()
 
-    def _get_all_prefixes(self):
+    def _get_all_prefixes(self) -> dict[str, str]:
         """Collect prefix directories from all configured prefix dirs (new + legacy)."""
         result = {}
         for prefix_base in settings_manager.get_prefixes_dirs():
@@ -172,7 +175,7 @@ class PrefixManagerWidget(QWidget):
                         result[item] = full_path
         return result
 
-    def init_ui(self):
+    def init_ui(self) -> None:
         layout = QVBoxLayout(self)
 
         # Header
@@ -213,7 +216,8 @@ class PrefixManagerWidget(QWidget):
         
         self.list_widget.itemSelectionChanged.connect(self.on_selection_changed)
 
-    def refresh_prefixes(self):
+    def refresh_prefixes(self) -> None:
+        """Scan the prefix directories and rebuild the list widget with prefix items."""
         self.list_widget.clear()
         # Ensure the new prefixes dir exists
         if not os.path.exists(self.prefixes_dir):
@@ -246,12 +250,14 @@ class PrefixManagerWidget(QWidget):
         except OSError as e:
             logger.error("Error reading prefixes: %s", e)
 
-    def on_selection_changed(self):
+    def on_selection_changed(self) -> None:
+        """Enable/disable config and delete buttons based on list selection."""
         has_selection = len(self.list_widget.selectedItems()) > 0
         self.config_btn.setEnabled(has_selection)
         self.delete_btn.setEnabled(has_selection)
 
-    def open_selected_prefix_config(self):
+    def open_selected_prefix_config(self) -> None:
+        """Open the install config dialog for the selected prefix and apply changes."""
         item = self.list_widget.currentItem()
         if not item:
             return
@@ -319,7 +325,7 @@ class PrefixManagerWidget(QWidget):
             # Update scripts in the primary dir
             self.update_scripts(scripts_dir, prefix_path, new_config)
 
-    def extract_config_from_sh(self, script_path):
+    def extract_config_from_sh(self, script_path: str) -> dict[str, Any]:
         """
         Parses a .sh script to extract environment variables set before umu-run.
         Returns a dict of key-value pairs.
@@ -359,7 +365,7 @@ class PrefixManagerWidget(QWidget):
             
         return config
 
-    def update_scripts(self, scripts_dir, prefix_path, config):
+    def update_scripts(self, scripts_dir: str, prefix_path: str, config: dict[str, Any]) -> None:
         """
         Updates all .sh scripts with the new environment variables
         from the config, preserving the executable path.
@@ -431,7 +437,8 @@ class PrefixManagerWidget(QWidget):
         else:
              QMessageBox.information(self, "No Scripts Updated", "No suitable .sh scripts found to update.")
 
-    def delete_selected_prefix(self):
+    def delete_selected_prefix(self) -> None:
+        """Delete the selected prefix and its associated shortcut scripts after confirmation."""
         item = self.list_widget.currentItem()
         if not item:
             return

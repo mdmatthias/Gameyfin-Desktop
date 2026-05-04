@@ -3,6 +3,7 @@ import os
 import sys
 from os import getenv
 from os.path import relpath
+from typing import Any
 
 from PyQt6.QtCore import pyqtSlot, QProcess, QProcessEnvironment
 from PyQt6.QtWidgets import (
@@ -23,9 +24,9 @@ class InstallConfigDialog(QDialog):
     A dialog to configure environment variables before installation.
     """
 
-    def __init__(self, umu_database: UmuDatabase, parent=None,
-                 default_game_id="umu-default", default_store="none",
-                 wine_prefix_path: str = None, initial_config: dict = None):
+    def __init__(self, umu_database: UmuDatabase, parent: QWidget | None = None,
+                 default_game_id: str = "umu-default", default_store: str = "none",
+                 wine_prefix_path: str | None = None, initial_config: dict[str, Any] | None = None):
         super().__init__(parent)
         self.umu_database = umu_database
         self.wine_prefix_path = wine_prefix_path
@@ -221,7 +222,7 @@ class InstallConfigDialog(QDialog):
         logger.info("Starting winetricks with PROTONPATH=%s WINEPREFIX=%s", proton_path, self.wine_prefix_path)
         QProcess.startDetached("umu-run", ["winetricks", "--gui"], environment=env)
 
-    def get_config(self) -> dict:
+    def get_config(self) -> dict[str, str]:
         """
         Returns the configured environment variables as a dictionary.
         """
@@ -259,7 +260,7 @@ class SelectLauncherDialog(QDialog):
     A dialog to select an executable when multiple are found.
     """
 
-    def __init__(self, target_dir: str, exe_paths: list[str], parent=None):
+    def __init__(self, target_dir: str, exe_paths: list[str], parent: QWidget | None = None):
         super().__init__(parent)
         self.setWindowTitle("Select Launcher")
         self.setMinimumWidth(450)
@@ -289,11 +290,11 @@ class SelectLauncherDialog(QDialog):
         main_layout.addWidget(button_box)
 
     def on_selection_changed(self, current_item, previous_item):
-        """Enables the OK button when an item is selected."""
+        """Enable the OK button when a launcher item is selected."""
         self.ok_button.setEnabled(current_item is not None)
 
     def get_selected_launcher(self) -> str | None:
-        """Returns the full path of the selected executable."""
+        """Return the full filesystem path of the selected executable, or None."""
         item = self.list_widget.currentItem()
         if not item:
             return None
@@ -307,7 +308,7 @@ class SelectUmuIdDialog(QDialog):
     A dialog to select a UMU entry when multiple match a codename.
     """
 
-    def __init__(self, results: list[dict], parent=None):
+    def __init__(self, results: list[dict[str, Any]], parent: QWidget | None = None):
         super().__init__(parent)
         self.setWindowTitle("Select Game Entry")
         self.setMinimumWidth(450)
@@ -339,11 +340,11 @@ class SelectUmuIdDialog(QDialog):
         main_layout.addWidget(button_box)
 
     def on_selection_changed(self, current_item, previous_item):
-        """Enables the OK button when an item is selected."""
+        """Enable the OK button when a UMU entry is selected."""
         self.ok_button.setEnabled(current_item is not None)
 
     def get_selected_entry(self) -> dict | None:
-        """Returns the full dictionary of the selected entry."""
+        """Return the full dictionary of the selected UMU game entry, or None."""
         current_row = self.list_widget.currentRow()
         if current_row < 0 or current_row >= len(self.results):
             return None
@@ -356,7 +357,7 @@ class SelectShortcutsDialog(QDialog):
     select which ones to create shortcuts for (Desktop vs Application Menu).
     """
 
-    def __init__(self, desktop_files: list, parent=None, existing_desktop: list = None, existing_apps: list = None):
+    def __init__(self, desktop_files: list[str], parent: QWidget | None = None, existing_desktop: list[str] | None = None, existing_apps: list[str] | None = None):
         super().__init__(parent)
         self.setWindowTitle("Manage Shortcuts")
         self.setMinimumWidth(500)
@@ -429,7 +430,7 @@ class SelectShortcutsDialog(QDialog):
 
     @staticmethod
     def parse_desktop_name(file_path: str) -> str:
-        """Reads a .desktop file and gets its 'Name' entry."""
+        """Read a .desktop file and extract its 'Name' entry, falling back to filename."""
         try:
             config_parser = parse_desktop_file(file_path)
             if config_parser is not None:
@@ -441,15 +442,17 @@ class SelectShortcutsDialog(QDialog):
         return os.path.basename(file_path)
 
     def select_all(self):
+        """Check all desktop and application menu checkboxes."""
         for checkbox, _ in self.desktop_checkboxes + self.apps_checkboxes:
             checkbox.setChecked(True)
 
     def deselect_all(self):
+        """Uncheck all desktop and application menu checkboxes."""
         for checkbox, _ in self.desktop_checkboxes + self.apps_checkboxes:
             checkbox.setChecked(False)
 
-    def get_selected_files(self) -> tuple[list, list]:
-        """Returns (desktop_selected, apps_selected) lists of file paths."""
+    def get_selected_files(self) -> tuple[list[str], list[str]]:
+        """Return tuples of (desktop_selected, apps_selected) lists of file paths."""
         desktop_selected = [fp for cb, fp in self.desktop_checkboxes if cb.isChecked()]
         apps_selected = [fp for cb, fp in self.apps_checkboxes if cb.isChecked()]
         return desktop_selected, apps_selected

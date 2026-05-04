@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from typing import Any
 
 from PyQt6.QtCore import QStandardPaths
 
@@ -63,7 +64,7 @@ class SettingsManager:
         except OSError as e:
             logger.error("Error saving settings: %s", e)
 
-    def get(self, key, fallback=None):
+    def get(self, key: str, fallback: Any = None) -> Any:
         # Allow override by environment variables for backward compatibility/debugging
         env_val = os.getenv(key)
         if env_val is not None:
@@ -81,14 +82,14 @@ class SettingsManager:
             
         return val if val is not None else self.defaults.get(key)
 
-    def set(self, key, value):
+    def set(self, key: str, value: Any) -> None:
         self.settings[key] = value
         self.save()
 
     def get_config_dir(self) -> str:
         return self.settings_dir
 
-    def get_prefixes_dirs(self) -> list:
+    def get_prefixes_dirs(self) -> list[str]:
         """Return list of prefix directories to scan (new + legacy for backward compat)."""
         dirs = [os.path.join(self.settings_dir, "prefixes")]
         legacy = os.path.join(self.legacy_config_dir, "prefixes")
@@ -100,7 +101,7 @@ class SettingsManager:
         """Return the new (primary) prefix directory for creating new prefixes."""
         return os.path.join(self.settings_dir, "prefixes")
 
-    def get_shortcuts_dirs(self, game_name: str) -> list:
+    def get_shortcuts_dirs(self, game_name: str) -> list[str]:
         """Return list of shortcut script dirs to scan (new + legacy for backward compat)."""
         dirs = [os.path.join(self.settings_dir, "shortcut_scripts", game_name)]
         legacy = os.path.join(self.legacy_config_dir, "shortcut_scripts", game_name)

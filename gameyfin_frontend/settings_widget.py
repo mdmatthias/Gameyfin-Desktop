@@ -96,16 +96,19 @@ class SettingsWidget(QWidget):
         self.layout.addStretch()
 
     def browse_icon(self):
+        """Open a file dialog to select a custom tray icon and write the path to the edit field."""
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Icon", "", "Images (*.png *.jpg *.ico);;All Files (*)")
         if file_path:
             self.icon_path_edit.setText(file_path)
 
     def browse_directory(self, line_edit, title):
+        """Open a directory selection dialog and write the selected path to the given QLineEdit."""
         dir_path = QFileDialog.getExistingDirectory(self, title, line_edit.text())
         if dir_path:
             line_edit.setText(dir_path)
 
     def save_settings(self):
+        """Validate and persist all settings, then apply them immediately."""
         try:
             stores = json.loads(self.stores_edit.text())
             if not isinstance(stores, list):

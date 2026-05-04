@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+from typing import Any
 
 import requests
 from stream_unzip import stream_unzip
@@ -16,7 +17,7 @@ class StreamDownloadWorker(QObject):
     finished = pyqtSignal()
     error = pyqtSignal(str)
 
-    def __init__(self, url: str, target_dir: str, cookies: dict = None, estimated_total: int = 0):
+    def __init__(self, url: str, target_dir: str, cookies: dict[str, Any] | None = None, estimated_total: int = 0) -> None:
         super().__init__()
         self.url = url
         self.target_dir = target_dir
@@ -28,7 +29,8 @@ class StreamDownloadWorker(QObject):
         self._response = None
 
     @pyqtSlot()
-    def run(self):
+    def run(self) -> None:
+        """Execute the streaming download with unzip, path traversal protection, and progress signals."""
         try:
             real_target = os.path.realpath(self.target_dir)
             os.makedirs(self.target_dir, exist_ok=True)
@@ -106,7 +108,8 @@ class StreamDownloadWorker(QObject):
             else:
                 self.error.emit(str(e))
 
-    def stop(self):
+    def stop(self) -> None:
+        """Stops the download worker and closes all network connections."""
         self._cancelled = True
         self._is_running = False
         if self._response:
@@ -119,12 +122,13 @@ class ProcessMonitorWorker(QThread):
 
     finished = pyqtSignal()
 
-    def __init__(self, pid, parent=None):
+    def __init__(self, pid: int, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self.pid = pid
         self._running = True
 
-    def run(self):
+    def run(self) -> None:
+        """Poll the PID using os.kill() until the process exits or stop() is called."""
         if not self.pid > 0:
             logger.warning("ProcessMonitor: Invalid PID (%s), stopping.", self.pid)
             return
@@ -147,4 +151,5 @@ class ProcessMonitorWorker(QThread):
         logger.info("ProcessMonitor: Stopping monitor for %s", self.pid)
 
     def stop(self):
+        """Stops the process monitor thread."""
         self._running = False

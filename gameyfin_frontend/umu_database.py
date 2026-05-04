@@ -164,14 +164,14 @@ class UmuDatabase:
         """
         return self._request_umu_api()
 
-    def list_all_by_store(self, store: str):
+    def list_all_by_store(self, store: str) -> dict | list | None:
         """
         List ALL entries based on STORE
         API: /umu_api.php?store=SOME-STORE
         """
         return self._request_umu_api(params={"store": store.lower()})
 
-    def get_title_and_umu_id_by_store_and_codename(self, store: str, codename: str):
+    def get_title_and_umu_id_by_store_and_codename(self, store: str, codename: str) -> dict | list | None:
         """
         Get TITLE and UMU_ID based on STORE and CODENAME
         API: /umu_api.php?store=SOME-STORE&codename=SOME-CODENAME-OR-APP-ID
@@ -185,7 +185,7 @@ class UmuDatabase:
         """
         return self._request_umu_api(params={"codename": codename.lower()})
 
-    def get_title_by_store_and_umu_id(self, store: str, umu_id: str):
+    def get_title_by_store_and_umu_id(self, store: str, umu_id: str) -> dict | list | None:
         """
         Get TITLE based on UMU_ID and STORE
         API: /umu_api.php?umu_id=SOME-UMU-ID&store=SOME-STORE-OR-NONE
@@ -199,7 +199,7 @@ class UmuDatabase:
         """
         return self._request_umu_api(params={"umu_id": umu_id.lower()})
 
-    def get_umu_id_by_title_and_store(self, title: str, store: str):
+    def get_umu_id_by_title_and_store(self, title: str, store: str) -> dict | list | None:
         """
         Get UMU_ID based on TITLE and STORE
         API: /umu_api.php?title=SOME-GAME-TITLE&STORE=SOME-STORE
@@ -207,7 +207,7 @@ class UmuDatabase:
         """
         return self._request_umu_api(params={"title": title, "store": store.lower()})
 
-    def get_umu_id_by_title(self, title: str):
+    def get_umu_id_by_title(self, title: str) -> dict | list | None:
         """
         Get UMU_ID based on TITLE and no store
         API: /umu_api.php?title=SOME-GAME-TITLE

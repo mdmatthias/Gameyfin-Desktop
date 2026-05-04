@@ -3,6 +3,8 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import Any
+
 from PyQt6.QtGui import QGuiApplication, QIcon
 from PyQt6.QtCore import Qt
 
@@ -231,7 +233,7 @@ def resource_path(relative_path: str) -> str:
     return os.path.join(base_path, relative_path)
 
 
-def get_app_icon_path(custom_path: str = None, theme: str = None) -> str:
+def get_app_icon_path(custom_path: str | None = None, theme: str | None = None) -> str:
     """
     Returns the appropriate icon path based on the selected theme, 
     system theme (Light/Dark), or a custom path if provided.
@@ -313,15 +315,15 @@ def get_xdg_user_dir(dir_name: str) -> Path:
 
 
 def create_shortcuts(
-    all_desktop_files: list,
+    all_desktop_files: list[str],
     scripts_dir: str,
     wine_prefix: str,
-    install_config: dict,
+    install_config: dict[str, Any],
     proton_path: str = "GE-Proton",
-    selected_desktop: list | None = None,
-    selected_apps: list | None = None,
+    selected_desktop: list[str] | None = None,
+    selected_apps: list[str] | None = None,
     remove_unselected: bool = False,
-):
+) -> None:
     """
     Creates helper .sh scripts and system .desktop shortcuts for a game.
 

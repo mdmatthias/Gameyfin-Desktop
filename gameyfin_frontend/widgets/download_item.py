@@ -4,6 +4,8 @@ import logging
 import os
 import sys
 import time
+from typing import Any
+
 from PyQt6.QtCore import pyqtSlot, QProcess, QUrl, QThread, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
@@ -34,8 +36,8 @@ class DownloadItemWidget(QWidget):
     finished = pyqtSignal(dict)
     installation_finished = pyqtSignal()
 
-    def __init__(self, umu_database: UmuDatabase, worker: StreamDownloadWorker = None, record: dict = None,
-                 parent=None):
+    def __init__(self, umu_database: UmuDatabase, worker: StreamDownloadWorker | None = None, record: dict[str, Any] | None = None,
+                 parent: QWidget | None = None):
         super().__init__(parent)
         self.umu_database = umu_database
         self.record = record or {}
@@ -91,6 +93,7 @@ class DownloadItemWidget(QWidget):
             self.update_ui_for_historic_state()
 
     def _start_worker(self, worker: StreamDownloadWorker):
+        """Start the download worker thread and connect signals."""
         self.worker = worker
         self.thread = QThread()
         self.worker.moveToThread(self.thread)
@@ -120,15 +123,18 @@ class DownloadItemWidget(QWidget):
         self.thread.start()
 
     def get_widgets_for_grid(self) -> list[QWidget]:
+        """Return the list of widgets to add to the download manager grid."""
         return [self.icon_label, self.filename_label, self.progress_bar, self.status_label, self.button_container]
 
     def _show_completed_buttons(self):
+        """Show the buttons visible after download completion (Install, Open Folder, Remove)."""
         self.cancel_button.hide()
         self.install_button.show()
         self.open_folder_button.show()
         self.remove_button.show()
 
     def _show_failed_buttons(self):
+        """Show only the Remove button after download failure or cancellation."""
         self.cancel_button.hide()
         self.install_button.hide()
         self.open_folder_button.hide()
@@ -183,6 +189,7 @@ class DownloadItemWidget(QWidget):
             return None
 
     def update_ui_for_historic_state(self):
+        """Update UI to reflect a previously saved download state (completed, failed, or cancelled)."""
         status = self.record.get("status", "Failed")
         self.progress_bar.show()
 
@@ -209,6 +216,7 @@ class DownloadItemWidget(QWidget):
             self._show_failed_buttons()
 
     def _on_remove_clicked(self):
+        """Show a confirmation dialog to remove from list only or also delete the folder."""
         target_dir = self.record.get("path", "")
         dir_exists = os.path.isdir(target_dir)
 
@@ -236,13 +244,16 @@ class DownloadItemWidget(QWidget):
             self.remove_requested.emit(self)
 
     def cancel_download(self):
+        """Cancel the current download via the worker."""
         if self.worker:
             self.worker.stop()
 
     def open_folder(self):
+        """Open the download's target directory in the file manager."""
         QDesktopServices.openUrl(QUrl.fromLocalFile(self.record.get("path", "")))
 
     def on_install_clicked(self):
+        """Start the installation process for the downloaded game files."""
         self.proceed_to_installation(self.record["path"])
 
     @pyqtSlot()
@@ -295,7 +306,8 @@ class DownloadItemWidget(QWidget):
         self.record["status"] = "Failed"
         self.finished.emit(self.record)
 
-    def proceed_to_installation(self, target_dir):
+    def proceed_to_installation(self, target_dir: str) -> None:
+        """Orchestrate the installation: detect UMU game ID, show config dialog, then launch."""
         if sys.platform == "win32":
             launcher_to_run = self._handle_launcher_selection(target_dir)
             if launcher_to_run is None:
@@ -391,7 +403,8 @@ class DownloadItemWidget(QWidget):
 
         self._start_linux_installation(launcher_to_run, target_dir, self.current_install_config)
 
-    def _start_windows_installation(self, launcher_to_run: str):
+    def _start_windows_installation(self, launcher_to_run: str) -> None:
+        """Launch the game executable directly via QProcess (Windows path)."""
         try:
             logger.info("Executing (Windows): %s", launcher_to_run)
             self.run_process = QProcess(self)
@@ -412,7 +425,8 @@ class DownloadItemWidget(QWidget):
             self.status_label.setText(f"Launch failed: {e}")
             self.status_label.setStyleSheet("color: red;")
 
-    def _start_linux_installation(self, launcher_to_run: str, target_dir: str, install_config: dict):
+    def _start_linux_installation(self, launcher_to_run: str, target_dir: str, install_config: dict[str, Any]) -> None:
+        """Launch the game via UMU environment prefix and umu-run on Linux."""
         try:
             config = install_config or {}
 
@@ -451,7 +465,7 @@ class DownloadItemWidget(QWidget):
 
     @pyqtSlot()
     @pyqtSlot(int, QProcess.ExitStatus)
-    def on_run_finished(self, exit_code=None, exit_status=None):
+    def on_run_finished(self, exit_code: int | None = None, exit_status: QProcess.ExitStatus | None = None) -> None:
         logger.info("umu-run process finished with code %s, status %s.", exit_code, exit_status)
 
         self.installation_finished.emit()
@@ -489,7 +503,8 @@ class DownloadItemWidget(QWidget):
         self.current_install_config = None
         self.current_wine_prefix = None
 
-    def create_desktop_shortcuts(self, all_desktop_files: list, selected_desktop: list, selected_apps: list):
+    def create_desktop_shortcuts(self, all_desktop_files: list[str], selected_desktop: list[str], selected_apps: list[str]) -> None:
+        """Create helper .sh scripts and system .desktop shortcuts for the installed game."""
         if not self.current_install_config:
             logger.error("Install config was cleared too early. Cannot create shortcuts.")
             self.current_install_config = {}

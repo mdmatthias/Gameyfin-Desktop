@@ -1,6 +1,8 @@
 import logging
 import os
 import sys
+from typing import Any
+
 from PyQt6.QtWidgets import QMainWindow, QFileDialog, QTabWidget, QApplication, QTabBar
 from PyQt6.QtGui import QCloseEvent, QDesktopServices
 from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -13,6 +15,7 @@ from qt_material import apply_stylesheet
 from gameyfin_frontend.widgets.download_manager import DownloadManagerWidget
 from gameyfin_frontend.widgets.prefix_manager import PrefixManagerWidget
 from gameyfin_frontend.workers import StreamDownloadWorker
+from gameyfin_frontend.umu_database import UmuDatabase
 
 from .settings_widget import SettingsWidget
 from .settings import settings_manager
@@ -29,17 +32,17 @@ class CustomWebEnginePage(QWebEnginePage):
     # Signal when logout is detected
     logout_detected = pyqtSignal(QUrl)
 
-    def __init__(self, profile, parent=None, restricted_host=None, main_host=None):
+    def __init__(self, profile: Any, parent: QWebEnginePage | None = None, restricted_host: str | None = None, main_host: str | None = None):
         super().__init__(profile, parent)
         self.restricted_host = restricted_host
         self.main_host = main_host
         self.create_window_callback = None
 
-    def set_restricted_host(self, host):
+    def set_restricted_host(self, host: str) -> None:
         self.restricted_host = host
         self.main_host = host
 
-    def set_main_host(self, host):
+    def set_main_host(self, host: str) -> None:
         self.main_host = host
 
     def createWindow(self, _type):
@@ -79,7 +82,7 @@ class CustomWebEnginePage(QWebEnginePage):
 
 
 class GameyfinWindow(QMainWindow):
-    def __init__(self, umu_database):
+    def __init__(self, umu_database: UmuDatabase) -> None:
         super().__init__()
         self.umu_database = umu_database
         self.setWindowTitle("Gameyfin")
@@ -171,7 +174,8 @@ class GameyfinWindow(QMainWindow):
         script.setRunsOnSubFrames(True)
         self.browser.page().scripts().insert(script)
 
-    def close_tab(self, index):
+    def close_tab(self, index: int) -> None:
+        """Close an external browser tab, preventing closure of the four fixed tabs."""
         # Prevent closing the fixed tabs (Main, Downloads, Prefixes, Settings)
         if index < 4:
             return
@@ -182,6 +186,7 @@ class GameyfinWindow(QMainWindow):
             self.tab_widget.removeTab(index)
 
     def _setup_new_view(self) -> QWebEngineView:
+        """Create a new browser view with a CustomWebEnginePage and connect tab signals."""
         view = QWebEngineView()
         base_url = QUrl(settings_manager.get("GF_URL"))
         page = CustomWebEnginePage(self.profile, view, restricted_host=None, main_host=base_url.host())
@@ -195,7 +200,8 @@ class GameyfinWindow(QMainWindow):
         view.iconChanged.connect(lambda icon: self.update_tab_icon(view, icon))
         return view
 
-    def add_new_browser_tab(self, url):
+    def add_new_browser_tab(self, url: QUrl) -> QWebEnginePage | None:
+        """Add a new browser tab for an external URL and switch to it."""
         view = self._setup_new_view()
         view.setUrl(url)
         index = self.tab_widget.addTab(view, url.host() or "External")
@@ -203,13 +209,15 @@ class GameyfinWindow(QMainWindow):
         view.show()
         return view.page()
 
-    def create_new_window_for_page(self, _type):
+    def create_new_window_for_page(self, _type: Any) -> QWebEnginePage | None:
+        """Create a new browser tab when the embedded page requests a new window."""
         view = self._setup_new_view()
         index = self.tab_widget.addTab(view, "Loading...")
         self.tab_widget.setCurrentIndex(index)
         return view.page()
 
-    def handle_logout(self, url):
+    def handle_logout(self, url: QUrl) -> None:
+        """Close all external tabs and navigate the main tab to the logout URL."""
         # Close all external tabs (starting from the end to avoid index shift issues)
         count = self.tab_widget.count()
         # Fixed tabs are 0 (Main), 1 (Downloads), 2 (Prefixes), 3 (Settings) - indices < 4
@@ -223,7 +231,8 @@ class GameyfinWindow(QMainWindow):
         if self.sender() != self.browser.page():
             self.browser.setUrl(url)
 
-    def redirect_to_main_tab(self, url):
+    def redirect_to_main_tab(self, url: QUrl) -> None:
+        """Switch to the main browser tab and navigate to the given URL."""
         self.tab_widget.setCurrentIndex(0)
         self.browser.setUrl(url)
         # Close tabs after redirect to main tab
@@ -233,27 +242,32 @@ class GameyfinWindow(QMainWindow):
             for i in range(count - 1, 3, -1):
                 self.close_tab(i)
 
-    def update_tab_title(self, view, title):
+    def update_tab_title(self, view: QWebEngineView, title: str) -> None:
+        """Update the tab label to reflect the browser view's new title."""
         idx = self.tab_widget.indexOf(view)
         if idx != -1:
             self.tab_widget.setTabText(idx, title)
 
-    def update_tab_icon(self, view, icon):
+    def update_tab_icon(self, view: QWebEngineView, icon: Any) -> None:
+        """Update the tab icon to reflect the browser view's new favicon."""
         idx = self.tab_widget.indexOf(view)
         if idx != -1:
             self.tab_widget.setTabIcon(idx, icon)
 
-    def show_main_tab(self):
+    def show_main_tab(self) -> None:
+        """Show the window and switch to the main Gameyfin browser tab."""
         self.show()
         self.activateWindow()
         self.tab_widget.setCurrentWidget(self.browser)
 
-    def show_downloads_tab(self):
+    def show_downloads_tab(self) -> None:
+        """Show the window and switch to the Downloads tab."""
         self.show()
         self.activateWindow()
         self.tab_widget.setCurrentWidget(self.download_manager)
 
-    def show_settings_tab(self):
+    def show_settings_tab(self) -> None:
+        """Show the window and switch to the Settings tab."""
         self.show()
         self.activateWindow()
         self.tab_widget.setCurrentWidget(self.settings_widget)
@@ -271,7 +285,7 @@ class GameyfinWindow(QMainWindow):
         except (ValueError, IndexError):
             return 0
 
-    def closeEvent(self, event: QCloseEvent):
+    def closeEvent(self, event: QCloseEvent) -> None:
         if self.is_really_quitting:
             # This is a real quit, run cleanup
             self.download_manager.close()
@@ -283,16 +297,16 @@ class GameyfinWindow(QMainWindow):
             event.ignore()
             self.hide()
 
-    def _on_cookie_added(self, cookie):
+    def _on_cookie_added(self, cookie) -> None:
         name = bytes(cookie.name()).decode('utf-8', errors='replace')
         value = bytes(cookie.value()).decode('utf-8', errors='replace')
         self._cookies[name] = value
 
-    def _on_cookie_removed(self, cookie):
+    def _on_cookie_removed(self, cookie) -> None:
         name = bytes(cookie.name()).decode('utf-8', errors='replace')
         self._cookies.pop(name, None)
 
-    def on_download_requested(self, download: QWebEngineDownloadRequest):
+    def on_download_requested(self, download: QWebEngineDownloadRequest) -> None:
         url = download.url().toString()
         filename = os.path.basename(download.downloadFileName())
         zip_basename = os.path.splitext(filename)[0]
@@ -347,7 +361,7 @@ class GameyfinWindow(QMainWindow):
         })();"""
         self.browser.page().runJavaScript(js, 0, handle_js_result)
 
-    def apply_settings(self):
+    def apply_settings(self) -> None:
         """Applies settings dynamically without requiring a restart."""
         # 1. Update Window Geometry
         w = settings_manager.get("GF_WINDOW_WIDTH")
