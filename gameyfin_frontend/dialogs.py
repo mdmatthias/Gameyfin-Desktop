@@ -1,11 +1,12 @@
 import logging
 import os
+import subprocess
 import sys
 from os import getenv
 from os.path import relpath
 from typing import Any
 
-from PyQt6.QtCore import pyqtSlot, QProcess, QProcessEnvironment
+from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtWidgets import (
     QVBoxLayout, QFormLayout, QCheckBox, QLineEdit, QPushButton, QStyle,
     QHBoxLayout, QWidget, QComboBox, QPlainTextEdit, QDialogButtonBox,
@@ -198,12 +199,12 @@ class InstallConfigDialog(QDialog):
 
         proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
 
-        env = QProcessEnvironment.systemEnvironment()
-        env.insert("PROTONPATH", proton_path)
-        env.insert("WINEPREFIX", self.wine_prefix_path)
+        proc_env = os.environ.copy()
+        proc_env["PROTONPATH"] = proton_path
+        proc_env["WINEPREFIX"] = self.wine_prefix_path
 
         logger.info("Starting winecfg with PROTONPATH=%s WINEPREFIX=%s", proton_path, self.wine_prefix_path)
-        QProcess.startDetached("umu-run", ["winecfg"], environment=env)
+        subprocess.Popen(["umu-run", "winecfg"], env=proc_env, start_new_session=True)
 
     @pyqtSlot()
     def run_winetricks(self):
@@ -215,12 +216,12 @@ class InstallConfigDialog(QDialog):
 
         proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
 
-        env = QProcessEnvironment.systemEnvironment()
-        env.insert("PROTONPATH", proton_path)
-        env.insert("WINEPREFIX", self.wine_prefix_path)
+        proc_env = os.environ.copy()
+        proc_env["PROTONPATH"] = proton_path
+        proc_env["WINEPREFIX"] = self.wine_prefix_path
 
         logger.info("Starting winetricks with PROTONPATH=%s WINEPREFIX=%s", proton_path, self.wine_prefix_path)
-        QProcess.startDetached("umu-run", ["winetricks", "--gui"], environment=env)
+        subprocess.Popen(["umu-run", "winetricks", "--gui"], env=proc_env, start_new_session=True)
 
     def get_config(self) -> dict[str, str]:
         """
