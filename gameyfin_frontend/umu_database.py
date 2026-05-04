@@ -1,25 +1,30 @@
+import json
+import logging
+import os
 import re
 import sys
-import requests
-import json
-import os
 from collections import defaultdict
 from typing import Dict, List
+
+import requests
+
 from .settings import settings_manager
+
+logger = logging.getLogger(__name__)
 
 class UmuDatabase:
     def __init__(self):
         if sys.platform == "win32":
-            print("Running on Windows. UmuDatabase disabled.")
+            logger.info("Running on Windows. UmuDatabase disabled.")
             self.umu_api_url = ""
             self._games_by_title = {}
             return
 
         # Stores data as: {"Game Title": [entry1, entry2, ...]}
         self._games_by_title: Dict[str, List[dict]] = defaultdict(list)
-        self.cache_file_path = os.path.join(settings_manager.settings_dir, "umu_cache.json")
+        self.cache_file_path = settings_manager.get_umu_cache_path()
 
-        print("Initializing Umu database...")
+        logger.info("Initializing Umu database...")
         self._load_cache_from_disk()
         self.refresh_cache()
         self._ROMAN_REPLACEMENTS = (
@@ -34,7 +39,7 @@ class UmuDatabase:
             (r'\bII\b', ' 2 '),
             (r'\bI\b', ' 1 ')
         )
-        print(f"Umu database initialized.")
+        logger.info("Umu database initialized.")
 
     def _build_title_cache(self, all_entries_raw: List[dict]):
         """
@@ -44,8 +49,8 @@ class UmuDatabase:
         self._games_by_title.clear()
 
         if not isinstance(all_entries_raw, list):
-            print(
-                f"Error: Initial data fetch did not return a list. Cache will be empty. (Received: {type(all_entries_raw)})")
+            logger.error(
+                "Initial data fetch did not return a list. Cache will be empty. (Received: %s)", type(all_entries_raw))
             return
 
         for entry in all_entries_raw:
@@ -61,18 +66,18 @@ class UmuDatabase:
                 with open(self.cache_file_path, 'r') as f:
                     data = json.load(f)
                     self._games_by_title = defaultdict(list, data)
-                print(f"UmuDatabase: Loaded cache from {self.cache_file_path}")
-            except Exception as e:
-                print(f"UmuDatabase: Failed to load cache from disk: {e}")
+                logger.info("UmuDatabase: Loaded cache from %s", self.cache_file_path)
+            except (json.JSONDecodeError, OSError) as e:
+                logger.error("UmuDatabase: Failed to load cache from disk: %s", e)
 
     def _save_cache_to_disk(self):
         """Saves the current title cache to a local JSON file."""
         try:
             with open(self.cache_file_path, 'w') as f:
                 json.dump(dict(self._games_by_title), f)
-            print(f"UmuDatabase: Cache saved to {self.cache_file_path}")
-        except Exception as e:
-            print(f"UmuDatabase: Failed to save cache to disk: {e}")
+            logger.info("UmuDatabase: Cache saved to %s", self.cache_file_path)
+        except OSError as e:
+            logger.error("UmuDatabase: Failed to save cache to disk: %s", e)
 
     def refresh_cache(self):
         """
@@ -81,14 +86,14 @@ class UmuDatabase:
         if sys.platform == "win32":
             return
 
-        print("Refreshing UmuDatabase cache...")
+        logger.info("Refreshing UmuDatabase cache...")
         try:
             all_entries_raw = self.list_all()
             if isinstance(all_entries_raw, list):
                 self._build_title_cache(all_entries_raw)
-                print("Cache refresh complete.")
+                logger.info("Cache refresh complete.")
         except Exception as e:
-            print(f"UmuDatabase: Failed to refresh cache: {e}. Proceeding with empty cache.")
+            logger.error("UmuDatabase: Failed to refresh cache: %s. Proceeding with empty cache.", e)
 
     def _request_umu_api(self, params=None):
         """
@@ -101,13 +106,13 @@ class UmuDatabase:
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
-            print(f"Could not get umu database result for params {params}: {str(e)}")
+            logger.warning("Could not get umu database result for params %s: %s", params, e)
             return {}
-        except requests.exceptions.JSONDecodeError as e:
+        except json.JSONDecodeError as e:
             if response:
-                print(f"Could not decode JSON for params {params} (Response: {response.text}): {str(e)}")
+                logger.error("Could not decode JSON for params %s (Response: %s): %s", params, response.text, e)
             else:
-                print(f"Could not decode JSON for params {params}: {str(e)}")
+                logger.error("Could not decode JSON for params %s: %s", params, e)
             return {}
 
     def _normalize_string(self, text: str) -> str:
@@ -159,14 +164,14 @@ class UmuDatabase:
         """
         return self._request_umu_api()
 
-    def list_all_by_store(self, store: str):
+    def list_all_by_store(self, store: str) -> dict | list | None:
         """
         List ALL entries based on STORE
         API: /umu_api.php?store=SOME-STORE
         """
         return self._request_umu_api(params={"store": store.lower()})
 
-    def get_title_and_umu_id_by_store_and_codename(self, store: str, codename: str):
+    def get_title_and_umu_id_by_store_and_codename(self, store: str, codename: str) -> dict | list | None:
         """
         Get TITLE and UMU_ID based on STORE and CODENAME
         API: /umu_api.php?store=SOME-STORE&codename=SOME-CODENAME-OR-APP-ID
@@ -180,7 +185,7 @@ class UmuDatabase:
         """
         return self._request_umu_api(params={"codename": codename.lower()})
 
-    def get_title_by_store_and_umu_id(self, store: str, umu_id: str):
+    def get_title_by_store_and_umu_id(self, store: str, umu_id: str) -> dict | list | None:
         """
         Get TITLE based on UMU_ID and STORE
         API: /umu_api.php?umu_id=SOME-UMU-ID&store=SOME-STORE-OR-NONE
@@ -194,7 +199,7 @@ class UmuDatabase:
         """
         return self._request_umu_api(params={"umu_id": umu_id.lower()})
 
-    def get_umu_id_by_title_and_store(self, title: str, store: str):
+    def get_umu_id_by_title_and_store(self, title: str, store: str) -> dict | list | None:
         """
         Get UMU_ID based on TITLE and STORE
         API: /umu_api.php?title=SOME-GAME-TITLE&STORE=SOME-STORE
@@ -202,7 +207,7 @@ class UmuDatabase:
         """
         return self._request_umu_api(params={"title": title, "store": store.lower()})
 
-    def get_umu_id_by_title(self, title: str):
+    def get_umu_id_by_title(self, title: str) -> dict | list | None:
         """
         Get UMU_ID based on TITLE and no store
         API: /umu_api.php?title=SOME-GAME-TITLE

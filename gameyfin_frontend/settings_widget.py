@@ -55,6 +55,13 @@ class SettingsWidget(QWidget):
             self.theme_combo.setCurrentText(current_theme)
         self.form_layout.addRow("Theme:", self.theme_combo)
 
+        self.log_level_combo = QComboBox()
+        self.log_level_combo.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+        current_log = settings_manager.get("GF_LOG_LEVEL", "WARNING").upper()
+        if current_log:
+            self.log_level_combo.setCurrentText(current_log)
+        self.form_layout.addRow("Log Level:", self.log_level_combo)
+
         self.icon_path_edit = QLineEdit()
         self.icon_path_edit.setPlaceholderText("(default)")
         self.icon_path_edit.setText(settings_manager.get("GF_ICON_PATH"))
@@ -89,21 +96,24 @@ class SettingsWidget(QWidget):
         self.layout.addStretch()
 
     def browse_icon(self):
+        """Open a file dialog to select a custom tray icon and write the path to the edit field."""
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Icon", "", "Images (*.png *.jpg *.ico);;All Files (*)")
         if file_path:
             self.icon_path_edit.setText(file_path)
 
     def browse_directory(self, line_edit, title):
+        """Open a directory selection dialog and write the selected path to the given QLineEdit."""
         dir_path = QFileDialog.getExistingDirectory(self, title, line_edit.text())
         if dir_path:
             line_edit.setText(dir_path)
 
     def save_settings(self):
+        """Validate and persist all settings, then apply them immediately."""
         try:
             stores = json.loads(self.stores_edit.text())
             if not isinstance(stores, list):
                 raise ValueError("Stores must be a list")
-        except Exception as e:
+        except (json.JSONDecodeError, ValueError) as e:
             QMessageBox.critical(self, "Error", f"Invalid JSON for stores: {e}")
             return
 
@@ -118,6 +128,7 @@ class SettingsWidget(QWidget):
         settings_manager.set("GF_ICON_PATH", self.icon_path_edit.text())
         settings_manager.set("GF_DEFAULT_DOWNLOAD_DIR", self.download_dir_edit.text())
         settings_manager.set("GF_PROMPT_DOWNLOAD_DIR", 1 if self.prompt_download_check.isChecked() else 0)
+        settings_manager.set("GF_LOG_LEVEL", self.log_level_combo.currentText().upper())
         
         # Apply settings immediately
         if hasattr(self.window(), 'apply_settings'):

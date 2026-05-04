@@ -1,18 +1,22 @@
-import configparser
+import logging
 import os
 import sys
 from os import getenv
 from os.path import relpath
+from typing import Any
 
-from PyQt6.QtCore import pyqtSlot, QProcess
+from PyQt6.QtCore import pyqtSlot, QProcess, QProcessEnvironment
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QFormLayout, QCheckBox, QLineEdit, QPushButton, QStyle, 
-    QHBoxLayout, QWidget, QComboBox, QPlainTextEdit, QDialogButtonBox, 
+    QVBoxLayout, QFormLayout, QCheckBox, QLineEdit, QPushButton, QStyle,
+    QHBoxLayout, QWidget, QComboBox, QPlainTextEdit, QDialogButtonBox,
     QLabel, QInputDialog, QDialog, QMessageBox, QListWidget, QScrollArea
 )
 
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.settings import settings_manager
+from gameyfin_frontend.utils import parse_desktop_file
+
+logger = logging.getLogger(__name__)
 
 
 class InstallConfigDialog(QDialog):
@@ -20,9 +24,9 @@ class InstallConfigDialog(QDialog):
     A dialog to configure environment variables before installation.
     """
 
-    def __init__(self, umu_database: UmuDatabase, parent=None,
-                 default_game_id="umu-default", default_store="none",
-                 wine_prefix_path: str = None, initial_config: dict = None):
+    def __init__(self, umu_database: UmuDatabase, parent: QWidget | None = None,
+                 default_game_id: str = "umu-default", default_store: str = "none",
+                 wine_prefix_path: str | None = None, initial_config: dict[str, Any] | None = None):
         super().__init__(parent)
         self.umu_database = umu_database
         self.wine_prefix_path = wine_prefix_path
@@ -147,7 +151,7 @@ class InstallConfigDialog(QDialog):
 
         all_results = []
         try:
-            print(f"Searching all stores for title: {search_title}...")
+            logger.info("Searching all stores for title: %s...", search_title)
 
             results = self.umu_database.search_by_partial_title(search_title)
 
@@ -181,6 +185,7 @@ class InstallConfigDialog(QDialog):
                     self.store_combo.setCurrentText(store)
 
         except Exception as e:
+            logger.error("Search error for title '%s': %s", search_title, e)
             QMessageBox.warning(self, "Search Error", f"An error occurred during search:\n{e}")
 
     @pyqtSlot()
@@ -193,12 +198,12 @@ class InstallConfigDialog(QDialog):
 
         proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
 
-        env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.wine_prefix_path}\" "
-        umu_command = "umu-run"
+        env = QProcessEnvironment.systemEnvironment()
+        env.insert("PROTONPATH", proton_path)
+        env.insert("WINEPREFIX", self.wine_prefix_path)
 
-        command_string = f"{env_prefix} {umu_command} winecfg"
-        print(f"Executing: /bin/sh -c \"{command_string}\"")
-        QProcess.startDetached("/bin/sh", ["-c", command_string])
+        logger.info("Starting winecfg with PROTONPATH=%s WINEPREFIX=%s", proton_path, self.wine_prefix_path)
+        QProcess.startDetached("umu-run", ["winecfg"], environment=env)
 
     @pyqtSlot()
     def run_winetricks(self):
@@ -210,15 +215,14 @@ class InstallConfigDialog(QDialog):
 
         proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
 
-        env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.wine_prefix_path}\" "
+        env = QProcessEnvironment.systemEnvironment()
+        env.insert("PROTONPATH", proton_path)
+        env.insert("WINEPREFIX", self.wine_prefix_path)
 
-        umu_command = "umu-run"
+        logger.info("Starting winetricks with PROTONPATH=%s WINEPREFIX=%s", proton_path, self.wine_prefix_path)
+        QProcess.startDetached("umu-run", ["winetricks", "--gui"], environment=env)
 
-        command_string = f"{env_prefix} {umu_command} winetricks --gui"
-        print(f"Executing: /bin/sh -c \"{command_string}\"")
-        QProcess.startDetached("/bin/sh", ["-c", command_string])
-
-    def get_config(self) -> dict:
+    def get_config(self) -> dict[str, str]:
         """
         Returns the configured environment variables as a dictionary.
         """
@@ -256,7 +260,7 @@ class SelectLauncherDialog(QDialog):
     A dialog to select an executable when multiple are found.
     """
 
-    def __init__(self, target_dir: str, exe_paths: list[str], parent=None):
+    def __init__(self, target_dir: str, exe_paths: list[str], parent: QWidget | None = None):
         super().__init__(parent)
         self.setWindowTitle("Select Launcher")
         self.setMinimumWidth(450)
@@ -286,11 +290,11 @@ class SelectLauncherDialog(QDialog):
         main_layout.addWidget(button_box)
 
     def on_selection_changed(self, current_item, previous_item):
-        """Enables the OK button when an item is selected."""
+        """Enable the OK button when a launcher item is selected."""
         self.ok_button.setEnabled(current_item is not None)
 
     def get_selected_launcher(self) -> str | None:
-        """Returns the full path of the selected executable."""
+        """Return the full filesystem path of the selected executable, or None."""
         item = self.list_widget.currentItem()
         if not item:
             return None
@@ -304,7 +308,7 @@ class SelectUmuIdDialog(QDialog):
     A dialog to select a UMU entry when multiple match a codename.
     """
 
-    def __init__(self, results: list[dict], parent=None):
+    def __init__(self, results: list[dict[str, Any]], parent: QWidget | None = None):
         super().__init__(parent)
         self.setWindowTitle("Select Game Entry")
         self.setMinimumWidth(450)
@@ -336,11 +340,11 @@ class SelectUmuIdDialog(QDialog):
         main_layout.addWidget(button_box)
 
     def on_selection_changed(self, current_item, previous_item):
-        """Enables the OK button when an item is selected."""
+        """Enable the OK button when a UMU entry is selected."""
         self.ok_button.setEnabled(current_item is not None)
 
     def get_selected_entry(self) -> dict | None:
-        """Returns the full dictionary of the selected entry."""
+        """Return the full dictionary of the selected UMU game entry, or None."""
         current_row = self.list_widget.currentRow()
         if current_row < 0 or current_row >= len(self.results):
             return None
@@ -353,7 +357,7 @@ class SelectShortcutsDialog(QDialog):
     select which ones to create shortcuts for (Desktop vs Application Menu).
     """
 
-    def __init__(self, desktop_files: list, parent=None, existing_desktop: list = None, existing_apps: list = None):
+    def __init__(self, desktop_files: list[str], parent: QWidget | None = None, existing_desktop: list[str] | None = None, existing_apps: list[str] | None = None):
         super().__init__(parent)
         self.setWindowTitle("Manage Shortcuts")
         self.setMinimumWidth(500)
@@ -426,35 +430,29 @@ class SelectShortcutsDialog(QDialog):
 
     @staticmethod
     def parse_desktop_name(file_path: str) -> str:
-        """Reads a .desktop file and gets its 'Name' entry."""
+        """Read a .desktop file and extract its 'Name' entry, falling back to filename."""
         try:
-            with open(file_path, 'r') as f:
-                content = f.read()
-            if not content.strip().startswith('[Desktop Entry]'):
-                content = '[Desktop Entry]\n' + content
-
-            config_parser = configparser.ConfigParser(strict=False)
-            config_parser.optionxform = str
-            config_parser.read_string(content)
-
-            if 'Desktop Entry' in config_parser:
+            config_parser = parse_desktop_file(file_path)
+            if config_parser is not None:
                 return config_parser['Desktop Entry'].get('Name', os.path.basename(file_path))
 
-        except Exception as e:
-            print(f"Error parsing {file_path} for name: {e}")
+        except (OSError, config_parser.Error) as e:
+            logger.error("Error parsing %s for name: %s", file_path, e)
 
         return os.path.basename(file_path)
 
     def select_all(self):
+        """Check all desktop and application menu checkboxes."""
         for checkbox, _ in self.desktop_checkboxes + self.apps_checkboxes:
             checkbox.setChecked(True)
 
     def deselect_all(self):
+        """Uncheck all desktop and application menu checkboxes."""
         for checkbox, _ in self.desktop_checkboxes + self.apps_checkboxes:
             checkbox.setChecked(False)
 
-    def get_selected_files(self) -> tuple[list, list]:
-        """Returns (desktop_selected, apps_selected) lists of file paths."""
+    def get_selected_files(self) -> tuple[list[str], list[str]]:
+        """Return tuples of (desktop_selected, apps_selected) lists of file paths."""
         desktop_selected = [fp for cb, fp in self.desktop_checkboxes if cb.isChecked()]
         apps_selected = [fp for cb, fp in self.apps_checkboxes if cb.isChecked()]
         return desktop_selected, apps_selected

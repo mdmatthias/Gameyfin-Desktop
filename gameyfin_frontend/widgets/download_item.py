@@ -1,10 +1,10 @@
-import configparser
 import glob
 import json
+import logging
 import os
 import sys
 import time
-import shlex
+from typing import Any
 
 from PyQt6.QtCore import pyqtSlot, QProcess, QUrl, QThread, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
@@ -22,17 +22,22 @@ from PyQt6.QtWidgets import (
 from gameyfin_frontend.dialogs import SelectShortcutsDialog, InstallConfigDialog, SelectUmuIdDialog, \
     SelectLauncherDialog
 from gameyfin_frontend.umu_database import UmuDatabase
-from gameyfin_frontend.utils import get_xdg_user_dir
+from gameyfin_frontend.utils import (
+    create_shortcuts, build_umu_env_prefix
+)
 from gameyfin_frontend.workers import StreamDownloadWorker
 from gameyfin_frontend.settings import settings_manager
+
+logger = logging.getLogger(__name__)
 
 
 class DownloadItemWidget(QWidget):
     remove_requested = pyqtSignal(QWidget)
     finished = pyqtSignal(dict)
+    installation_finished = pyqtSignal()
 
-    def __init__(self, umu_database: UmuDatabase, worker: StreamDownloadWorker = None, record: dict = None,
-                 parent=None):
+    def __init__(self, umu_database: UmuDatabase, worker: StreamDownloadWorker | None = None, record: dict[str, Any] | None = None,
+                 parent: QWidget | None = None):
         super().__init__(parent)
         self.umu_database = umu_database
         self.record = record or {}
@@ -88,6 +93,7 @@ class DownloadItemWidget(QWidget):
             self.update_ui_for_historic_state()
 
     def _start_worker(self, worker: StreamDownloadWorker):
+        """Start the download worker thread and connect signals."""
         self.worker = worker
         self.thread = QThread()
         self.worker.moveToThread(self.thread)
@@ -117,9 +123,73 @@ class DownloadItemWidget(QWidget):
         self.thread.start()
 
     def get_widgets_for_grid(self) -> list[QWidget]:
+        """Return the list of widgets to add to the download manager grid."""
         return [self.icon_label, self.filename_label, self.progress_bar, self.status_label, self.button_container]
 
+    def _show_completed_buttons(self):
+        """Show the buttons visible after download completion (Install, Open Folder, Remove)."""
+        self.cancel_button.hide()
+        self.install_button.show()
+        self.open_folder_button.show()
+        self.remove_button.show()
+
+    def _show_failed_buttons(self):
+        """Show only the Remove button after download failure or cancellation."""
+        self.cancel_button.hide()
+        self.install_button.hide()
+        self.open_folder_button.hide()
+        self.remove_button.show()
+
+    def _set_running_status(self):
+        """Set the status label to 'Running...' with size info."""
+        size = self.record.get("total_bytes", 0)
+        self.status_label.setText(f"Running... ({self.format_size(size)})")
+        self.status_label.setStyleSheet("color: #3498DB;")
+
+    def _find_launcher_paths(self, target_dir: str) -> list[str]:
+        """Walk target_dir and collect all .exe files."""
+        launcher_paths = []
+        try:
+            for root, dirs, files in os.walk(target_dir):
+                for file in files:
+                    if file.lower().endswith(".exe"):
+                        launcher_paths.append(os.path.join(root, file))
+        except OSError as e:
+            logger.error("Error searching for launcher: %s", e)
+        return launcher_paths
+
+    def _handle_launcher_selection(self, target_dir: str) -> str | None:
+        """Search for .exe files and let user select one if multiple found.
+
+        Returns the selected launcher path, or None if user cancelled or
+        an error occurred.
+        """
+        launcher_paths = self._find_launcher_paths(target_dir)
+
+        if not launcher_paths:
+            self.status_label.setText("Install complete, no .exe found.")
+            self.status_label.setStyleSheet("color: #E67E22;")
+            QDesktopServices.openUrl(QUrl.fromLocalFile(target_dir))
+            return None
+
+        if len(launcher_paths) == 1:
+            return launcher_paths[0]
+
+        dialog = SelectLauncherDialog(target_dir, launcher_paths, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            launcher_to_run = dialog.get_selected_launcher()
+            if not launcher_to_run:
+                self.status_label.setText("Install complete, no launcher selected.")
+                self.status_label.setStyleSheet("color: #E67E22;")
+                return None
+            return launcher_to_run
+        else:
+            self.status_label.setText("Install complete, launch cancelled.")
+            self.status_label.setStyleSheet("")
+            return None
+
     def update_ui_for_historic_state(self):
+        """Update UI to reflect a previously saved download state (completed, failed, or cancelled)."""
         status = self.record.get("status", "Failed")
         self.progress_bar.show()
 
@@ -128,10 +198,7 @@ class DownloadItemWidget(QWidget):
             size = self.record.get("total_bytes", 0)
             self.status_label.setText(f"Completed ({self.format_size(size)})")
 
-            self.cancel_button.hide()
-            self.install_button.show()
-            self.open_folder_button.show()
-            self.remove_button.show()
+            self._show_completed_buttons()
 
             target_dir = self.record.get("path", "")
             if not os.path.isdir(target_dir):
@@ -146,12 +213,10 @@ class DownloadItemWidget(QWidget):
             self.progress_bar.hide()
             self.status_label.setText(status)
 
-            self.cancel_button.hide()
-            self.install_button.hide()
-            self.open_folder_button.hide()
-            self.remove_button.show()
+            self._show_failed_buttons()
 
     def _on_remove_clicked(self):
+        """Show a confirmation dialog to remove from list only or also delete the folder."""
         target_dir = self.record.get("path", "")
         dir_exists = os.path.isdir(target_dir)
 
@@ -173,19 +238,22 @@ class DownloadItemWidget(QWidget):
             import shutil
             try:
                 shutil.rmtree(target_dir)
-            except Exception as e:
+            except OSError as e:
                 QMessageBox.critical(self, "Error", f"Failed to delete folder:\n{e}")
                 return
             self.remove_requested.emit(self)
 
     def cancel_download(self):
+        """Cancel the current download via the worker."""
         if self.worker:
             self.worker.stop()
 
     def open_folder(self):
+        """Open the download's target directory in the file manager."""
         QDesktopServices.openUrl(QUrl.fromLocalFile(self.record.get("path", "")))
 
     def on_install_clicked(self):
+        """Start the installation process for the downloaded game files."""
         self.proceed_to_installation(self.record["path"])
 
     @pyqtSlot()
@@ -222,10 +290,7 @@ class DownloadItemWidget(QWidget):
         self.status_label.setText(f"Completed ({self.format_size(total)})")
         self.status_label.setStyleSheet("")
 
-        self.cancel_button.hide()
-        self.install_button.show()
-        self.open_folder_button.show()
-        self.remove_button.show()
+        self._show_completed_buttons()
 
         self.record["status"] = "Completed"
         self.finished.emit(self.record)
@@ -236,51 +301,19 @@ class DownloadItemWidget(QWidget):
         self.status_label.setText(f"Failed: {message}")
         self.status_label.setStyleSheet("color: red;")
 
-        self.cancel_button.hide()
-        self.install_button.hide()
-        self.open_folder_button.hide()
-        self.remove_button.show()
+        self._show_failed_buttons()
 
         self.record["status"] = "Failed"
         self.finished.emit(self.record)
 
-    def proceed_to_installation(self, target_dir):
+    def proceed_to_installation(self, target_dir: str) -> None:
+        """Orchestrate the installation: detect UMU game ID, show config dialog, then launch."""
         if sys.platform == "win32":
-            launcher_paths = []
-            try:
-                for root, dirs, files in os.walk(target_dir):
-                    for file in files:
-                        if file.lower().endswith(".exe"):
-                            launcher_paths.append(os.path.join(root, file))
-            except Exception as e:
-                print(f"Error searching for launcher: {e}")
-                self.on_download_error(f"Install OK, but failed to find launcher: {e}")
-                return
+            launcher_to_run = self._handle_launcher_selection(target_dir)
+            if launcher_to_run is None:
+                return  # User cancelled or error
 
-            if not launcher_paths:
-                self.status_label.setText("Install complete, no .exe found.")
-                self.status_label.setStyleSheet("color: #E67E22;")
-                QDesktopServices.openUrl(QUrl.fromLocalFile(target_dir))
-                return
-
-            launcher_to_run = None
-            if len(launcher_paths) == 1:
-                launcher_to_run = launcher_paths[0]
-            else:
-                dialog = SelectLauncherDialog(target_dir, launcher_paths, self)
-                if dialog.exec() == QDialog.DialogCode.Accepted:
-                    launcher_to_run = dialog.get_selected_launcher()
-                    if not launcher_to_run:
-                        self.status_label.setText("Install complete, no launcher selected.")
-                        self.status_label.setStyleSheet("color: #E67E22;")
-                        return
-                else:
-                    self.status_label.setText("Install complete, launch cancelled.")
-                    self.status_label.setStyleSheet("")
-                    return
-
-            if launcher_to_run:
-                self._start_windows_installation(launcher_to_run)
+            self._start_windows_installation(launcher_to_run)
             return
 
         # --- Linux Logic ---
@@ -292,7 +325,7 @@ class DownloadItemWidget(QWidget):
             json_files = glob.glob(os.path.join(target_dir, "product_*.json"))
             if json_files:
                 product_json_path = json_files[0]
-                print(f"Found product info: {product_json_path}")
+                logger.info("Found product info: %s", product_json_path)
 
                 with open(product_json_path, 'r') as f:
                     product_data = json.load(f)
@@ -300,9 +333,9 @@ class DownloadItemWidget(QWidget):
                 codename = product_data.get("id")
 
                 if codename:
-                    print(f"Found codename: {codename}")
+                    logger.info("Found codename: %s", codename)
                     results = self.umu_database.get_game_by_codename(str(codename))
-                    print(f"API results (by codename): {results}")
+                    logger.info("API results (by codename): %s", results)
 
             if not results:
                 filename = self.record.get("filename", os.path.basename(self.record.get("path", "")))
@@ -310,45 +343,44 @@ class DownloadItemWidget(QWidget):
                 search_title = zip_name_base.replace('_', ' ').replace('-', ' ').strip()
 
                 if search_title:
-                    print(f"No results from codename. Fallback: searching by title: '{search_title}'")
+                    logger.info("No results from codename. Fallback: searching by title: '%s'", search_title)
                     results = self.umu_database.search_by_partial_title(search_title)
-                    print(f"API results (by title): {results}")
+                    logger.info("API results (by title): %s", results)
                 else:
-                    print("No codename found and filename was empty. Skipping UMU search.")
+                    logger.info("No codename found and filename was empty. Skipping UMU search.")
 
             selected_entry = None
             if isinstance(results, list) and len(results) > 0:
                 if len(results) == 1:
                     selected_entry = results[0]
-                    print("One matching entry found.")
+                    logger.info("One matching entry found.")
                 else:
-                    print("Multiple matching entries found, showing dialog.")
+                    logger.info("Multiple matching entries found, showing dialog.")
                     umu_dialog = SelectUmuIdDialog(results, self)
                     if umu_dialog.exec() == QDialog.DialogCode.Accepted:
                         selected_entry = umu_dialog.get_selected_entry()
                     else:
-                        print("User cancelled UMU ID selection.")
+                        logger.info("User cancelled UMU ID selection.")
 
                 if selected_entry:
                     default_game_id = selected_entry.get("umu_id", default_game_id)
                     default_store = selected_entry.get("store", default_store)
-                    print(f"Using: umu_id={default_game_id}, store={default_store}")
+                    logger.info("Using: umu_id=%s, store=%s", default_game_id, default_store)
 
-        except Exception as e:
-            print(f"Error during UMU auto-detection: {e}")
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            logger.error("Error during UMU auto-detection: %s", e)
 
         wine_prefix_path = None
         if sys.platform == "linux":
             try:
-                home_dir = os.path.expanduser("~")
                 folder_name = os.path.basename(target_dir)
                 pfx_name = f"{folder_name.lower()}_pfx"
-                wine_prefix_path = os.path.join(home_dir, ".config", "gameyfin", "prefixes", pfx_name)
+                wine_prefix_path = os.path.join(settings_manager.get_prefixes_dir(), pfx_name)
 
                 self.current_wine_prefix = wine_prefix_path
-                print(f"Getting WINEPREFIX for dialog: {wine_prefix_path}")
-            except Exception as e:
-                print(f"Error getting WINEPREFIX: {e}")
+                logger.info("Getting WINEPREFIX for dialog: %s", wine_prefix_path)
+            except OSError as e:
+                logger.error("Error getting WINEPREFIX: %s", e)
 
         dialog = InstallConfigDialog(
             umu_database=self.umu_database,
@@ -365,45 +397,16 @@ class DownloadItemWidget(QWidget):
 
         self.current_install_config = dialog.get_config()
 
-        launcher_paths = []
-        launcher_to_run = None
+        launcher_to_run = self._handle_launcher_selection(target_dir)
+        if launcher_to_run is None:
+            return  # User cancelled or no .exe found
 
+        self._start_linux_installation(launcher_to_run, target_dir, self.current_install_config)
+
+    def _start_windows_installation(self, launcher_to_run: str) -> None:
+        """Launch the game executable directly via QProcess (Windows path)."""
         try:
-            for root, dirs, files in os.walk(target_dir):
-                for file in files:
-                    if file.lower().endswith(".exe"):
-                        launcher_paths.append(os.path.join(root, file))
-        except Exception as e:
-            print(f"Error searching for launcher: {e}")
-            self.on_download_error(f"Install OK, but failed to find launcher: {e}")
-            return
-
-        if not launcher_paths:
-            self.status_label.setText("Install complete, no .exe found.")
-            self.status_label.setStyleSheet("color: #E67E22;")
-            QDesktopServices.openUrl(QUrl.fromLocalFile(target_dir))
-        elif len(launcher_paths) == 1:
-            launcher_to_run = launcher_paths[0]
-        else:
-            dialog = SelectLauncherDialog(target_dir, launcher_paths, self)
-            if dialog.exec() == QDialog.DialogCode.Accepted:
-                launcher_to_run = dialog.get_selected_launcher()
-                if not launcher_to_run:
-                    self.status_label.setText("Install complete, no launcher selected.")
-                    self.status_label.setStyleSheet("color: #E67E22;")
-            else:
-                self.status_label.setText("Install complete, launch cancelled.")
-                self.status_label.setStyleSheet("")
-
-        if launcher_to_run:
-            if sys.platform == "linux":
-                self._start_linux_installation(launcher_to_run, target_dir, self.current_install_config)
-            else:
-                raise NotImplementedError("Other platforms not yet implemented.")
-
-    def _start_windows_installation(self, launcher_to_run: str):
-        try:
-            print(f"Executing (Windows): {launcher_to_run}")
+            logger.info("Executing (Windows): %s", launcher_to_run)
             self.run_process = QProcess(self)
             self.run_process.setProgram(launcher_to_run)
             self.run_process.setWorkingDirectory(os.path.dirname(launcher_to_run))
@@ -411,20 +414,19 @@ class DownloadItemWidget(QWidget):
             self.run_process.finished.connect(self.on_run_finished)
             self.run_process.start()
 
-            if self.run_process.waitForStarted():
-                print(f"Launch successful. Monitoring QProcess.")
-                size = self.record.get("total_bytes", 0)
-                self.status_label.setText(f"Running... ({self.format_size(size)})")
-                self.status_label.setStyleSheet("color: #3498DB;")
-            else:
-                print(f"Launch failed (QProcess failed to start).")
+            if not self.run_process.waitForStarted():
+                logger.info("Launch failed (QProcess failed to start).")
                 self.status_label.setText("Launch failed.")
                 self.status_label.setStyleSheet("color: red;")
-        except Exception as e:
+                return
+
+            self._set_running_status()
+        except OSError as e:
             self.status_label.setText(f"Launch failed: {e}")
             self.status_label.setStyleSheet("color: red;")
 
-    def _start_linux_installation(self, launcher_to_run: str, target_dir: str, install_config: dict):
+    def _start_linux_installation(self, launcher_to_run: str, target_dir: str, install_config: dict[str, Any]) -> None:
+        """Launch the game via UMU environment prefix and umu-run on Linux."""
         try:
             config = install_config or {}
 
@@ -432,72 +434,67 @@ class DownloadItemWidget(QWidget):
                 raise ValueError("Wineprefix path was not set.")
 
             wine_prefix_path = self.current_wine_prefix
-
             launcher_dir = os.path.dirname(launcher_to_run)
-
             proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
-            env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{wine_prefix_path}\" "
-            umu_command = "umu-run"
 
-            print("[Install] Applying user environment configuration:")
+            logger.info("[Install] Applying user environment configuration:")
             for key, value in config.items():
-                print(f"  {key}={value}")
-                env_prefix += f"{key}=\"{value}\" "
+                logger.info("  %s=%s", key, value)
 
+            env_prefix = build_umu_env_prefix(proton_path, wine_prefix_path, config)
             self.run_process = QProcess(self)
             self.run_process.setWorkingDirectory(launcher_dir)
 
-            command_string = f"{env_prefix} exec {umu_command} \"{launcher_to_run}\""
-            print(f"Executing: /bin/sh -c \"{command_string}\" ")
+            command_string = f"{env_prefix} exec umu-run \"{launcher_to_run}\""
+            logger.info("Executing: /bin/sh -c \"%s\"", command_string)
             self.run_process.finished.connect(self.on_run_finished)
             self.run_process.start("/bin/sh", ["-c", command_string])
 
-            if self.run_process.waitForStarted():
-                print(f"Launch successful. Monitoring QProcess.")
-                size = self.record.get("total_bytes", 0)
-                self.status_label.setText(f"Running... ({self.format_size(size)})")
-                self.status_label.setStyleSheet("color: #3498DB;")
-            else:
-                print(f"Launch failed (QProcess failed to start).")
+            if not self.run_process.waitForStarted():
+                logger.info("Launch failed (QProcess failed to start).")
                 self.status_label.setText("Launch failed. Is 'umu-run' installed?")
                 self.status_label.setStyleSheet("color: red;")
                 self.current_wine_prefix = None
+                return
 
-        except Exception as e:
+            self._set_running_status()
+        except (ValueError, OSError) as e:
             self.status_label.setText(f"Launch failed: {e}")
             self.status_label.setStyleSheet("color: red;")
             self.current_wine_prefix = None
 
     @pyqtSlot()
     @pyqtSlot(int, QProcess.ExitStatus)
-    def on_run_finished(self, exit_code=None, exit_status=None):
-        print(f"umu-run process finished with code {exit_code}, status {exit_status}.")
+    def on_run_finished(self, exit_code: int | None = None, exit_status: QProcess.ExitStatus | None = None) -> None:
+        logger.info("umu-run process finished with code %s, status %s.", exit_code, exit_status)
+
+        self.installation_finished.emit()
 
         if self.current_wine_prefix and os.path.isdir(self.current_wine_prefix):
             shortcuts_dir = os.path.join(self.current_wine_prefix, "drive_c", "proton_shortcuts")
-            print(f"Checking for shortcuts in: {shortcuts_dir}")
+            logger.info("Checking for shortcuts in: %s", shortcuts_dir)
 
             if os.path.isdir(shortcuts_dir):
                 desktop_files = glob.glob(os.path.join(shortcuts_dir, "*.desktop"))
 
                 if desktop_files:
-                    print(f"Found {len(desktop_files)} potential .desktop files.")
+                    logger.info("Found %d potential .desktop files.", len(desktop_files))
 
                     dialog = SelectShortcutsDialog(desktop_files, self.parentWidget())
                     if dialog.exec() == QDialog.DialogCode.Accepted:
                         selected_desktop, selected_apps = dialog.get_selected_files()
-                        print(f"User selected shortcuts to create. Processing...")
+                        logger.info("User selected shortcuts to create. Processing...")
                         self.create_desktop_shortcuts(desktop_files, selected_desktop, selected_apps)
                     else:
-                        print("User cancelled shortcut creation dialog. Still creating helper scripts.")
+                        logger.info("User cancelled shortcut creation dialog. Still creating helper scripts.")
                         self.create_desktop_shortcuts(desktop_files, [], [])
 
                 else:
-                    print("No .desktop files found in proton_shortcuts.")
+                    logger.info("No .desktop files found in proton_shortcuts.")
             else:
-                print("proton_shortcuts directory does not exist.")
+                logger.info("proton_shortcuts directory does not exist.")
         else:
-            print("WINEPREFIX path not set or does not exist, skipping shortcut check.")
+            logger.info("WINEPREFIX path not set or does not exist, skipping shortcut check.")
 
         size = self.record.get("total_bytes", 0)
         self.status_label.setText(f"Completed ({self.format_size(size)})")
@@ -506,149 +503,30 @@ class DownloadItemWidget(QWidget):
         self.current_install_config = None
         self.current_wine_prefix = None
 
-    def create_desktop_shortcuts(self, all_desktop_files: list, selected_desktop: list, selected_apps: list):
+    def create_desktop_shortcuts(self, all_desktop_files: list[str], selected_desktop: list[str], selected_apps: list[str]) -> None:
+        """Create helper .sh scripts and system .desktop shortcuts for the installed game."""
         if not self.current_install_config:
-            print("Error: Install config was cleared too early. Cannot create shortcuts.")
+            logger.error("Install config was cleared too early. Cannot create shortcuts.")
             self.current_install_config = {}
-
-        home_dir = os.path.expanduser("~")
 
         prefix_basename = os.path.basename(self.current_wine_prefix)
         game_name = prefix_basename.removesuffix("_pfx")
         if not game_name:
             game_name = "unknown-game"
 
-        shortcut_scripts_path = os.path.join(home_dir,
-                                             ".config",
-                                             "gameyfin",
-                                             "shortcut_scripts",
-                                             str(game_name))
-        os.makedirs(shortcut_scripts_path, exist_ok=True)
+        shortcut_scripts_path = settings_manager.get_shortcuts_dir(game_name)
+        proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
 
-        for original_path in all_desktop_files:
-            try:
-                with open(original_path, 'r') as f:
-                    content = f.read()
-                if not content.strip().startswith('[Desktop Entry]'):
-                    content = '[Desktop Entry]\n' + content
-
-                config_parser = configparser.ConfigParser(strict=False)
-                config_parser.optionxform = str
-                config_parser.read_string(content)
-
-                if 'Desktop Entry' not in config_parser:
-                    continue
-
-                entry = config_parser['Desktop Entry']
-                working_dir = entry.get('Path')
-                exe_name = entry.get('StartupWMClass')
-                if not exe_name:
-                    exe_name = entry.get('Name', 'game') + ".exe"
-
-                if not working_dir:
-                    continue
-
-                exe_path = os.path.join(working_dir, exe_name)
-                config = self.current_install_config or {}
-
-                proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
-                env_prefix = f"PROTONPATH=\"{proton_path}\" WINEPREFIX=\"{self.current_wine_prefix}\" "
-                umu_command = "umu-run"
-
-                for key, value in config.items():
-                    env_prefix += f"{key}=\"{value}\" "
-
-                command_to_run = f"{env_prefix}{umu_command} \"{exe_path}\""
-                script_name = os.path.splitext(os.path.basename(original_path))[0] + ".sh"
-                script_path = os.path.join(shortcut_scripts_path, script_name)
-                script_content = f"#!/bin/sh\n\n# Auto-generated by Gameyfin\n{command_to_run}\n"
-
-                with open(script_path, 'w') as f:
-                    f.write(script_content)
-                os.chmod(script_path, 0o755)
-
-            except Exception as e:
-                print(f"Failed to create helper script for {original_path}: {e}")
-
-        locs = [
-            (os.path.join(home_dir, get_xdg_user_dir("DESKTOP")), selected_desktop),
-            (os.path.join(home_dir, ".local", "share", "applications"), selected_apps)
-        ]
-
-        for target_dir, selected_list in locs:
-            os.makedirs(target_dir, exist_ok=True)
-
-            for original_path in selected_list:
-                try:
-                    print(f"Processing system shortcut: {os.path.basename(original_path)} for {target_dir}")
-
-                    with open(original_path, 'r') as f:
-                        content = f.read()
-                    if not content.strip().startswith('[Desktop Entry]'):
-                        content = '[Desktop Entry]\n' + content
-
-                    config_parser = configparser.ConfigParser(strict=False)
-                    config_parser.optionxform = str
-                    config_parser.read_string(content)
-
-                    if 'Desktop Entry' not in config_parser:
-                        continue
-
-                    entry = config_parser['Desktop Entry']
-
-                    icon_name = entry.get('Icon')
-                    if icon_name:
-                        shortcuts_dir = os.path.dirname(original_path)
-                        icons_base_dir = os.path.join(shortcuts_dir, "icons")
-
-                        sizes_to_check = ["256x256", "128x128", "64x64", "48x48", "32x32"]
-                        found_icon_path = None
-
-                        for size in sizes_to_check:
-                            path_with_png = os.path.join(icons_base_dir, size, "apps", f"{icon_name}.png")
-                            path_as_is = os.path.join(icons_base_dir, size, "apps", icon_name)
-
-                            if os.path.exists(path_with_png):
-                                found_icon_path = path_with_png
-                                break
-                            elif os.path.exists(path_as_is):
-                                found_icon_path = path_as_is
-                                break
-
-                        if found_icon_path:
-                            config_parser.set('Desktop Entry', 'Icon', found_icon_path)
-                        else:
-                            print(f"Warning: Could not find icon '{icon_name}' in {icons_base_dir}")
-
-                    script_name = os.path.splitext(os.path.basename(original_path))[0] + ".sh"
-                    script_path = os.path.join(shortcut_scripts_path, script_name)
-
-                    is_flatpak_env = os.path.exists("/.flatpak-info")
-                    use_host_umu = self.current_install_config.get("USE_HOST_UMU", "0")
-
-                    if is_flatpak_env and str(use_host_umu) == "1":
-                        inner_cmd = shlex.quote(script_path)
-                        for char in ('\\', '"', '$', '`'):
-                            inner_cmd = inner_cmd.replace(char, f'\\{char}')
-
-                        config_parser.set('Desktop Entry', 'Exec', f'flatpak run --command=sh org.gameyfin.Gameyfin-Desktop -c "{inner_cmd}"')
-                    else:
-                        config_parser.set('Desktop Entry', 'Exec', f'"{script_path}"')
-
-                    config_parser.set('Desktop Entry', 'Type', 'Application')
-                    config_parser.set('Desktop Entry', 'Categories', 'Application;Game;')
-
-                    new_file_name = os.path.basename(original_path)
-                    new_file_path = os.path.join(target_dir, new_file_name)
-
-                    with open(new_file_path, 'w') as f:
-                        config_parser.write(f)
-
-                    os.chmod(new_file_path, 0o755)
-                    print(f"Successfully created system shortcut at: {new_file_path}")
-
-                except Exception as e:
-                    print(f"Failed to process system shortcut {original_path} for {target_dir}: {e}")
+        create_shortcuts(
+            all_desktop_files=all_desktop_files,
+            scripts_dir=shortcut_scripts_path,
+            wine_prefix=self.current_wine_prefix,
+            install_config=self.current_install_config,
+            proton_path=proton_path,
+            selected_desktop=selected_desktop,
+            selected_apps=selected_apps,
+            remove_unselected=False,
+        )
 
     @staticmethod
     def format_size(nbytes: int) -> str:

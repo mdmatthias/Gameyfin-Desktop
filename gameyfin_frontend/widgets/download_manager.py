@@ -1,19 +1,26 @@
 import json
+import logging
 import os
+from typing import Any
 
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (QGridLayout, QWidget, QScrollArea, QVBoxLayout, QPushButton, QHBoxLayout, QSpacerItem, QSizePolicy)
 
+from gameyfin_frontend.settings import settings_manager
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.widgets.download_item import DownloadItemWidget
+from gameyfin_frontend.workers import StreamDownloadWorker
+
+logger = logging.getLogger(__name__)
 
 
 class DownloadManagerWidget(QWidget):
 
-    def __init__(self, data_path: str, umu_database: UmuDatabase, parent=None):
+    def __init__(self, umu_database: UmuDatabase, parent: QWidget | None = None):
         super().__init__(parent)
         self.umu_database = umu_database
-        self.json_path = os.path.join(data_path, "downloads.json")
+        self.prefix_manager = None
+        self.json_path = settings_manager.get_downloads_json_path()
         self.download_records = []
         self.widget_map = {}
 
@@ -34,7 +41,8 @@ class DownloadManagerWidget(QWidget):
 
         self.load_history()
 
-    def add_download_to_grid(self, controller: DownloadItemWidget):
+    def add_download_to_grid(self, controller: DownloadItemWidget) -> None:
+        """Adds a download item widget to the grid layout at the next available row."""
         row = self.downloads_layout.rowCount()
         widgets = controller.get_widgets_for_grid()
         self.downloads_layout.addWidget(widgets[0], row, 0)
@@ -44,10 +52,12 @@ class DownloadManagerWidget(QWidget):
         self.downloads_layout.addWidget(widgets[4], row, 4)
         self.widget_map[controller] = widgets
 
-    def add_download(self, worker, record: dict):
+    def add_download(self, worker: StreamDownloadWorker, record: dict[str, Any]) -> None:
+        """Add a new download to the grid and persist it to history."""
         controller = DownloadItemWidget(self.umu_database, worker=worker, record=record)
 
         controller.finished.connect(self.on_download_finished)
+        controller.installation_finished.connect(self.on_installation_finished)
         controller.remove_requested.connect(self.remove_download_item)
 
         existing_controller = self.find_controller_by_url(record["url"])
@@ -60,10 +70,19 @@ class DownloadManagerWidget(QWidget):
 
         self.save_history()
 
-    def on_download_finished(self, record: dict):
+    def on_download_finished(self, record: dict[str, Any]) -> None:
+        """Save download history and refresh prefix list after download completion."""
         self.save_history()
+        if self.prefix_manager:
+            self.prefix_manager.refresh_prefixes()
 
-    def load_history(self):
+    def on_installation_finished(self) -> None:
+        """Refresh the prefix list after a game installation completes."""
+        if self.prefix_manager:
+            self.prefix_manager.refresh_prefixes()
+
+    def load_history(self) -> None:
+        """Load persisted download history from JSON and recreate widgets for each record."""
         try:
             if os.path.exists(self.json_path):
                 with open(self.json_path, 'r') as f:
@@ -80,11 +99,12 @@ class DownloadManagerWidget(QWidget):
             # Add a stretch row at the bottom to push all items to the top
             self.downloads_layout.setRowStretch(self.downloads_layout.rowCount(), 1)
 
-        except Exception as e:
-            print(f"Error loading download history: {e}")
+        except (json.JSONDecodeError, OSError) as e:
+            logger.error("Error loading download history: %s", e)
             self.download_records = []
 
-    def save_history(self):
+    def save_history(self) -> None:
+        """Persist the current download list to JSON, preserving grid order."""
         try:
             # Rebuild records from widget_map to ensure correct order
             label_to_controller = {
@@ -107,20 +127,22 @@ class DownloadManagerWidget(QWidget):
 
             with open(self.json_path, 'w') as f:
                 json.dump(self.download_records, f, indent=4)
-        except Exception as e:
-            print(f"Error saving download history: {e}")
+        except OSError as e:
+            logger.error("Error saving download history: %s", e)
 
     def closeEvent(self, event: QCloseEvent):
         self.save_history()
         event.accept()
 
     def find_controller_by_url(self, url: str) -> DownloadItemWidget | None:
+        """Find a download controller by its URL for duplicate detection."""
         for controller in self.widget_map.keys():
             if controller.record.get("url") == url:
                 return controller
         return None
 
-    def remove_download_item(self, controller: DownloadItemWidget):
+    def remove_download_item(self, controller: DownloadItemWidget) -> None:
+        """Remove a download widget from the grid and clean up its resources."""
         if controller not in self.widget_map:
             return
 
@@ -169,7 +191,8 @@ class DownloadManagerWidget(QWidget):
         controller.deleteLater()
         self.save_history()
 
-    def insert_row_at(self, row_index: int, controller: DownloadItemWidget):
+    def insert_row_at(self, row_index: int, controller: DownloadItemWidget) -> None:
+        """Insert a download widget at a specific grid row, shifting existing rows down."""
         # Remove the old stretch row
         current_row_count = self.downloads_layout.rowCount()
         if current_row_count > 0:

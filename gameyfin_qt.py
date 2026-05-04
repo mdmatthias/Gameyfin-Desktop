@@ -1,5 +1,6 @@
 import sys
 import os
+import logging
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QIcon
@@ -8,13 +9,19 @@ from gameyfin_frontend import GameyfinWindow
 from dotenv import load_dotenv
 
 from gameyfin_frontend.umu_database import UmuDatabase
-from gameyfin_frontend.utils import resource_path, get_app_icon_path
+from gameyfin_frontend.utils import get_effective_icon, FLATPAK_ID
 
 from gameyfin_frontend.settings import settings_manager
 
 
 
 load_dotenv()
+
+log_level = settings_manager.get("GF_LOG_LEVEL", "WARNING").upper()
+logging.basicConfig(
+    level=getattr(logging, log_level, logging.WARNING),
+    format="%(asctime)s %(levelname)s %(name)s:%(filename)s:%(lineno)d %(message)s",
+)
 
 # Disable Web Security to bypass CORS issues with Authentik redirect
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-web-security"
@@ -38,23 +45,11 @@ if __name__ == "__main__":
 
     app.setApplicationName("Gameyfin")
     app.setOrganizationName("Gameyfin")
-    app.setDesktopFileName("org.gameyfin.Gameyfin-Desktop")
+    app.setDesktopFileName(FLATPAK_ID)
 
     # Set window icon
     custom_icon_path = settings_manager.get("GF_ICON_PATH")
-    internal_icon_path = get_app_icon_path(custom_icon_path, theme=theme)
-
-    is_light_variant = "icon_light.png" in internal_icon_path
-    has_custom_path = custom_icon_path is not None and custom_icon_path != ""
-
-    if has_custom_path or is_light_variant:
-        app_icon = QIcon(internal_icon_path)
-    else:
-        app_icon = QIcon.fromTheme("org.gameyfin.Gameyfin-Desktop")
-        if app_icon.isNull():
-            app_icon = QIcon(internal_icon_path)
-            
-    app.setWindowIcon(app_icon)
+    app.setWindowIcon(get_effective_icon(custom_icon_path, theme=theme))
 
     window = GameyfinWindow(umu_database)
 

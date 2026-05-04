@@ -1,0 +1,50 @@
+# --- Environment & Tooling (Global) ---
+.idea
+.venv
+.env
+.git
+.aider*
+.claude
+.qwen
+__pycache__
+**/*.py[cod]
+
+# --- Build & Packaging (Root-Specific) ---
+/build
+/build-dir
+/.flatpak-builder
+/repo
+/build.log
+/Gameyfin-Desktop.flatpak
+/gameyfin_frontend/.gameyfin-app-data
+
+# --- Media & Assets ---
+/gameyfin_frontend/screenshots/
+*.png
+*.svg
+*.ico
+
+# --- Python & Qt Specific ---
+*_rc.py
+*.qm
+*.ts
+
+# --- Documentation ---
+LICENSE
+*.md
+!README.md
+!QWEN.md
+
+# --- Scripts & System Junk ---
+/resize_screenshots.py
+.directory
+.DS_Store
+Thumbs.db
+build_and_bundle_flatpak.sh
+build_and_run_flatpak.sh
+gameyfin-desktop.sh
+python-dependencies.json
+requirements.txt
+org.gameyfin.Gameyfin-Desktop.yaml
+org.gameyfin.Gameyfin-Desktop.metainfo.yml
+org.gameyfin.Gameyfin-Desktop.desktop
