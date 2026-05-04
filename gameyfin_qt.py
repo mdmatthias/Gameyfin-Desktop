@@ -9,7 +9,7 @@ from gameyfin_frontend import GameyfinWindow
 from dotenv import load_dotenv
 
 from gameyfin_frontend.umu_database import UmuDatabase
-from gameyfin_frontend.utils import get_effective_icon
+from gameyfin_frontend.utils import get_effective_icon, FLATPAK_ID
 
 from gameyfin_frontend.settings import settings_manager
 
@@ -45,7 +45,7 @@ if __name__ == "__main__":
 
     app.setApplicationName("Gameyfin")
     app.setOrganizationName("Gameyfin")
-    app.setDesktopFileName("org.gameyfin.Gameyfin-Desktop")
+    app.setDesktopFileName(FLATPAK_ID)
 
     # Set window icon
     custom_icon_path = settings_manager.get("GF_ICON_PATH")

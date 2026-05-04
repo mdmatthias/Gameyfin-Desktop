@@ -8,8 +8,10 @@ from PyQt6.QtCore import Qt
 
 logger = logging.getLogger(__name__)
 
+FLATPAK_ID = "org.gameyfin.Gameyfin-Desktop"
 
-def get_effective_icon(custom_path: str = None, theme: str = None, icon_theme_name: str = "org.gameyfin.Gameyfin-Desktop") -> QIcon:
+
+def get_effective_icon(custom_path: str = None, theme: str = None, icon_theme_name: str = FLATPAK_ID) -> QIcon:
     """
     Returns the appropriate QIcon based on the selected theme,
     system theme (Light/Dark), or a custom path if provided.
@@ -215,7 +217,7 @@ def build_flatpak_exec_command(inner_cmd: str) -> str:
     # Escape special characters for the flatpak -c shell context
     for char in ('\\', '"', '$', '`'):
         inner_cmd = inner_cmd.replace(char, f'\\{char}')
-    return f'flatpak run --command=sh org.gameyfin.Gameyfin-Desktop -c "{inner_cmd}"'
+    return f'flatpak run --command=sh {FLATPAK_ID} -c "{inner_cmd}"'
 
 
 def resource_path(relative_path: str) -> str:
