@@ -92,7 +92,7 @@ class UmuDatabase:
             if isinstance(all_entries_raw, list):
                 self._build_title_cache(all_entries_raw)
                 logger.info("Cache refresh complete.")
-        except Exception as e:
+        except (KeyError, TypeError, ValueError) as e:
             logger.error("UmuDatabase: Failed to refresh cache: %s. Proceeding with empty cache.", e)
 
     def _request_umu_api(self, params=None):

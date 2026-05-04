@@ -184,7 +184,7 @@ class InstallConfigDialog(QDialog):
                 if store:
                     self.store_combo.setCurrentText(store)
 
-        except Exception as e:
+        except (ValueError, KeyError, TypeError, RuntimeError) as e:
             logger.error("Search error for title '%s': %s", search_title, e)
             QMessageBox.warning(self, "Search Error", f"An error occurred during search:\n{e}")
 

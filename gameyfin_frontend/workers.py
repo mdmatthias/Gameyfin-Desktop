@@ -101,7 +101,7 @@ class StreamDownloadWorker(QObject):
                 self.error.emit("Download cancelled by user.")
             else:
                 self.error.emit(f"Network error: {e}")
-        except Exception as e:
+        except (OSError, ValueError, RuntimeError) as e:
             logger.error("Unexpected error during download: %s", e)
             if self._cancelled:
                 self.error.emit("Download cancelled by user.")
