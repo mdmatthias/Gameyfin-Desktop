@@ -13,7 +13,7 @@ from gameyfin_frontend.dialogs import InstallConfigDialog, SelectShortcutsDialog
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.settings import settings_manager
 from gameyfin_frontend.utils import (
-    get_xdg_user_dir, create_shortcuts, build_umu_env_prefix
+    get_xdg_user_dir, create_shortcuts, build_umu_env_prefix, resolve_shortcut_game_info
 )
 
 logger = logging.getLogger(__name__)
@@ -123,12 +123,8 @@ class PrefixItemWidget(QWidget):
     def create_desktop_shortcuts(self, all_desktop_files: list[str], selected_desktop: list[str], selected_apps: list[str]) -> None:
         """Create/update desktop shortcuts using the stored install config for this prefix."""
         # Load config.json if available (check both new and legacy locations)
-        prefix_basename = os.path.basename(self.prefix_path)
-        game_name = prefix_basename.removesuffix("_pfx")
-        scripts_dir = settings_manager.get_shortcuts_dir(game_name)
-
         install_config = {}
-        for sd in settings_manager.get_shortcuts_dirs(game_name):
+        for sd in settings_manager.get_shortcuts_dirs(self.prefix_name):
             config_path = os.path.join(sd, "config.json")
             if os.path.exists(config_path):
                 try:
@@ -138,7 +134,9 @@ class PrefixItemWidget(QWidget):
                 except (json.JSONDecodeError, OSError) as e:
                     logger.error("Error loading config for shortcuts: %s", e)
 
-        proton_path = install_config.get("PROTONPATH") or settings_manager.get("PROTONPATH") or "GE-Proton"
+        game_name, proton_path = resolve_shortcut_game_info(
+            self.prefix_path, install_config
+        )
 
         create_shortcuts(
             all_desktop_files=all_desktop_files,

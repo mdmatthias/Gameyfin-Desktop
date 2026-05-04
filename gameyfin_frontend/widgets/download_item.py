@@ -23,7 +23,7 @@ from gameyfin_frontend.dialogs import SelectShortcutsDialog, InstallConfigDialog
     SelectLauncherDialog
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.utils import (
-    create_shortcuts, build_umu_env_prefix
+    create_shortcuts, build_umu_env_prefix, resolve_shortcut_game_info
 )
 from gameyfin_frontend.workers import StreamDownloadWorker
 from gameyfin_frontend.settings import settings_manager
@@ -509,13 +509,10 @@ class DownloadItemWidget(QWidget):
             logger.error("Install config was cleared too early. Cannot create shortcuts.")
             self.current_install_config = {}
 
-        prefix_basename = os.path.basename(self.current_wine_prefix)
-        game_name = prefix_basename.removesuffix("_pfx")
-        if not game_name:
-            game_name = "unknown-game"
-
+        game_name, proton_path = resolve_shortcut_game_info(
+            self.current_wine_prefix, self.current_install_config
+        )
         shortcut_scripts_path = settings_manager.get_shortcuts_dir(game_name)
-        proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
 
         create_shortcuts(
             all_desktop_files=all_desktop_files,

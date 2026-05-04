@@ -53,10 +53,7 @@ def build_umu_command(proton_path: str, wine_prefix: str, config: dict, command:
     Returns:
         A string like: PROTONPATH="GE-Proton" WINEPREFIX="/path" KEY="val" umu-run /path/to/exe
     """
-    env_prefix = f'PROTONPATH="{proton_path}" WINEPREFIX="{wine_prefix}" '
-    for key, value in config.items():
-        if key not in ("PROTONPATH", "WINEPREFIX"):
-            env_prefix += f'{key}="{value}" '
+    env_prefix = build_umu_env_prefix(proton_path, wine_prefix, config)
     return f"{env_prefix}{command}"
 
 
@@ -314,6 +311,33 @@ def get_xdg_user_dir(dir_name: str) -> Path:
     return fallback_dir
 
 
+def resolve_shortcut_game_info(
+    wine_prefix: str,
+    install_config: dict[str, Any],
+    default_proton: str = "GE-Proton",
+) -> tuple[str, str]:
+    """
+    Extract game name from wine prefix path and resolve proton path.
+
+    Args:
+        wine_prefix: Full path to the Wine prefix directory (e.g.
+                     ~/.local/share/gameyfin/prefixes/dark_earth_pfx).
+        install_config: Install configuration dict (may contain PROTONPATH key).
+        default_proton: Fallback proton path if not in config or settings.
+
+    Returns:
+        Tuple of (game_name, proton_path).
+    """
+    prefix_basename = os.path.basename(wine_prefix)
+    game_name = prefix_basename.removesuffix("_pfx")
+    if not game_name:
+        game_name = "unknown-game"
+
+    from gameyfin_frontend.settings import settings_manager
+    proton_path = install_config.get("PROTONPATH") or settings_manager.get("PROTONPATH") or default_proton
+    return game_name, proton_path
+
+
 def create_shortcuts(
     all_desktop_files: list[str],
     scripts_dir: str,
@@ -356,8 +380,7 @@ def create_shortcuts(
                 continue
 
             exe_path = os.path.join(working_dir, exe_name)
-            env_prefix = build_umu_env_prefix(proton_path, wine_prefix, install_config)
-            command_to_run = f"{env_prefix} umu-run \"{exe_path}\""
+            command_to_run = build_umu_command(proton_path, wine_prefix, install_config, f'umu-run "{exe_path}"')
 
             script_name = os.path.splitext(os.path.basename(original_path))[0] + ".sh"
             script_path = os.path.join(scripts_dir, script_name)
