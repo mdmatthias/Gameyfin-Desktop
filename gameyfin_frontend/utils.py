@@ -1,6 +1,7 @@
 import configparser
 import logging
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -192,7 +193,6 @@ def install_icon_for_shortcut(icon_path: str, icon_name: str) -> str | None:
     dest_path = os.path.join(icon_install_dir, dest_filename)
 
     # Copy the icon file
-    import shutil
     try:
         shutil.copy2(icon_path, dest_path)
         logger.info("Installed icon to: %s", dest_path)

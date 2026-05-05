@@ -2,6 +2,7 @@ import glob
 import json
 import logging
 import os
+import shutil
 import sys
 import time
 from typing import Any
@@ -235,7 +236,6 @@ class DownloadItemWidget(QWidget):
         if clicked == remove_entry_btn:
             self.remove_requested.emit(self)
         elif dir_exists and clicked == remove_all_btn:
-            import shutil
             try:
                 shutil.rmtree(target_dir)
             except OSError as e:
