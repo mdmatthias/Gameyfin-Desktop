@@ -13,6 +13,39 @@ logger = logging.getLogger(__name__)
 
 FLATPAK_ID = "org.gameyfin.Gameyfin-Desktop"
 
+# Multipliers for human-readable size formatting (binary units)
+_SIZE_UNITS = [
+    (1024 ** 4, "TB"),
+    (1024 ** 3, "GB"),
+    (1024 ** 2, "MB"),
+    (1024, "KB"),
+]
+
+
+def format_size(nbytes: int) -> str:
+    """Format bytes as a human-readable string (e.g. '1.50 MB')."""
+    for threshold, unit in _SIZE_UNITS:
+        if nbytes >= threshold:
+            return f"{nbytes / threshold:.2f} {unit}"
+    return f"{nbytes} B"
+
+
+def parse_size(text: str) -> int:
+    """Parse a human-readable size string back to bytes.
+
+    Supports units: B, KiB, MiB, GiB, TiB (binary) and KB, MB, GB, TB (decimal).
+    """
+    try:
+        num, unit = text.split()
+        num = float(num.replace(",", "."))
+        multipliers = {
+            "B": 1, "KiB": 1024, "MiB": 1024 ** 2, "GiB": 1024 ** 3, "TiB": 1024 ** 4,
+            "KB": 1000, "MB": 1000 ** 2, "GB": 1000 ** 3, "TB": 1000 ** 4,
+        }
+        return int(num * multipliers.get(unit, 1))
+    except (ValueError, IndexError):
+        return 0
+
 
 def get_effective_icon(custom_path: str = None, theme: str = None, icon_theme_name: str = FLATPAK_ID) -> QIcon:
     """

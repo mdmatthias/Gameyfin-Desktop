@@ -19,7 +19,7 @@ from gameyfin_frontend.umu_database import UmuDatabase
 
 from .settings_widget import SettingsWidget
 from .settings import settings_manager
-from .utils import get_effective_icon
+from .utils import get_effective_icon, parse_size
 
 logger = logging.getLogger(__name__)
 
@@ -272,19 +272,6 @@ class GameyfinWindow(QMainWindow):
         self.activateWindow()
         self.tab_widget.setCurrentWidget(self.settings_widget)
 
-    @staticmethod
-    def parse_size(text: str) -> int:
-        try:
-            num, unit = text.split()
-            num = float(num.replace(",", "."))
-            multipliers = {
-                "B": 1, "KiB": 1024, "MiB": 1024 ** 2, "GiB": 1024 ** 3, "TiB": 1024 ** 4,
-                "KB": 1000, "MB": 1000 ** 2, "GB": 1000 ** 3, "TB": 1000 ** 4
-            }
-            return int(num * multipliers.get(unit, 1))
-        except (ValueError, IndexError):
-            return 0
-
     def closeEvent(self, event: QCloseEvent) -> None:
         if self.is_really_quitting:
             # This is a real quit, run cleanup
@@ -343,7 +330,7 @@ class GameyfinWindow(QMainWindow):
         cookies = dict(self._cookies)
 
         def handle_js_result(result):
-            total_size = self.parse_size(result)
+            total_size = parse_size(result)
             record = {
                 "path": target_dir,
                 "filename": filename,

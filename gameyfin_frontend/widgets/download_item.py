@@ -24,7 +24,8 @@ from gameyfin_frontend.dialogs import SelectShortcutsDialog, InstallConfigDialog
     SelectLauncherDialog
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.utils import (
-    create_shortcuts, build_umu_env_prefix, resolve_shortcut_game_info
+    create_shortcuts, build_umu_env_prefix, resolve_shortcut_game_info,
+    format_size, parse_size,
 )
 from gameyfin_frontend.workers import StreamDownloadWorker
 from gameyfin_frontend.settings import settings_manager
@@ -144,7 +145,7 @@ class DownloadItemWidget(QWidget):
     def _set_running_status(self):
         """Set the status label to 'Running...' with size info."""
         size = self.record.get("total_bytes", 0)
-        self.status_label.setText(f"Running... ({self.format_size(size)})")
+        self.status_label.setText(f"Running... ({format_size(size)})")
         self.status_label.setStyleSheet("color: #3498DB;")
 
     def _find_launcher_paths(self, target_dir: str) -> list[str]:
@@ -197,7 +198,7 @@ class DownloadItemWidget(QWidget):
         if status == "Completed":
             self.progress_bar.setValue(100)
             size = self.record.get("total_bytes", 0)
-            self.status_label.setText(f"Completed ({self.format_size(size)})")
+            self.status_label.setText(f"Completed ({format_size(size)})")
 
             self._show_completed_buttons()
 
@@ -275,19 +276,19 @@ class DownloadItemWidget(QWidget):
         elapsed = now - self.last_time
         if elapsed > 0.5:
             speed = max(0.0, (received - self.last_bytes) / elapsed)
-            self.last_speed_str = f"({self.format_size(int(speed))}/s)"
+            self.last_speed_str = f"({format_size(int(speed))}/s)"
             self.last_time, self.last_bytes = now, received
 
         if total > 0:
-            self.status_label.setText(f"{self.format_size(received)} / {self.format_size(total)} {self.last_speed_str}")
+            self.status_label.setText(f"{format_size(received)} / {format_size(total)} {self.last_speed_str}")
         else:
-            self.status_label.setText(f"{self.format_size(received)} / ??? {self.last_speed_str}")
+            self.status_label.setText(f"{format_size(received)} / ??? {self.last_speed_str}")
 
     @pyqtSlot()
     def on_download_finished(self):
         total = self.record.get("total_bytes", 0)
         self.progress_bar.setValue(100)
-        self.status_label.setText(f"Completed ({self.format_size(total)})")
+        self.status_label.setText(f"Completed ({format_size(total)})")
         self.status_label.setStyleSheet("")
 
         self._show_completed_buttons()
@@ -497,7 +498,7 @@ class DownloadItemWidget(QWidget):
             logger.info("WINEPREFIX path not set or does not exist, skipping shortcut check.")
 
         size = self.record.get("total_bytes", 0)
-        self.status_label.setText(f"Completed ({self.format_size(size)})")
+        self.status_label.setText(f"Completed ({format_size(size)})")
         self.status_label.setStyleSheet("")
 
         self.current_install_config = None
@@ -524,10 +525,3 @@ class DownloadItemWidget(QWidget):
             selected_apps=selected_apps,
             remove_unselected=False,
         )
-
-    @staticmethod
-    def format_size(nbytes: int) -> str:
-        if nbytes >= 1024 ** 3: return f"{nbytes / 1024 ** 3:.2f} GB"
-        if nbytes >= 1024 ** 2: return f"{nbytes / 1024 ** 2:.2f} MB"
-        if nbytes >= 1024: return f"{nbytes / 1024:.2f} KB"
-        return f"{nbytes} B"
