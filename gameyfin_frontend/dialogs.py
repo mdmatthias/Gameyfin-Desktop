@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.settings import settings_manager
 from gameyfin_frontend.utils import parse_desktop_file
+from gameyfin_frontend.config import DEFAULT_PROTON, UMU_RUN_CMD
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ class InstallConfigDialog(QDialog):
         self.gameid_widget.setLayout(self.gameid_layout)
 
         self.protonpath_input = QLineEdit()
-        self.protonpath_input.setText(settings_manager.get("PROTONPATH", "GE-Proton"))
+        self.protonpath_input.setText(settings_manager.get("PROTONPATH", DEFAULT_PROTON))
 
         self.store_combo = QComboBox()
         stores = settings_manager.get("GF_UMU_DB_STORES", ["none", "gog", "amazon", "battlenet", "ea", "egs",
@@ -197,14 +198,14 @@ class InstallConfigDialog(QDialog):
 
         os.makedirs(self.wine_prefix_path, exist_ok=True)
 
-        proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
+        proton_path = settings_manager.get("PROTONPATH", DEFAULT_PROTON)
 
         proc_env = os.environ.copy()
         proc_env["PROTONPATH"] = proton_path
         proc_env["WINEPREFIX"] = self.wine_prefix_path
 
         logger.info("Starting winecfg with PROTONPATH=%s WINEPREFIX=%s", proton_path, self.wine_prefix_path)
-        subprocess.Popen(["umu-run", "winecfg"], env=proc_env, start_new_session=True)
+        subprocess.Popen([UMU_RUN_CMD, "winecfg"], env=proc_env, start_new_session=True)
 
     @pyqtSlot()
     def run_winetricks(self):
@@ -214,14 +215,14 @@ class InstallConfigDialog(QDialog):
 
         os.makedirs(self.wine_prefix_path, exist_ok=True)
 
-        proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
+        proton_path = settings_manager.get("PROTONPATH", DEFAULT_PROTON)
 
         proc_env = os.environ.copy()
         proc_env["PROTONPATH"] = proton_path
         proc_env["WINEPREFIX"] = self.wine_prefix_path
 
         logger.info("Starting winetricks with PROTONPATH=%s WINEPREFIX=%s", proton_path, self.wine_prefix_path)
-        subprocess.Popen(["umu-run", "winetricks", "--gui"], env=proc_env, start_new_session=True)
+        subprocess.Popen([UMU_RUN_CMD, "winetricks", "--gui"], env=proc_env, start_new_session=True)
 
     def get_config(self) -> dict[str, str]:
         """

@@ -5,6 +5,8 @@ from typing import Any
 
 from PyQt6.QtCore import QStandardPaths
 
+from gameyfin_frontend.config import DEFAULT_PROTON
+
 logger = logging.getLogger(__name__)
 
 class SettingsManager:
@@ -35,7 +37,7 @@ class SettingsManager:
             "GF_WINDOW_HEIGHT": 940,
             "GF_START_MINIMIZED": 0,
             "GF_ICON_PATH": "",
-            "PROTONPATH": "GE-Proton",
+            "PROTONPATH": DEFAULT_PROTON,
             "GF_UMU_API_URL": "https://umu.openwinecomponents.org/umu_api.php",
             "GF_UMU_DB_STORES": ["none", "gog", "amazon", "battlenet", "ea", "egs", "epic", "humble", "itchio", "origin", "steam", "uplay", "ubisoft"],
             "GF_THEME": "auto",

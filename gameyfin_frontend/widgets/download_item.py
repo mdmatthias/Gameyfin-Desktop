@@ -29,6 +29,7 @@ from gameyfin_frontend.utils import (
 )
 from gameyfin_frontend.workers import StreamDownloadWorker
 from gameyfin_frontend.settings import settings_manager
+from gameyfin_frontend.config import DEFAULT_PROTON
 
 logger = logging.getLogger(__name__)
 
@@ -436,7 +437,7 @@ class DownloadItemWidget(QWidget):
 
             wine_prefix_path = self.current_wine_prefix
             launcher_dir = os.path.dirname(launcher_to_run)
-            proton_path = settings_manager.get("PROTONPATH", "GE-Proton")
+            proton_path = settings_manager.get("PROTONPATH", DEFAULT_PROTON)
 
             logger.info("[Install] Applying user environment configuration:")
             for key, value in config.items():

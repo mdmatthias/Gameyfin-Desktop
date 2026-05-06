@@ -15,6 +15,7 @@ from gameyfin_frontend.settings import settings_manager
 from gameyfin_frontend.utils import (
     get_xdg_user_dir, create_shortcuts, build_umu_env_prefix, resolve_shortcut_game_info
 )
+from gameyfin_frontend.config import DEFAULT_PROTON, SCRIPT_PERMISSION
 
 logger = logging.getLogger(__name__)
 
@@ -382,7 +383,7 @@ class PrefixManagerWidget(QWidget):
             logger.info("No .sh scripts found to update.")
             return
             
-        proton_path = config.get("PROTONPATH") or settings_manager.get("PROTONPATH") or "GE-Proton"
+        proton_path = config.get("PROTONPATH") or settings_manager.get("PROTONPATH") or DEFAULT_PROTON
 
         env_part = build_umu_env_prefix(proton_path, prefix_path, config)
 
@@ -419,7 +420,7 @@ class PrefixManagerWidget(QWidget):
                             f.write(new_content)
                         
                         # Ensure executable
-                        os.chmod(script_path, 0o755)
+                        os.chmod(script_path, SCRIPT_PERMISSION)
                         count += 1
                         logger.info("Updated script: %s", script_path)
                     else:

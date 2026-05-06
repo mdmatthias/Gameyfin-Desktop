@@ -9,6 +9,8 @@ from typing import Any
 from PyQt6.QtGui import QGuiApplication, QIcon
 from PyQt6.QtCore import Qt
 
+from gameyfin_frontend.config import DEFAULT_PROTON, SCRIPT_PERMISSION
+
 logger = logging.getLogger(__name__)
 
 FLATPAK_ID = "org.gameyfin.Gameyfin-Desktop"
@@ -347,7 +349,7 @@ def get_xdg_user_dir(dir_name: str) -> Path:
 def resolve_shortcut_game_info(
     wine_prefix: str,
     install_config: dict[str, Any],
-    default_proton: str = "GE-Proton",
+    default_proton: str = DEFAULT_PROTON,
 ) -> tuple[str, str]:
     """
     Extract game name from wine prefix path and resolve proton path.
@@ -376,7 +378,7 @@ def create_shortcuts(
     scripts_dir: str,
     wine_prefix: str,
     install_config: dict[str, Any],
-    proton_path: str = "GE-Proton",
+    proton_path: str = DEFAULT_PROTON,
     selected_desktop: list[str] | None = None,
     selected_apps: list[str] | None = None,
     remove_unselected: bool = False,
@@ -421,7 +423,7 @@ def create_shortcuts(
 
             with open(script_path, "w") as f:
                 f.write(script_content)
-            os.chmod(script_path, 0o755)
+            os.chmod(script_path, SCRIPT_PERMISSION)
             logger.info("Created/Updated helper script: %s", script_path)
 
         except (OSError, configparser.Error) as e:
@@ -484,7 +486,7 @@ def create_shortcuts(
                 new_file_path = os.path.join(target_dir, os.path.basename(original_path))
                 with open(new_file_path, "w") as f:
                     config_parser.write(f)
-                os.chmod(new_file_path, 0o755)
+                os.chmod(new_file_path, SCRIPT_PERMISSION)
                 logger.info("Successfully created system shortcut at: %s", new_file_path)
 
             except (OSError, configparser.Error) as e:
