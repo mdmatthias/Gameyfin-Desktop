@@ -6,7 +6,7 @@ from typing import Any
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (QGridLayout, QWidget, QScrollArea, QVBoxLayout, QPushButton, QHBoxLayout, QSpacerItem, QSizePolicy)
 
-from gameyfin_frontend.settings import settings_manager
+from gameyfin_frontend.settings import SettingsManager
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.widgets.download_item import DownloadItemWidget
 from gameyfin_frontend.workers import StreamDownloadWorker
@@ -16,11 +16,21 @@ logger = logging.getLogger(__name__)
 
 class DownloadManagerWidget(QWidget):
 
-    def __init__(self, umu_database: UmuDatabase, parent: QWidget | None = None):
+    def __init__(self, umu_database: UmuDatabase, parent: QWidget | None = None, settings: SettingsManager | None = None):
+        """Create the download manager widget with a scrollable grid of download items.
+
+        Loads persisted download history from JSON on startup.
+
+        Args:
+            umu_database: UmuDatabase instance for UMU lookups.
+            parent: Parent widget.
+            settings: SettingsManager instance providing app configuration.
+        """
         super().__init__(parent)
         self.umu_database = umu_database
         self.prefix_manager = None
-        self.json_path = settings_manager.get_downloads_json_path()
+        self.settings = settings
+        self.json_path = settings.get_downloads_json_path() if settings else ""
         self.download_records = []
         self.widget_map = {}
 
@@ -54,7 +64,7 @@ class DownloadManagerWidget(QWidget):
 
     def add_download(self, worker: StreamDownloadWorker, record: dict[str, Any]) -> None:
         """Add a new download to the grid and persist it to history."""
-        controller = DownloadItemWidget(self.umu_database, worker=worker, record=record)
+        controller = DownloadItemWidget(self.umu_database, worker=worker, record=record, settings=self.settings)
 
         controller.finished.connect(self.on_download_finished)
         controller.installation_finished.connect(self.on_installation_finished)
@@ -92,7 +102,7 @@ class DownloadManagerWidget(QWidget):
                     if record["status"] == "Downloading":
                         record["status"] = "Failed"
 
-                    controller = DownloadItemWidget(self.umu_database, record=record)
+                    controller = DownloadItemWidget(self.umu_database, record=record, settings=self.settings)
                     controller.remove_requested.connect(self.remove_download_item)
                     self.add_download_to_grid(controller)
 
@@ -131,6 +141,7 @@ class DownloadManagerWidget(QWidget):
             logger.error("Error saving download history: %s", e)
 
     def closeEvent(self, event: QCloseEvent):
+        """Persist download history before the widget is closed."""
         self.save_history()
         event.accept()
 
@@ -192,7 +203,12 @@ class DownloadManagerWidget(QWidget):
         self.save_history()
 
     def insert_row_at(self, row_index: int, controller: DownloadItemWidget) -> None:
-        """Insert a download widget at a specific grid row, shifting existing rows down."""
+        """Insert a download widget at a specific grid row, shifting existing rows down.
+
+        Args:
+            row_index: The row index to insert at.
+            controller: The DownloadItemWidget to insert.
+        """
         # Remove the old stretch row
         current_row_count = self.downloads_layout.rowCount()
         if current_row_count > 0:

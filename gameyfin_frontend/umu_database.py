@@ -8,12 +8,17 @@ from typing import Dict, List
 
 import requests
 
-from .settings import settings_manager
+from .settings import SettingsManager
 
 logger = logging.getLogger(__name__)
 
 class UmuDatabase:
-    def __init__(self):
+    def __init__(self, settings: SettingsManager | None = None):
+        """Initialize the UMU database for game fix lookups.
+
+        Args:
+            settings: SettingsManager instance providing app configuration.
+        """
         if sys.platform == "win32":
             logger.info("Running on Windows. UmuDatabase disabled.")
             self.umu_api_url = ""
@@ -22,7 +27,8 @@ class UmuDatabase:
 
         # Stores data as: {"Game Title": [entry1, entry2, ...]}
         self._games_by_title: Dict[str, List[dict]] = defaultdict(list)
-        self.cache_file_path = settings_manager.get_umu_cache_path()
+        self.settings = settings
+        self.cache_file_path = settings.get_umu_cache_path() if settings else ""
 
         logger.info("Initializing Umu database...")
         self._load_cache_from_disk()
@@ -101,7 +107,7 @@ class UmuDatabase:
         """
         response = None
         try:
-            umu_api_url = settings_manager.get("GF_UMU_API_URL")
+            umu_api_url = self.settings.get("GF_UMU_API_URL") if self.settings else ""
             response = requests.get(umu_api_url, params=params)
             response.raise_for_status()
             return response.json()

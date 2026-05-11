@@ -37,6 +37,7 @@ def fresh_umu_database(mock_settings):
     """Create a UmuDatabase with an empty cache (no API calls)."""
     # Patch _request_umu_api to return empty list (no network needed)
     db = UmuDatabase.__new__(UmuDatabase)
+    db.settings = mock_settings
     db._games_by_title = defaultdict(list)
     db.cache_file_path = mock_settings.cache_path
     db._ROMAN_REPLACEMENTS = (

@@ -28,7 +28,7 @@ from gameyfin_frontend.utils import (
     format_size, parse_size,
 )
 from gameyfin_frontend.workers import StreamDownloadWorker
-from gameyfin_frontend.settings import settings_manager
+from gameyfin_frontend.settings import SettingsManager
 from gameyfin_frontend.config import DEFAULT_PROTON
 
 logger = logging.getLogger(__name__)
@@ -40,9 +40,19 @@ class DownloadItemWidget(QWidget):
     installation_finished = pyqtSignal()
 
     def __init__(self, umu_database: UmuDatabase, worker: StreamDownloadWorker | None = None, record: dict[str, Any] | None = None,
-                 parent: QWidget | None = None):
+                 parent: QWidget | None = None, settings: SettingsManager | None = None):
+        """Create a download item widget showing progress, status, and action buttons.
+
+        Args:
+            umu_database: UmuDatabase instance for UMU game lookups.
+            worker: Optional StreamDownloadWorker for active downloads.
+            record: Optional persisted download record dict for restoring a previous state.
+            parent: Parent widget.
+            settings: SettingsManager instance providing app configuration.
+        """
         super().__init__(parent)
         self.umu_database = umu_database
+        self.settings = settings
         self.record = record or {}
         self.last_time = time.time()
         self.last_bytes = 0
@@ -191,8 +201,11 @@ class DownloadItemWidget(QWidget):
             self.status_label.setStyleSheet("")
             return None
 
-    def update_ui_for_historic_state(self):
-        """Update UI to reflect a previously saved download state (completed, failed, or cancelled)."""
+    def update_ui_for_historic_state(self) -> None:
+        """Update the UI to reflect a previously saved download state (completed, failed, or cancelled).
+
+        Reads from ``self.record`` to restore progress, status text, and button visibility.
+        """
         status = self.record.get("status", "Failed")
         self.progress_bar.show()
 
@@ -218,8 +231,11 @@ class DownloadItemWidget(QWidget):
 
             self._show_failed_buttons()
 
-    def _on_remove_clicked(self):
-        """Show a confirmation dialog to remove from list only or also delete the folder."""
+    def _on_remove_clicked(self) -> None:
+        """Show a confirmation dialog to remove from list only or also delete the folder.
+
+        Emits ``remove_requested`` with the controller depending on user choice.
+        """
         target_dir = self.record.get("path", "")
         dir_exists = os.path.isdir(target_dir)
 
@@ -245,29 +261,32 @@ class DownloadItemWidget(QWidget):
                 return
             self.remove_requested.emit(self)
 
-    def cancel_download(self):
+    def cancel_download(self) -> None:
         """Cancel the current download via the worker."""
         if self.worker:
             self.worker.stop()
 
-    def open_folder(self):
+    def open_folder(self) -> None:
         """Open the download's target directory in the file manager."""
         QDesktopServices.openUrl(QUrl.fromLocalFile(self.record.get("path", "")))
 
-    def on_install_clicked(self):
+    def on_install_clicked(self) -> None:
         """Start the installation process for the downloaded game files."""
         self.proceed_to_installation(self.record["path"])
 
     @pyqtSlot()
-    def _on_worker_deleted(self):
+    def _on_worker_deleted(self) -> None:
+        """Clear the worker reference when the worker object is deleted."""
         self.worker = None
 
     @pyqtSlot()
-    def _on_thread_deleted(self):
+    def _on_thread_deleted(self) -> None:
+        """Clear the thread reference when the thread object is deleted."""
         self.thread = None
 
     @pyqtSlot('long long', 'long long')
-    def _on_bytes_received(self, received: int, total: int):
+    def _on_bytes_received(self, received: int, total: int) -> None:
+        """Update the status label with received bytes and computed download speed."""
         if total > 0:
             self.record["total_bytes"] = total
         else:
@@ -286,7 +305,8 @@ class DownloadItemWidget(QWidget):
             self.status_label.setText(f"{format_size(received)} / ??? {self.last_speed_str}")
 
     @pyqtSlot()
-    def on_download_finished(self):
+    def on_download_finished(self) -> None:
+        """Handle download completion: update UI, mark record as completed, emit finished signal."""
         total = self.record.get("total_bytes", 0)
         self.progress_bar.setValue(100)
         self.status_label.setText(f"Completed ({format_size(total)})")
@@ -298,7 +318,8 @@ class DownloadItemWidget(QWidget):
         self.finished.emit(self.record)
 
     @pyqtSlot(str)
-    def on_download_error(self, message: str):
+    def on_download_error(self, message: str) -> None:
+        """Handle download error: hide progress bar, show failure status, emit finished signal."""
         self.progress_bar.hide()
         self.status_label.setText(f"Failed: {message}")
         self.status_label.setStyleSheet("color: red;")
@@ -309,7 +330,12 @@ class DownloadItemWidget(QWidget):
         self.finished.emit(self.record)
 
     def proceed_to_installation(self, target_dir: str) -> None:
-        """Orchestrate the installation: detect UMU game ID, show config dialog, then launch."""
+        """Orchestrate the installation: detect UMU game ID, show config dialog, then launch.
+
+        On Linux, searches the UMU database for a matching game, prompts the user for
+        configuration, then starts the installation via ``_start_linux_installation``.
+        On Windows, launches the selected executable directly.
+        """
         if sys.platform == "win32":
             launcher_to_run = self._handle_launcher_selection(target_dir)
             if launcher_to_run is None:
@@ -377,7 +403,7 @@ class DownloadItemWidget(QWidget):
             try:
                 folder_name = os.path.basename(target_dir)
                 pfx_name = f"{folder_name.lower()}_pfx"
-                wine_prefix_path = os.path.join(settings_manager.get_prefixes_dir(), pfx_name)
+                wine_prefix_path = os.path.join(self.settings.get_prefixes_dir(), pfx_name) if self.settings else ""
 
                 self.current_wine_prefix = wine_prefix_path
                 logger.info("Getting WINEPREFIX for dialog: %s", wine_prefix_path)
@@ -389,7 +415,8 @@ class DownloadItemWidget(QWidget):
             parent=self,
             default_game_id=default_game_id,
             default_store=default_store,
-            wine_prefix_path=wine_prefix_path
+            wine_prefix_path=wine_prefix_path,
+            settings=self.settings
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             self.status_label.setText("Install cancelled by user.")
@@ -406,7 +433,11 @@ class DownloadItemWidget(QWidget):
         self._start_linux_installation(launcher_to_run, target_dir, self.current_install_config)
 
     def _start_windows_installation(self, launcher_to_run: str) -> None:
-        """Launch the game executable directly via QProcess (Windows path)."""
+        """Launch the game executable directly via QProcess (Windows path).
+
+        Args:
+            launcher_to_run: Absolute path to the .exe to launch.
+        """
         try:
             logger.info("Executing (Windows): %s", launcher_to_run)
             self.run_process = QProcess(self)
@@ -428,7 +459,16 @@ class DownloadItemWidget(QWidget):
             self.status_label.setStyleSheet("color: red;")
 
     def _start_linux_installation(self, launcher_to_run: str, target_dir: str, install_config: dict[str, Any]) -> None:
-        """Launch the game via UMU environment prefix and umu-run on Linux."""
+        """Launch the game via UMU environment prefix and umu-run on Linux.
+
+        Builds the command string with ``build_umu_env_prefix`` and executes it
+        via ``/bin/sh -c`` with ``exec`` for proper signal forwarding.
+
+        Args:
+            launcher_to_run: Path to the game executable.
+            target_dir: Download target directory (unused, for future use).
+            install_config: Dict of environment variables and UMU settings.
+        """
         try:
             config = install_config or {}
 
@@ -437,7 +477,7 @@ class DownloadItemWidget(QWidget):
 
             wine_prefix_path = self.current_wine_prefix
             launcher_dir = os.path.dirname(launcher_to_run)
-            proton_path = settings_manager.get("PROTONPATH", DEFAULT_PROTON)
+            proton_path = self.settings.get("PROTONPATH", DEFAULT_PROTON) if self.settings else DEFAULT_PROTON
 
             logger.info("[Install] Applying user environment configuration:")
             for key, value in config.items():
@@ -468,6 +508,12 @@ class DownloadItemWidget(QWidget):
     @pyqtSlot()
     @pyqtSlot(int, QProcess.ExitStatus)
     def on_run_finished(self, exit_code: int | None = None, exit_status: QProcess.ExitStatus | None = None) -> None:
+        """Handle UMU process completion: emit installation_finished, prompt for shortcuts, update UI.
+
+        Args:
+            exit_code: The numeric exit code of the process.
+            exit_status: The process exit status enum.
+        """
         logger.info("umu-run process finished with code %s, status %s.", exit_code, exit_status)
 
         self.installation_finished.emit()
@@ -506,7 +552,15 @@ class DownloadItemWidget(QWidget):
         self.current_wine_prefix = None
 
     def create_desktop_shortcuts(self, all_desktop_files: list[str], selected_desktop: list[str], selected_apps: list[str]) -> None:
-        """Create helper .sh scripts and system .desktop shortcuts for the installed game."""
+        """Create helper .sh scripts and system .desktop shortcuts for the installed game.
+
+        Uses ``resolve_shortcut_game_info`` and ``create_shortcuts`` from utils.
+
+        Args:
+            all_desktop_files: All detected .desktop files in the game.
+            selected_desktop: Basenames to place on the user's Desktop.
+            selected_apps: Basenames to place in ~/.local/share/applications.
+        """
         if not self.current_install_config:
             logger.error("Install config was cleared too early. Cannot create shortcuts.")
             self.current_install_config = {}
@@ -514,7 +568,7 @@ class DownloadItemWidget(QWidget):
         game_name, proton_path = resolve_shortcut_game_info(
             self.current_wine_prefix, self.current_install_config
         )
-        shortcut_scripts_path = settings_manager.get_shortcuts_dir(game_name)
+        shortcut_scripts_path = self.settings.get_shortcuts_dir(game_name) if self.settings else ""
 
         create_shortcuts(
             all_desktop_files=all_desktop_files,

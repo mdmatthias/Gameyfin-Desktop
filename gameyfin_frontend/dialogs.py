@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
 )
 
 from gameyfin_frontend.umu_database import UmuDatabase
-from gameyfin_frontend.settings import settings_manager
+from gameyfin_frontend.settings import SettingsManager
 from gameyfin_frontend.utils import parse_desktop_file
 from gameyfin_frontend.config import DEFAULT_PROTON, UMU_RUN_CMD
 
@@ -28,10 +28,23 @@ class InstallConfigDialog(QDialog):
 
     def __init__(self, umu_database: UmuDatabase, parent: QWidget | None = None,
                  default_game_id: str = "umu-default", default_store: str = "none",
-                 wine_prefix_path: str | None = None, initial_config: dict[str, Any] | None = None):
+                 wine_prefix_path: str | None = None, initial_config: dict[str, Any] | None = None,
+                 settings: SettingsManager | None = None):
+        """Configure UMU installation environment variables (protonfix, Proton path, store, extra env vars).
+
+        Args:
+            umu_database: UmuDatabase instance for searching game fixes.
+            parent: Parent widget.
+            default_game_id: Default UMU ID for the GAMEID field.
+            default_store: Default store selection.
+            wine_prefix_path: Optional WINE prefix path for wine tools.
+            initial_config: Optional dict to pre-populate fields from a prior install.
+            settings: SettingsManager instance providing app configuration.
+        """
         super().__init__(parent)
         self.umu_database = umu_database
         self.wine_prefix_path = wine_prefix_path
+        self.settings = settings
         self.setWindowTitle("Installation Configuration")
         self.setMinimumWidth(400)
 
@@ -61,11 +74,17 @@ class InstallConfigDialog(QDialog):
         self.gameid_widget.setLayout(self.gameid_layout)
 
         self.protonpath_input = QLineEdit()
-        self.protonpath_input.setText(settings_manager.get("PROTONPATH", DEFAULT_PROTON))
+        if self.settings:
+            self.protonpath_input.setText(self.settings.get("PROTONPATH", DEFAULT_PROTON))
+        else:
+            self.protonpath_input.setText(DEFAULT_PROTON)
 
         self.store_combo = QComboBox()
-        stores = settings_manager.get("GF_UMU_DB_STORES", ["none", "gog", "amazon", "battlenet", "ea", "egs",
+        if self.settings:
+            stores = self.settings.get("GF_UMU_DB_STORES", ["none", "gog", "amazon", "battlenet", "ea", "egs",
                                                            "humble", "itchio", "steam", "ubisoft", "zoomplatform"])
+        else:
+            stores = ["none", "gog", "amazon", "battlenet", "ea", "egs", "humble", "itchio", "steam", "ubisoft", "zoomplatform"]
         self.store_combo.addItems(stores)
         self.store_combo.setCurrentText(default_store)
 
@@ -198,7 +217,7 @@ class InstallConfigDialog(QDialog):
 
         os.makedirs(self.wine_prefix_path, exist_ok=True)
 
-        proton_path = settings_manager.get("PROTONPATH", DEFAULT_PROTON)
+        proton_path = self.settings.get("PROTONPATH", DEFAULT_PROTON) if self.settings else DEFAULT_PROTON
 
         proc_env = os.environ.copy()
         proc_env["PROTONPATH"] = proton_path
@@ -215,7 +234,7 @@ class InstallConfigDialog(QDialog):
 
         os.makedirs(self.wine_prefix_path, exist_ok=True)
 
-        proton_path = settings_manager.get("PROTONPATH", DEFAULT_PROTON)
+        proton_path = self.settings.get("PROTONPATH", DEFAULT_PROTON) if self.settings else DEFAULT_PROTON
 
         proc_env = os.environ.copy()
         proc_env["PROTONPATH"] = proton_path
@@ -263,6 +282,13 @@ class SelectLauncherDialog(QDialog):
     """
 
     def __init__(self, target_dir: str, exe_paths: list[str], parent: QWidget | None = None):
+        """Let the user choose an executable when multiple .exe files are found in a game directory.
+
+        Args:
+            target_dir: Base directory the relative exe paths are resolved against.
+            exe_paths: Full filesystem paths to candidate executables.
+            parent: Parent widget.
+        """
         super().__init__(parent)
         self.setWindowTitle("Select Launcher")
         self.setMinimumWidth(450)
@@ -311,6 +337,12 @@ class SelectUmuIdDialog(QDialog):
     """
 
     def __init__(self, results: list[dict[str, Any]], parent: QWidget | None = None):
+        """Let the user choose a UMU game entry when multiple matches are found.
+
+        Args:
+            results: List of UMU game entry dicts (with title, store, umu_id keys).
+            parent: Parent widget.
+        """
         super().__init__(parent)
         self.setWindowTitle("Select Game Entry")
         self.setMinimumWidth(450)
@@ -360,6 +392,14 @@ class SelectShortcutsDialog(QDialog):
     """
 
     def __init__(self, desktop_files: list[str], parent: QWidget | None = None, existing_desktop: list[str] | None = None, existing_apps: list[str] | None = None):
+        """Let the user select which .desktop files get shortcuts on the Desktop and in the Application Menu.
+
+        Args:
+            desktop_files: List of .desktop file paths to present for shortcut creation.
+            parent: Parent widget.
+            existing_desktop: Existing desktop shortcut basenames (for pre-checking).
+            existing_apps: Existing application menu shortcut basenames (for pre-checking).
+        """
         super().__init__(parent)
         self.setWindowTitle("Manage Shortcuts")
         self.setMinimumWidth(500)

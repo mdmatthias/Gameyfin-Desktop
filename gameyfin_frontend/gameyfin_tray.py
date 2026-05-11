@@ -1,18 +1,27 @@
 import os
 from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QIcon, QAction
-from .settings import settings_manager
+
+from .settings import SettingsManager
 from .utils import get_effective_icon
 
 
 class GameyfinTray:
-    def __init__(self, app, window):
+    def __init__(self, app, window, settings: SettingsManager):
+        """Create and show the system tray icon with menu actions.
+
+        Args:
+            app: The QApplication instance.
+            window: The main GameyfinWindow instance.
+            settings: SettingsManager instance providing app configuration.
+        """
         self.app = app
         self.window = window
+        self.settings = settings
         self.tray = QSystemTrayIcon()
 
-        custom_icon_path = settings_manager.get("GF_ICON_PATH")
-        theme = settings_manager.get("GF_THEME")
+        custom_icon_path = settings.get("GF_ICON_PATH")
+        theme = settings.get("GF_THEME")
 
         self.tray.setIcon(get_effective_icon(custom_icon_path, theme=theme))
         self.menu = QMenu()

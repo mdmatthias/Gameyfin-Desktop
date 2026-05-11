@@ -11,13 +11,13 @@ from dotenv import load_dotenv
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.utils import get_effective_icon, FLATPAK_ID
 
-from gameyfin_frontend.settings import settings_manager
-
-
+from gameyfin_frontend.settings import SettingsManager
 
 load_dotenv()
 
-log_level = settings_manager.get("GF_LOG_LEVEL", "WARNING").upper()
+# Get settings instance early for logging config
+settings = SettingsManager.get_instance()
+log_level = settings.get("GF_LOG_LEVEL", "WARNING").upper()
 logging.basicConfig(
     level=getattr(logging, log_level, logging.WARNING),
     format="%(asctime)s %(levelname)s %(name)s:%(filename)s:%(lineno)d %(message)s",
@@ -36,26 +36,26 @@ if __name__ == "__main__":
     app.default_style_name = app.style().objectName()
 
     # Apply theme
-    theme = settings_manager.get("GF_THEME")
+    theme = settings.get("GF_THEME")
     if theme and theme != "auto":
         from qt_material import apply_stylesheet
         apply_stylesheet(app, theme=theme)
 
-    umu_database = UmuDatabase()
+    umu_database = UmuDatabase(settings)
 
     app.setApplicationName("Gameyfin")
     app.setOrganizationName("Gameyfin")
     app.setDesktopFileName(FLATPAK_ID)
 
     # Set window icon
-    custom_icon_path = settings_manager.get("GF_ICON_PATH")
+    custom_icon_path = settings.get("GF_ICON_PATH")
     app.setWindowIcon(get_effective_icon(custom_icon_path, theme=theme))
 
-    window = GameyfinWindow(umu_database)
+    window = GameyfinWindow(umu_database, settings)
 
-    tray_app = GameyfinTray(app, window)
+    tray_app = GameyfinTray(app, window, settings)
 
-    if int(settings_manager.get("GF_START_MINIMIZED", 0)) == 0:
+    if int(settings.get("GF_START_MINIMIZED", 0)) == 0:
 
         window.show()
 
