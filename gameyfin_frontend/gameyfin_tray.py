@@ -50,7 +50,7 @@ class GameyfinTray:
         self.tray.activated.connect(self.icon_clicked)
         self.tray.show()
 
-    def icon_clicked(self, reason):
+    def icon_clicked(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         """Handles single-click on the tray icon — toggles window visibility."""
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
             if self.window.isVisible():
@@ -58,7 +58,7 @@ class GameyfinTray:
             else:
                 self.window.show_main_tab()
 
-    def quit_app(self):
+    def quit_app(self) -> None:
         """Performs a full application quit — hides tray, closes window, exits app."""
         self.tray.hide()
         self.window.is_really_quitting = True

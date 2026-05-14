@@ -159,7 +159,7 @@ class InstallConfigDialog(QDialog):
         self.search_button.clicked.connect(self.search_for_game_id)
 
     @pyqtSlot()
-    def search_for_game_id(self):
+    def search_for_game_id(self) -> None:
         """
         Opens a dialog to search for a game by title, checks ALL stores,
         and populates the umu_id and store fields from the results.

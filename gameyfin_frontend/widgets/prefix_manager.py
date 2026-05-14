@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 from typing import Any
 
@@ -510,7 +511,6 @@ class PrefixManagerWidget(QWidget):
         )
 
         if confirm == QMessageBox.StandardButton.Yes:
-            import shutil
             try:
                 shutil.rmtree(prefix_path)
                 self.refresh_prefixes()

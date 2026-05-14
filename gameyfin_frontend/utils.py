@@ -9,11 +9,9 @@ from typing import Any
 from PyQt6.QtGui import QGuiApplication, QIcon
 from PyQt6.QtCore import Qt
 
-from gameyfin_frontend.config import DEFAULT_PROTON, SCRIPT_PERMISSION
+from gameyfin_frontend.config import DEFAULT_PROTON, SCRIPT_PERMISSION, FLATPAK_ID
 
 logger = logging.getLogger(__name__)
-
-FLATPAK_ID = "org.gameyfin.Gameyfin-Desktop"
 
 # Multipliers for human-readable size formatting (binary units)
 _SIZE_UNITS = [
@@ -49,7 +47,7 @@ def parse_size(text: str) -> int:
         return 0
 
 
-def get_effective_icon(custom_path: str = None, theme: str = None, icon_theme_name: str = FLATPAK_ID) -> QIcon:
+def get_effective_icon(custom_path: str | None = None, theme: str | None = None, icon_theme_name: str = FLATPAK_ID) -> QIcon:
     """
     Returns the appropriate QIcon based on the selected theme,
     system theme (Light/Dark), or a custom path if provided.
@@ -255,7 +253,11 @@ def build_flatpak_exec_command(inner_cmd: str) -> str:
 
 
 def resource_path(relative_path: str) -> str:
-    """ Get absolute path to resource, works for dev and for PyInstaller """
+    """Return the absolute path to a bundled resource, working for both development and PyInstaller builds.
+
+    In a PyInstaller bundle, resolves to the temp extraction directory (_MEIPASS).
+    In development, resolves relative to the project root (parent of gameyfin_frontend/).
+    """
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
 
@@ -266,9 +268,16 @@ def resource_path(relative_path: str) -> str:
 
 
 def get_app_icon_path(custom_path: str | None = None, theme: str | None = None) -> str:
-    """
-    Returns the appropriate icon path based on the selected theme, 
-    system theme (Light/Dark), or a custom path if provided.
+    """Return the path to the app icon based on theme selection and system appearance.
+
+    Priority: custom path (if it exists) → qt-material theme (light/dark) → system color scheme.
+
+    Args:
+        custom_path: Optional user-specified icon file path.
+        theme: Theme string (e.g. "auto", "material_light", "dark_teal.xml").
+
+    Returns:
+        Absolute path to the appropriate icon file.
     """
     if custom_path and os.path.exists(custom_path):
         return custom_path

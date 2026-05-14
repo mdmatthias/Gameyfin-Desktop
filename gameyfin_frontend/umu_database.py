@@ -198,7 +198,7 @@ class UmuDatabase:
         """
         return self._request_umu_api(params={"store": store.lower(), "umu_id": umu_id.lower()})
 
-    def get_game_by_umu_id(self, umu_id: str):
+    def get_game_by_umu_id(self, umu_id: str) -> dict | list | None:
         """
         Get ALL GAME VALUES AND ENTRIES based on UMU_ID
         API: /umu_api.php?umu_id=SOME-UMU-ID

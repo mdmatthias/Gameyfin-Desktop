@@ -9,7 +9,8 @@ from gameyfin_frontend import GameyfinWindow
 from dotenv import load_dotenv
 
 from gameyfin_frontend.umu_database import UmuDatabase
-from gameyfin_frontend.utils import get_effective_icon, FLATPAK_ID
+from gameyfin_frontend.utils import get_effective_icon
+from gameyfin_frontend.config import FLATPAK_ID
 
 from gameyfin_frontend.settings import SettingsManager
 

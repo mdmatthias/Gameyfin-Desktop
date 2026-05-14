@@ -118,7 +118,7 @@ class SettingsWidget(QWidget):
             QMessageBox.critical(self, "Error", f"Invalid JSON for stores: {e}")
             return
 
-     if self.settings:
+        if self.settings:
             self.settings.set("GF_URL", self.url_edit.text())
             self.settings.set("GF_WINDOW_WIDTH", self.width_spin.value())
             self.settings.set("GF_WINDOW_HEIGHT", self.height_spin.value())

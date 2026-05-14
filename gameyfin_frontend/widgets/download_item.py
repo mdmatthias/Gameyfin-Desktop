@@ -284,7 +284,7 @@ class DownloadItemWidget(QWidget):
         """Clear the thread reference when the thread object is deleted."""
         self.thread = None
 
-    @pyqtSlot('long long', 'long long')
+    @pyqtSlot(int, int)
     def _on_bytes_received(self, received: int, total: int) -> None:
         """Update the status label with received bytes and computed download speed."""
         if total > 0:

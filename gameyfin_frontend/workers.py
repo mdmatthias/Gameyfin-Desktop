@@ -13,11 +13,21 @@ logger = logging.getLogger(__name__)
 class StreamDownloadWorker(QObject):
     progress = pyqtSignal(int)
     current_file = pyqtSignal(str)
-    bytes_received = pyqtSignal('long long', 'long long')
+    bytes_received = pyqtSignal(int, int)
     finished = pyqtSignal()
     error = pyqtSignal(str)
 
     def __init__(self, url: str, target_dir: str, cookies: dict[str, Any] | None = None, estimated_total: int = 0) -> None:
+        """Initialize a background worker that streams a URL to a directory while unzipping.
+
+        Emits progress, bytes_received, current_file, finished, and error signals.
+
+        Args:
+            url: The URL to download from.
+            target_dir: The directory to extract files into.
+            cookies: Optional dict of cookies to include in the request.
+            estimated_total: Fallback total byte count if Content-Length is missing.
+        """
         super().__init__()
         self.url = url
         self.target_dir = target_dir
@@ -123,6 +133,12 @@ class ProcessMonitorWorker(QThread):
     finished = pyqtSignal()
 
     def __init__(self, pid: int, parent: QObject | None = None) -> None:
+        """Initialize a worker that monitors a process by PID.
+
+        Args:
+            pid: The process ID to monitor.
+            parent: Parent QObject.
+        """
         super().__init__(parent)
         self.pid = pid
         self._running = True
@@ -150,6 +166,6 @@ class ProcessMonitorWorker(QThread):
 
         logger.info("ProcessMonitor: Stopping monitor for %s", self.pid)
 
-    def stop(self):
+    def stop(self) -> None:
         """Stops the process monitor thread."""
         self._running = False
