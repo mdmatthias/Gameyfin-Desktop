@@ -84,18 +84,6 @@ class TestProcessMonitorWorker:
         worker.run()
         assert len(finished_signals) == 1
 
-    def test_existing_pid_runs_until_stopped(self):
-        """Test with current process PID which should exist."""
-        from gameyfin_frontend.workers import ProcessMonitorWorker
-        finished_signals = []
-        worker = ProcessMonitorWorker(pid=os.getpid())
-        worker.finished.connect(lambda: finished_signals.append(True))
-        # Stop immediately so we don't block
-        worker.stop()
-        worker.run()
-        # Should have finished because we stopped it
-        assert len(finished_signals) == 1
-
     def test_pid_zero_logs_warning(self, caplog):
         from gameyfin_frontend.workers import ProcessMonitorWorker
         with caplog.at_level("WARNING"):

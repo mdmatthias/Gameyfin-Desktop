@@ -1,5 +1,3 @@
-import glob
-import json
 import logging
 import os
 import shutil
@@ -20,16 +18,15 @@ from PyQt6.QtWidgets import (
     QMessageBox,
 )
 
-from gameyfin_frontend.dialogs import SelectShortcutsDialog, InstallConfigDialog, SelectUmuIdDialog, \
-    SelectLauncherDialog
+from gameyfin_frontend.dialogs import SelectShortcutsDialog
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.utils import (
-    create_shortcuts, build_umu_env_prefix, resolve_shortcut_game_info,
+    create_shortcuts, resolve_shortcut_game_info,
     format_size, parse_size,
 )
 from gameyfin_frontend.workers import StreamDownloadWorker
+from gameyfin_frontend.services import LauncherResolver, GameInstaller, GameLauncher
 from gameyfin_frontend.settings import SettingsManager
-from gameyfin_frontend.config import DEFAULT_PROTON
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +64,10 @@ class DownloadItemWidget(QWidget):
 
         self.monitor_thread = None
         self.monitor_worker = None
+
+        self._launcher_resolver = LauncherResolver()
+        self._game_installer = GameInstaller(umu_database, settings, self)
+        self._game_launcher = GameLauncher()
 
         self.icon_label = QLabel()
         self.filename_label = QLabel()
@@ -159,47 +160,28 @@ class DownloadItemWidget(QWidget):
         self.status_label.setText(f"Running... ({format_size(size)})")
         self.status_label.setStyleSheet("color: #3498DB;")
 
-    def _find_launcher_paths(self, target_dir: str) -> list[str]:
-        """Walk target_dir and collect all .exe files."""
-        launcher_paths = []
-        try:
-            for root, dirs, files in os.walk(target_dir):
-                for file in files:
-                    if file.lower().endswith(".exe"):
-                        launcher_paths.append(os.path.join(root, file))
-        except OSError as e:
-            logger.error("Error searching for launcher: %s", e)
-        return launcher_paths
-
     def _handle_launcher_selection(self, target_dir: str) -> str | None:
-        """Search for .exe files and let user select one if multiple found.
-
-        Returns the selected launcher path, or None if user cancelled or
-        an error occurred.
-        """
-        launcher_paths = self._find_launcher_paths(target_dir)
-
-        if not launcher_paths:
+        """Delegate to LauncherResolver and update UI on special outcomes."""
+        def on_no_exe() -> None:
             self.status_label.setText("Install complete, no .exe found.")
             self.status_label.setStyleSheet("color: #E67E22;")
             QDesktopServices.openUrl(QUrl.fromLocalFile(target_dir))
-            return None
 
-        if len(launcher_paths) == 1:
-            return launcher_paths[0]
+        def on_no_launcher() -> None:
+            self.status_label.setText("Install complete, no launcher selected.")
+            self.status_label.setStyleSheet("color: #E67E22;")
 
-        dialog = SelectLauncherDialog(target_dir, launcher_paths, self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            launcher_to_run = dialog.get_selected_launcher()
-            if not launcher_to_run:
-                self.status_label.setText("Install complete, no launcher selected.")
-                self.status_label.setStyleSheet("color: #E67E22;")
-                return None
-            return launcher_to_run
-        else:
+        def on_cancelled() -> None:
             self.status_label.setText("Install complete, launch cancelled.")
             self.status_label.setStyleSheet("")
-            return None
+
+        return self._launcher_resolver.handle_launcher_selection(
+            target_dir=target_dir,
+            parent=self,
+            on_no_exe=on_no_exe,
+            on_no_launcher=on_no_launcher,
+            on_cancelled=on_cancelled,
+        )
 
     def update_ui_for_historic_state(self) -> None:
         """Update the UI to reflect a previously saved download state (completed, failed, or cancelled).
@@ -345,86 +327,22 @@ class DownloadItemWidget(QWidget):
             return
 
         # --- Linux Logic ---
-        default_game_id = "umu-default"
-        default_store = "none"
-        results = []
+        umu_id, store = self._game_installer.detect_umu_game_id(target_dir)
+        wine_prefix_path = self._game_installer.build_wine_prefix(target_dir)
+        self.current_wine_prefix = wine_prefix_path
 
-        try:
-            json_files = glob.glob(os.path.join(target_dir, "product_*.json"))
-            if json_files:
-                product_json_path = json_files[0]
-                logger.info("Found product info: %s", product_json_path)
-
-                with open(product_json_path, 'r') as f:
-                    product_data = json.load(f)
-
-                codename = product_data.get("id")
-
-                if codename:
-                    logger.info("Found codename: %s", codename)
-                    results = self.umu_database.get_game_by_codename(str(codename))
-                    logger.info("API results (by codename): %s", results)
-
-            if not results:
-                filename = self.record.get("filename", os.path.basename(self.record.get("path", "")))
-                zip_name_base = os.path.splitext(filename)[0]
-                search_title = zip_name_base.replace('_', ' ').replace('-', ' ').strip()
-
-                if search_title:
-                    logger.info("No results from codename. Fallback: searching by title: '%s'", search_title)
-                    results = self.umu_database.search_by_partial_title(search_title)
-                    logger.info("API results (by title): %s", results)
-                else:
-                    logger.info("No codename found and filename was empty. Skipping UMU search.")
-
-            selected_entry = None
-            if isinstance(results, list) and len(results) > 0:
-                if len(results) == 1:
-                    selected_entry = results[0]
-                    logger.info("One matching entry found.")
-                else:
-                    logger.info("Multiple matching entries found, showing dialog.")
-                    umu_dialog = SelectUmuIdDialog(results, self)
-                    if umu_dialog.exec() == QDialog.DialogCode.Accepted:
-                        selected_entry = umu_dialog.get_selected_entry()
-                    else:
-                        logger.info("User cancelled UMU ID selection.")
-
-                if selected_entry:
-                    default_game_id = selected_entry.get("umu_id", default_game_id)
-                    default_store = selected_entry.get("store", default_store)
-                    logger.info("Using: umu_id=%s, store=%s", default_game_id, default_store)
-
-        except (json.JSONDecodeError, KeyError, TypeError) as e:
-            logger.error("Error during UMU auto-detection: %s", e)
-
-        wine_prefix_path = None
-        if sys.platform == "linux":
-            try:
-                folder_name = os.path.basename(target_dir)
-                pfx_name = f"{folder_name.lower()}_pfx"
-                wine_prefix_path = os.path.join(self.settings.get_prefixes_dir(), pfx_name) if self.settings else ""
-
-                self.current_wine_prefix = wine_prefix_path
-                logger.info("Getting WINEPREFIX for dialog: %s", wine_prefix_path)
-            except OSError as e:
-                logger.error("Error getting WINEPREFIX: %s", e)
-
-        dialog = InstallConfigDialog(
-            umu_database=self.umu_database,
-            parent=self,
-            default_game_id=default_game_id,
-            default_store=default_store,
+        install_config = self._game_installer.prompt_install_config(
+            umu_id=umu_id,
+            store=store,
             wine_prefix_path=wine_prefix_path,
-            settings=self.settings
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if install_config is None:
             self.status_label.setText("Install cancelled by user.")
             self.status_label.setStyleSheet("")
             self.current_wine_prefix = None
             return
 
-        self.current_install_config = dialog.get_config()
+        self.current_install_config = install_config
 
         launcher_to_run = self._handle_launcher_selection(target_dir)
         if launcher_to_run is None:
@@ -438,72 +356,37 @@ class DownloadItemWidget(QWidget):
         Args:
             launcher_to_run: Absolute path to the .exe to launch.
         """
-        try:
-            logger.info("Executing (Windows): %s", launcher_to_run)
-            self.run_process = QProcess(self)
-            self.run_process.setProgram(launcher_to_run)
-            self.run_process.setWorkingDirectory(os.path.dirname(launcher_to_run))
-
-            self.run_process.finished.connect(self.on_run_finished)
-            self.run_process.start()
-
-            if not self.run_process.waitForStarted():
-                logger.info("Launch failed (QProcess failed to start).")
-                self.status_label.setText("Launch failed.")
-                self.status_label.setStyleSheet("color: red;")
-                return
-
-            self._set_running_status()
-        except OSError as e:
-            self.status_label.setText(f"Launch failed: {e}")
+        self.run_process = self._game_launcher.start_windows(launcher_to_run)
+        if self.run_process is None:
+            self.status_label.setText("Launch failed.")
             self.status_label.setStyleSheet("color: red;")
+            return
+        self.run_process.finished.connect(self.on_run_finished)
+        self._set_running_status()
 
     def _start_linux_installation(self, launcher_to_run: str, target_dir: str, install_config: dict[str, Any]) -> None:
         """Launch the game via UMU environment prefix and umu-run on Linux.
-
-        Builds the command string with ``build_umu_env_prefix`` and executes it
-        via ``/bin/sh -c`` with ``exec`` for proper signal forwarding.
 
         Args:
             launcher_to_run: Path to the game executable.
             target_dir: Download target directory (unused, for future use).
             install_config: Dict of environment variables and UMU settings.
         """
-        try:
-            config = install_config or {}
-
-            if not self.current_wine_prefix:
-                raise ValueError("Wineprefix path was not set.")
-
-            wine_prefix_path = self.current_wine_prefix
-            launcher_dir = os.path.dirname(launcher_to_run)
-            proton_path = self.settings.get("PROTONPATH", DEFAULT_PROTON) if self.settings else DEFAULT_PROTON
-
-            logger.info("[Install] Applying user environment configuration:")
-            for key, value in config.items():
-                logger.info("  %s=%s", key, value)
-
-            env_prefix = build_umu_env_prefix(proton_path, wine_prefix_path, config)
-            self.run_process = QProcess(self)
-            self.run_process.setWorkingDirectory(launcher_dir)
-
-            command_string = f"{env_prefix} exec umu-run \"{launcher_to_run}\""
-            logger.info("Executing: /bin/sh -c \"%s\"", command_string)
-            self.run_process.finished.connect(self.on_run_finished)
-            self.run_process.start("/bin/sh", ["-c", command_string])
-
-            if not self.run_process.waitForStarted():
-                logger.info("Launch failed (QProcess failed to start).")
-                self.status_label.setText("Launch failed. Is 'umu-run' installed?")
-                self.status_label.setStyleSheet("color: red;")
-                self.current_wine_prefix = None
-                return
-
-            self._set_running_status()
-        except (ValueError, OSError) as e:
-            self.status_label.setText(f"Launch failed: {e}")
+        proton_path = self.settings.get("PROTONPATH") if self.settings else None
+        self.run_process = self._game_launcher.start_linux(
+            launcher_to_run=launcher_to_run,
+            target_dir=target_dir,
+            install_config=install_config,
+            wine_prefix_path=self.current_wine_prefix or "",
+            proton_path=proton_path,
+        )
+        if self.run_process is None:
+            self.status_label.setText("Launch failed. Is 'umu-run' installed?")
             self.status_label.setStyleSheet("color: red;")
             self.current_wine_prefix = None
+            return
+        self.run_process.finished.connect(self.on_run_finished)
+        self._set_running_status()
 
     @pyqtSlot()
     @pyqtSlot(int, QProcess.ExitStatus)

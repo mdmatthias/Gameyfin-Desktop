@@ -150,14 +150,12 @@ class ProcessMonitorWorker(QThread):
             return
 
         logger.info("ProcessMonitor: Monitoring PID %s", self.pid)
-        self._running = True
         while self._running:
             try:
                 os.kill(self.pid, 0)
             except OSError:
                 logger.info("ProcessMonitor: PID %s finished.", self.pid)
                 self._running = False
-                self.finished.emit()
                 break
             else:
                 if not self._running:
@@ -165,6 +163,7 @@ class ProcessMonitorWorker(QThread):
                 self.msleep(1000)
 
         logger.info("ProcessMonitor: Stopping monitor for %s", self.pid)
+        self.finished.emit()
 
     def stop(self) -> None:
         """Stops the process monitor thread."""
