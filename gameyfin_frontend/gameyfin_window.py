@@ -98,7 +98,15 @@ class GameyfinWindow(QMainWindow):
         self.setGeometry(0, 0, settings.get("GF_WINDOW_WIDTH"), settings.get("GF_WINDOW_HEIGHT"))
         self.is_really_quitting = False
 
-        profile_path = settings.get_config_dir()
+        self._setup_profile()
+        self._setup_browser()
+        self._setup_widgets()
+        self._setup_tabs()
+        self._inject_css()
+
+    def _setup_profile(self) -> None:
+        """Initialize the web browser profile with storage and settings."""
+        profile_path = self.settings.get_config_dir()
         os.makedirs(profile_path, exist_ok=True)
 
         self.profile = QWebEngineProfile("gameyfin-profile", self)
@@ -107,14 +115,14 @@ class GameyfinWindow(QMainWindow):
         self.profile.setPersistentCookiesPolicy(
             QWebEngineProfile.PersistentCookiesPolicy.AllowPersistentCookies
         )
-        settings = self.profile.settings()
-        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalStorageEnabled, True)
-        settings.setAttribute(QWebEngineSettings.WebAttribute.PluginsEnabled, False)
-        settings.setAttribute(QWebEngineSettings.WebAttribute.PdfViewerEnabled, False)
-        settings.setAttribute(QWebEngineSettings.WebAttribute.ScreenCaptureEnabled, False)
-        settings.setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, False)
-        settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, False)
-        settings.setAttribute(QWebEngineSettings.WebAttribute.DnsPrefetchEnabled, False)
+        web_settings = self.profile.settings()
+        web_settings.setAttribute(QWebEngineSettings.WebAttribute.LocalStorageEnabled, True)
+        web_settings.setAttribute(QWebEngineSettings.WebAttribute.PluginsEnabled, False)
+        web_settings.setAttribute(QWebEngineSettings.WebAttribute.PdfViewerEnabled, False)
+        web_settings.setAttribute(QWebEngineSettings.WebAttribute.ScreenCaptureEnabled, False)
+        web_settings.setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, False)
+        web_settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, False)
+        web_settings.setAttribute(QWebEngineSettings.WebAttribute.DnsPrefetchEnabled, False)
 
         self._cookies = {}
         cookie_store = self.profile.cookieStore()
@@ -122,25 +130,31 @@ class GameyfinWindow(QMainWindow):
         cookie_store.cookieRemoved.connect(self._on_cookie_removed)
         cookie_store.loadAllCookies()
 
+    def _setup_browser(self) -> None:
+        """Initialize the main browser view and custom page."""
         self.browser = QWebEngineView()
         base_url = QUrl(self.settings.get("GF_URL"))
-        
+
         # Main page restricted to the Gameyfin host
         self.custom_page = CustomWebEnginePage(self.profile, self.browser, restricted_host=base_url.host(), main_host=base_url.host())
         self.custom_page.new_tab_requested.connect(self.add_new_browser_tab)
         self.custom_page.logout_detected.connect(self.handle_logout)
         self.custom_page.create_window_callback = self.create_new_window_for_page
-        
+
         self.browser.setPage(self.custom_page)
         self.browser.setUrl(base_url)
 
-        self.download_manager = DownloadManagerWidget(umu_database, self, self.settings)
-        self.prefix_manager = PrefixManagerWidget(umu_database, self, self.settings)
+    def _setup_widgets(self) -> None:
+        """Initialize child widgets (Downloads, Prefixes, Settings)."""
+        self.download_manager = DownloadManagerWidget(self.umu_database, self, self.settings)
+        self.prefix_manager = PrefixManagerWidget(self.umu_database, self, self.settings)
         self.download_manager.prefix_manager = self.prefix_manager
 
         # --- Settings Setup ---
         self.settings_widget = SettingsWidget(self, self.settings)
 
+    def _setup_tabs(self) -> None:
+        """Initialize the tab widget and add all tabs."""
         # --- Tab Widget Setup ---
         self.tab_widget = QTabWidget()
         self.tab_widget.setTabsClosable(True)
@@ -148,10 +162,10 @@ class GameyfinWindow(QMainWindow):
 
         # Add the Gameyfin tab with an empty string for the label
         gameyfin_tab_index = self.tab_widget.addTab(self.browser, "")
-        
+
         # Remove close button from the main tab (index 0)
         self.tab_widget.tabBar().setTabButton(gameyfin_tab_index, QTabBar.ButtonPosition.RightSide, None)
-        
+
         # Set the icon for that tab
         tab_icon = get_effective_icon(
             custom_path=self.settings.get("GF_ICON_PATH"),
@@ -173,6 +187,8 @@ class GameyfinWindow(QMainWindow):
 
         self.browser.page().profile().downloadRequested.connect(self.on_download_requested)
 
+    def _inject_css(self) -> None:
+        """Inject CSS to hide horizontal overflow in the browser."""
         script = QWebEngineScript()
         script.setSourceCode("""
             document.documentElement.style.overflowX = 'hidden';
@@ -188,7 +204,7 @@ class GameyfinWindow(QMainWindow):
         # Prevent closing the fixed tabs (Main, Downloads, Prefixes, Settings)
         if index < 4:
             return
-        
+
         widget = self.tab_widget.widget(index)
         if widget:
             widget.deleteLater()
@@ -204,7 +220,7 @@ class GameyfinWindow(QMainWindow):
         page.logout_detected.connect(self.handle_logout)
         page.create_window_callback = self.create_new_window_for_page
         view.setPage(page)
-        
+
         view.titleChanged.connect(lambda title: self.update_tab_title(view, title))
         view.iconChanged.connect(lambda icon: self.update_tab_icon(view, icon))
         return view
@@ -243,10 +259,10 @@ class GameyfinWindow(QMainWindow):
         # Fixed tabs are 0 (Main), 1 (Downloads), 2 (Prefixes), 3 (Settings) - indices < 4
         for i in range(count - 1, 3, -1):
             self.close_tab(i)
-        
+
         # Ensure we are on the main tab
         self.tab_widget.setCurrentIndex(0)
-        
+
         # Only navigate if the signal didn't come from the main page itself
         if self.sender() != self.browser.page():
             self.browser.setUrl(url)
@@ -405,7 +421,7 @@ class GameyfinWindow(QMainWindow):
             if self.browser.url() != new_url:
                 logger.info("Applying new URL: %s", new_url.toString())
                 self.browser.setUrl(new_url)
-            
+
             # Update the main_host in all custom pages
             for i in range(self.tab_widget.count()):
                 widget = self.tab_widget.widget(i)
@@ -431,7 +447,7 @@ class GameyfinWindow(QMainWindow):
         if sys.platform != "win32" and self.umu_database:
             self.umu_database.refresh_cache()
 
-       # 5. Update Theme
+        # 5. Update Theme
         theme = self.settings.get("GF_THEME")
         app = QApplication.instance()
         if theme and theme != "auto":
