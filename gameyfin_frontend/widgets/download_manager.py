@@ -10,6 +10,7 @@ from gameyfin_frontend.settings import SettingsManager
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.widgets.download_item import DownloadItemWidget
 from gameyfin_frontend.workers import StreamDownloadWorker
+from gameyfin_frontend.services import DownloadHistoryService
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +31,11 @@ class DownloadManagerWidget(QWidget):
         self.umu_database = umu_database
         self.prefix_manager = None
         self.settings = settings
-        self.json_path = settings.get_downloads_json_path() if settings else ""
-        self.download_records = []
-        self.widget_map = {}
+        self.download_history = DownloadHistoryService(
+            settings.get_downloads_json_path()
+        ) if settings else None
+        self.download_records: list[dict[str, Any]] = []
+        self.widget_map: dict[DownloadItemWidget, list[QWidget]] = {}
 
         self.main_layout = QVBoxLayout(self)
         self.scroll_area = QScrollArea(self)
@@ -70,9 +73,11 @@ class DownloadManagerWidget(QWidget):
         controller.installation_finished.connect(self.on_installation_finished)
         controller.remove_requested.connect(self.remove_download_item)
 
-        existing_controller = self.find_controller_by_url(record["url"])
-        if existing_controller:
-            self.remove_download_item(existing_controller)
+        existing_record = self.download_history.find_by_url(self.download_records, record["url"]) if self.download_history else None
+        if existing_record:
+            existing_controller = self.find_controller_by_record(existing_record)
+            if existing_controller:
+                self.remove_download_item(existing_controller)
 
         self.insert_row_at(0, controller)
         if controller.record not in self.download_records:
@@ -94,14 +99,10 @@ class DownloadManagerWidget(QWidget):
     def load_history(self) -> None:
         """Load persisted download history from JSON and recreate widgets for each record."""
         try:
-            if os.path.exists(self.json_path):
-                with open(self.json_path, 'r') as f:
-                    self.download_records = json.load(f)
+            if self.download_history:
+                self.download_records = self.download_history.load()
 
                 for record in reversed(self.download_records):
-                    if record["status"] == "Downloading":
-                        record["status"] = "Failed"
-
                     controller = DownloadItemWidget(self.umu_database, record=record, settings=self.settings)
                     controller.remove_requested.connect(self.remove_download_item)
                     self.add_download_to_grid(controller)
@@ -135,8 +136,8 @@ class DownloadManagerWidget(QWidget):
 
             self.download_records = records
 
-            with open(self.json_path, 'w') as f:
-                json.dump(self.download_records, f, indent=4)
+            if self.download_history:
+                self.download_history.save(records)
         except OSError as e:
             logger.error("Error saving download history: %s", e)
 
@@ -149,6 +150,13 @@ class DownloadManagerWidget(QWidget):
         """Find a download controller by its URL for duplicate detection."""
         for controller in self.widget_map.keys():
             if controller.record.get("url") == url:
+                return controller
+        return None
+
+    def find_controller_by_record(self, record: dict[str, Any]) -> DownloadItemWidget | None:
+        """Find a download controller by its record dict."""
+        for controller in self.widget_map.keys():
+            if controller.record is record:
                 return controller
         return None
 

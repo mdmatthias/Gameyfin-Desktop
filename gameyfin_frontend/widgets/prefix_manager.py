@@ -1,24 +1,20 @@
 import glob
-import json
 import logging
 import os
-import re
-import shutil
 import subprocess
 from typing import Any
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QListWidget, QPushButton,
-                             QHBoxLayout, QLabel, QMessageBox, QDialog, QComboBox, QListWidgetItem, QCheckBox)
+                             QHBoxLayout, QLabel, QMessageBox, QDialog, QComboBox, QListWidgetItem)
 from PyQt6.QtCore import Qt
-from gameyfin_frontend.dialogs import InstallConfigDialog, SelectShortcutsDialog
+
+from gameyfin_frontend.dialogs import InstallConfigDialog
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.settings import SettingsManager
-from gameyfin_frontend.utils import (
-    get_xdg_user_dir, create_shortcuts, build_umu_env_prefix, resolve_shortcut_game_info
-)
-from gameyfin_frontend.config import DEFAULT_PROTON, SCRIPT_PERMISSION
+from gameyfin_frontend.services import PrefixService, ShortcutService
 
 logger = logging.getLogger(__name__)
+
 
 class PrefixItemWidget(QWidget):
     def __init__(self, prefix_name: str, prefix_path: str, parent: QWidget | None = None, settings: SettingsManager | None = None):
@@ -87,7 +83,7 @@ class PrefixItemWidget(QWidget):
         # Skip the placeholder at index 0
         if index == 0:
             return
-            
+
         script_path = self.script_combo.itemData(index)
         if script_path:
             try:
@@ -103,7 +99,7 @@ class PrefixItemWidget(QWidget):
         """Open the shortcut selection dialog and recreate desktop shortcuts for this prefix."""
         shortcuts_dir = os.path.join(self.prefix_path, "drive_c", "proton_shortcuts")
         if not os.path.isdir(shortcuts_dir):
-            QMessageBox.warning(self, "No Shortcuts Found", 
+            QMessageBox.warning(self, "No Shortcuts Found",
                                 f"The directory '{shortcuts_dir}' does not exist.\n\n"
                                 "Shortcuts are usually captured during the installation process.")
             return
@@ -113,66 +109,26 @@ class PrefixItemWidget(QWidget):
             QMessageBox.warning(self, "No Shortcuts Found", "No .desktop files found in the proton_shortcuts directory.")
             return
 
-        # Detect existing shortcuts for Desktop and Applications separately
-        existing_desktop = []
-        existing_apps = []
-        home_dir = os.path.expanduser("~")
-        desktop_dir = os.path.join(home_dir, get_xdg_user_dir("DESKTOP"))
-        apps_dir = os.path.join(home_dir, ".local", "share", "applications")
-        
-        for df in desktop_files:
-            bn = os.path.basename(df)
-            if os.path.exists(os.path.join(desktop_dir, bn)):
-                existing_desktop.append(bn)
-            if os.path.exists(os.path.join(apps_dir, bn)):
-                existing_apps.append(bn)
+        shortcut_service = ShortcutService(self.settings)
+        existing_desktop, existing_apps = shortcut_service.detect_existing_shortcuts(desktop_files)
 
-        dialog = SelectShortcutsDialog(desktop_files, self, 
-                                      existing_desktop=existing_desktop, 
-                                      existing_apps=existing_apps)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            selected_desktop, selected_apps = dialog.get_selected_files()
-            self.create_desktop_shortcuts(desktop_files, selected_desktop, selected_apps)
+        selection = shortcut_service.show_shortcut_dialog(
+            desktop_files, self,
+            existing_desktop=existing_desktop,
+            existing_apps=existing_apps,
+        )
+        if selection is None:
+            return
+
+        selected_desktop, selected_apps = selection
+        game_name = self.prefix_name.removesuffix("_pfx")
+        success = shortcut_service.create_shortcuts_for_prefix(
+            self.prefix_path, game_name,
+            selected_desktop, selected_apps, self,
+        )
+        if success:
             self.populate_scripts()
             QMessageBox.information(self, "Shortcuts Updated", "Shortcuts have been updated.")
-
-    def create_desktop_shortcuts(self, all_desktop_files: list[str], selected_desktop: list[str], selected_apps: list[str]) -> None:
-        """Create/update desktop shortcuts using the stored install config for this prefix.
-
-        Loads config.json from the prefix's script directories, resolves game info,
-        and calls ``create_shortcuts`` from utils.
-
-        Args:
-            all_desktop_files: All detected .desktop files in the prefix.
-            selected_desktop: Basenames to place on the user's Desktop.
-            selected_apps: Basenames to place in ~/.local/share/applications.
-        """
-        # Load config.json if available (check both new and legacy locations)
-        install_config = {}
-        for sd in self.settings.get_shortcuts_dirs(self.prefix_name):
-            config_path = os.path.join(sd, "config.json")
-            if os.path.exists(config_path):
-                try:
-                    with open(config_path, 'r') as f:
-                        install_config = json.load(f)
-                    break
-                except (json.JSONDecodeError, OSError) as e:
-                    logger.error("Error loading config for shortcuts: %s", e)
-
-        game_name, proton_path = resolve_shortcut_game_info(
-            self.prefix_path, install_config
-        )
-
-        create_shortcuts(
-            all_desktop_files=all_desktop_files,
-            scripts_dir=self.primary_scripts_dir,
-            wine_prefix=self.prefix_path,
-            install_config=install_config,
-            proton_path=proton_path,
-            selected_desktop=selected_desktop,
-            selected_apps=selected_apps,
-            remove_unselected=True,
-        )
 
 
 class PrefixManagerWidget(QWidget):
@@ -188,23 +144,10 @@ class PrefixManagerWidget(QWidget):
         self.umu_database = umu_database
         self.settings = settings
         self.prefixes_dir = settings.get_prefixes_dir() if settings else ""
+        self.prefix_service = PrefixService(settings) if settings else None
 
         self.init_ui()
         self.refresh_prefixes()
-
-    def _get_all_prefixes(self) -> dict[str, str]:
-        """Collect prefix directories from all configured prefix dirs (new + legacy)."""
-        result = {}
-        for prefix_base in self.settings.get_prefixes_dirs():
-            if not os.path.exists(prefix_base):
-                continue
-            for item in os.listdir(prefix_base):
-                full_path = os.path.join(prefix_base, item)
-                if os.path.isdir(full_path):
-                    # If same name exists in multiple dirs, prefer the first (newest location)
-                    if item not in result:
-                        result[item] = full_path
-        return result
 
     def init_ui(self) -> None:
         """Build the UI layout: header with refresh button, prefix list, and action buttons."""
@@ -215,12 +158,12 @@ class PrefixManagerWidget(QWidget):
         header_label = QLabel("Installed Games")
         header_label.setStyleSheet("font-weight: bold; font-size: 16px;")
         header_layout.addWidget(header_label)
-        
+
         self.refresh_btn = QPushButton("Refresh")
         self.refresh_btn.setFixedWidth(100)
         self.refresh_btn.clicked.connect(self.refresh_prefixes)
         header_layout.addWidget(self.refresh_btn)
-        
+
         layout.addLayout(header_layout)
 
         # List
@@ -234,7 +177,7 @@ class PrefixManagerWidget(QWidget):
         self.config_btn = QPushButton("Configure Prefix")
         self.config_btn.clicked.connect(self.open_selected_prefix_config)
         self.config_btn.setEnabled(False)
-        
+
         self.delete_btn = QPushButton("Delete Prefix")
         self.delete_btn.setStyleSheet("background-color: #d9534f; color: white;")  # Bootstrap danger colorish
         self.delete_btn.clicked.connect(self.delete_selected_prefix)
@@ -243,9 +186,9 @@ class PrefixManagerWidget(QWidget):
         btn_layout.addWidget(self.config_btn)
         btn_layout.addStretch()
         btn_layout.addWidget(self.delete_btn)
-        
+
         layout.addLayout(btn_layout)
-        
+
         self.list_widget.itemSelectionChanged.connect(self.on_selection_changed)
 
     def refresh_prefixes(self) -> None:
@@ -258,8 +201,11 @@ class PrefixManagerWidget(QWidget):
             except OSError:
                 return
 
+        if not self.prefix_service:
+            return
+
         try:
-            all_prefixes = self._get_all_prefixes()
+            all_prefixes = self.prefix_service.get_all_prefixes()
             prefixes = sorted(all_prefixes.keys())
 
             for p in prefixes:
@@ -294,7 +240,7 @@ class PrefixManagerWidget(QWidget):
         Loads existing config from config.json or extracts it from .sh scripts if unavailable.
         """
         item = self.list_widget.currentItem()
-        if not item:
+        if not item or not self.prefix_service:
             return
 
         prefix_name = item.data(Qt.ItemDataRole.UserRole)
@@ -308,31 +254,8 @@ class PrefixManagerWidget(QWidget):
         if game_name.endswith("_pfx"):
             game_name = game_name[:-4]  # Remove _pfx
 
-       # Check shortcut dirs from both new and legacy locations for reading config
-        scripts_dirs = self.settings.get_shortcuts_dirs(game_name)
-        config_path = None
-        scripts_dir = None
-        for sd in scripts_dirs:
-            cp = os.path.join(sd, "config.json")
-            if os.path.exists(cp):
-                config_path = cp
-                scripts_dir = sd
-                break
-
         # Load existing config if available
-        initial_config = {}
-        if config_path and os.path.exists(config_path):
-            try:
-                with open(config_path, 'r') as f:
-                    initial_config = json.load(f)
-            except (json.JSONDecodeError, OSError) as e:
-                logger.error("Error loading config for %s: %s", game_name, e)
-        elif scripts_dir and os.path.exists(scripts_dir):
-            # Fallback: Try to parse from a .sh file
-            sh_files = glob.glob(os.path.join(scripts_dir, "*.sh"))
-            if sh_files:
-                logger.info("Config not found, extracting from %s", sh_files[0])
-                initial_config = self.extract_config_from_sh(sh_files[0])
+        initial_config, _scripts_dir = self.prefix_service.load_config_from_scripts_dir(game_name)
 
         dialog = InstallConfigDialog(
             umu_database=self.umu_database,
@@ -344,145 +267,19 @@ class PrefixManagerWidget(QWidget):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             new_config = dialog.get_config()
 
-           # Save config to the primary (new) scripts dir
-            scripts_dir = self.settings.get_shortcuts_dir(game_name)
-            if not os.path.exists(scripts_dir):
-                os.makedirs(scripts_dir, exist_ok=True)
-
-            config_path = os.path.join(scripts_dir, "config.json")
+            # Save config to the primary (new) scripts dir
             try:
-                with open(config_path, 'w') as f:
-                    json.dump(new_config, f, indent=4)
-                logger.info("Saved config to %s", config_path)
+                self.prefix_service.save_config(game_name, new_config)
             except OSError as e:
                 QMessageBox.warning(self, "Save Error", f"Failed to save config: {e}")
+                return
 
             # Update scripts in the primary dir
-            self.update_scripts(scripts_dir, prefix_path, new_config)
-
-    def extract_config_from_sh(self, script_path: str) -> dict[str, Any]:
-        """Parse a .sh script to extract environment variables set before umu-run.
-
-        Searches for the umu-run line, extracts ``KEY="VALUE"`` pairs, and detects
-        MangoHud usage.
-
-        Args:
-            script_path: Path to the .sh script file.
-
-        Returns:
-            Dict of extracted environment variable key-value pairs.
-        """
-        config = {}
-        try:
-            with open(script_path, 'r') as f:
-                content = f.read()
-            
-            lines = content.splitlines()
-            umu_run_line = ""
-            
-            # Find the line with umu-run, searching backwards
-            for line in reversed(lines):
-                if "umu-run" in line:
-                    umu_run_line = line
-                    break
-            
-            if umu_run_line:
-                # Split at umu-run to get the env var part
-                env_part = umu_run_line.split("umu-run")[0]
-
-                # Check if mangohud is used in front of umu-run
-                if "mangohud" in env_part.lower():
-                    config["MANGOHUD"] = "1"
-                    env_part = env_part.replace("mangohud", "").strip()
-                
-                # Regex to find KEY="VALUE"
-                matches = re.findall(r'(\w+)="(.*?)"', env_part)
-                
-                for key, value in matches:
-                    if key not in ["WINEPREFIX"]:
-                         config[key] = value
-                         
-        except (OSError, IOError) as e:
-            logger.error("Error extracting config from %s: %s", script_path, e)
-            
-        return config
-
-    def update_scripts(self, scripts_dir: str, prefix_path: str, config: dict[str, Any]) -> None:
-        """Update all .sh scripts with new environment variables from the config.
-
-        Scans both primary and legacy script directories, rebuilds the umu-run
-        command with the new env prefix, and preserves the original executable path.
-
-        Args:
-            scripts_dir: Directory where .sh scripts are stored.
-            prefix_path: WINEPREFIX path.
-            config: Dict of environment variables to write.
-        """
-        # Extract game name from scripts_dir path (e.g. ".../shortcut_scripts/dark earth" -> "dark earth")
-        game_name = os.path.basename(scripts_dir)
-
-        # Collect .sh files from all script dirs (new + legacy)
-        sh_files = []
-        for sd in self.settings.get_shortcuts_dirs(game_name):
-            if os.path.exists(sd):
-                sh_files.extend(glob.glob(os.path.join(sd, "*.sh")))
-
-        if not sh_files:
-            logger.info("No .sh scripts found to update.")
-            return
-            
-        proton_path = config.get("PROTONPATH") or self.settings.get("PROTONPATH") or DEFAULT_PROTON
-
-        env_part = build_umu_env_prefix(proton_path, prefix_path, config)
-
-        count = 0
-        for script_path in sh_files:
-            try:
-                logger.info("Checking script: %s", script_path)
-                with open(script_path, 'r') as f:
-                    content = f.read()
-                
-                lines = content.splitlines()
-                umu_run_line = ""
-                
-                # Find the line with umu-run, searching backwards
-                for line in reversed(lines):
-                    if "umu-run" in line:
-                        umu_run_line = line
-                        break
-                
-                # Check if it looks like a valid wrapper script
-                if umu_run_line:
-                    # Extract the command after umu-run
-                    parts = umu_run_line.split("umu-run")
-                    if len(parts) > 1:
-                        exe_args = parts[1].strip() # This is "path/to/exe"
-                        
-                        # Reconstruct command
-                        new_command = f"{env_part}umu-run {exe_args}"
-                        
-                        # Reconstruct file content
-                        new_content = "#!/bin/sh\n\n# Auto-generated by Gameyfin\n" + new_command + "\n"
-                        
-                        with open(script_path, 'w') as f:
-                            f.write(new_content)
-                        
-                        # Ensure executable
-                        os.chmod(script_path, SCRIPT_PERMISSION)
-                        count += 1
-                        logger.info("Updated script: %s", script_path)
-                    else:
-                        logger.warning("Script %s has umu-run but parsing failed.", script_path)
-                else:
-                     logger.info("Script %s does not contain 'umu-run'.", script_path)
-                        
-            except (OSError, IOError) as e:
-                logger.error("Failed to update script %s: %s", script_path, e)
-                
-        if count > 0:
-            QMessageBox.information(self, "Scripts Updated", f"Updated {count} shortcut script(s) with new configuration.")
-        else:
-             QMessageBox.information(self, "No Scripts Updated", "No suitable .sh scripts found to update.")
+            count = self.prefix_service.update_scripts(prefix_path, new_config)
+            if count > 0:
+                QMessageBox.information(self, "Scripts Updated", f"Updated {count} shortcut script(s) with new configuration.")
+            else:
+                QMessageBox.information(self, "No Scripts Updated", "No suitable .sh scripts found to update.")
 
     def delete_selected_prefix(self) -> None:
         """Delete the selected prefix and its associated shortcut scripts after confirmation.
@@ -490,7 +287,7 @@ class PrefixManagerWidget(QWidget):
         Prompts the user with a warning about losing save data before deleting.
         """
         item = self.list_widget.currentItem()
-        if not item:
+        if not item or not self.prefix_service:
             return
 
         prefix_name = item.data(Qt.ItemDataRole.UserRole)
@@ -498,6 +295,11 @@ class PrefixManagerWidget(QWidget):
         prefix_path = item.data(Qt.ItemDataRole.UserRole + 1)
         if prefix_path is None:
             prefix_path = os.path.join(self.prefixes_dir, prefix_name)
+
+        # Derive game name
+        game_name = prefix_name
+        if game_name.endswith("_pfx"):
+            game_name = game_name[:-4]
 
         confirm = QMessageBox.question(
             self,
@@ -512,17 +314,7 @@ class PrefixManagerWidget(QWidget):
 
         if confirm == QMessageBox.StandardButton.Yes:
             try:
-                shutil.rmtree(prefix_path)
+                self.prefix_service.delete_prefix(prefix_path, game_name)
                 self.refresh_prefixes()
-
-                # Also try to delete the shortcut scripts folder from both locations
-                game_name = prefix_name
-                if game_name.endswith("_pfx"):
-                    game_name = game_name[:-4]
-                for scripts_dir in self.settings.get_shortcuts_dirs(game_name):
-                    if os.path.exists(scripts_dir):
-                        shutil.rmtree(scripts_dir)
-
             except (OSError, IOError) as e:
                 QMessageBox.critical(self, "Error", f"Failed to delete prefix:\n{e}")
-
