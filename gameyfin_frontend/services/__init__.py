@@ -8,6 +8,7 @@ from .game_launcher import GameLauncher
 from .prefix_service import PrefixService
 from .download_history_service import DownloadHistoryService
 from .shortcut_service import ShortcutService
+from .migration_service import MigrationService
 
 __all__ = [
     "LauncherResolver",
@@ -16,4 +17,5 @@ __all__ = [
     "PrefixService",
     "DownloadHistoryService",
     "ShortcutService",
+    "MigrationService",
 ]

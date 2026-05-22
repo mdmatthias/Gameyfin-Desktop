@@ -12,6 +12,7 @@ from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.utils import get_effective_icon
 from gameyfin_frontend.config import FLATPAK_ID
 
+from gameyfin_frontend.services import MigrationService
 from gameyfin_frontend.settings import SettingsManager
 
 load_dotenv()
@@ -26,6 +27,10 @@ logging.basicConfig(
 
 # Disable Web Security to bypass CORS issues with Authentik redirect
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-web-security"
+
+# Run one-time legacy data migration (settings, shortcuts, prefixes)
+migration = MigrationService(settings.get_config_dir())
+migration.migrate()
 
 if __name__ == "__main__":
 
