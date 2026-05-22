@@ -39,6 +39,8 @@ def fresh_umu_database(mock_settings):
     db = UmuDatabase.__new__(UmuDatabase)
     db.settings = mock_settings
     db._games_by_title = defaultdict(list)
+    db._games_by_codename = defaultdict(list)
+    db._games_by_umu_id = defaultdict(list)
     db.cache_file_path = mock_settings.cache_path
     db._ROMAN_REPLACEMENTS = (
         (r'\bX\b', ' 10 '),
@@ -155,15 +157,21 @@ class TestBuildTitleCache:
 class TestCachePersistence:
     def test_save_and_load_cache(self, fresh_umu_database, umu_cache_file, sample_umu_entries):
         fresh_umu_database._games_by_title = defaultdict(list, {e["title"]: [e] for e in sample_umu_entries})
+        fresh_umu_database._games_by_codename = defaultdict(list, {e.get("codename", "test-codename"): [e] for e in sample_umu_entries})
+        fresh_umu_database._games_by_umu_id = defaultdict(list, {e.get("umu_id", "UMU-001"): [e] for e in sample_umu_entries})
         fresh_umu_database._save_cache_to_disk()
 
         assert os.path.exists(umu_cache_file)
         with open(umu_cache_file, "r") as f:
             loaded = json.load(f)
-        assert "Baldur's Gate II" in loaded
+        assert "Baldur's Gate II" in loaded["title"]
 
     def test_load_cache_from_disk(self, fresh_umu_database, umu_cache_file, sample_umu_entries):
-        cache_data = {e["title"]: [e] for e in sample_umu_entries}
+        cache_data = {
+            "title": {e["title"]: [e] for e in sample_umu_entries},
+            "codename": {e.get("codename", "test-codename"): [e] for e in sample_umu_entries},
+            "umu_id": {e.get("umu_id", "UMU-001"): [e] for e in sample_umu_entries},
+        }
         with open(umu_cache_file, "w") as f:
             json.dump(cache_data, f)
 
