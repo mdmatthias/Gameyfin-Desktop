@@ -107,7 +107,20 @@ class SettingsManager:
         return self.settings_dir
 
     def get_prefixes_dirs(self) -> list[str]:
-        return [os.path.join(self.settings_dir, "prefixes")]
+        """Return directories to scan for existing Wine prefixes.
+
+        Includes both the new primary location and the legacy location
+        (~/.config/gameyfin/prefixes/) so existing prefixes are still
+        discovered even though they're not auto-migrated. New prefixes
+        are always created in the new location only (see get_prefixes_dir).
+        """
+        dirs = [os.path.join(self.settings_dir, "prefixes")]
+        legacy_prefixes = os.path.join(
+            os.path.expanduser("~"), ".config", "gameyfin", "prefixes"
+        )
+        if os.path.isdir(legacy_prefixes):
+            dirs.append(legacy_prefixes)
+        return dirs
 
     def get_prefixes_dir(self) -> str:
         """Return the new (primary) prefix directory for creating new prefixes."""

@@ -12,7 +12,13 @@ logger = logging.getLogger(__name__)
 
 
 class MigrationService:
-    """One-time migration of settings, shortcuts, and prefixes from legacy to new locations."""
+    """One-time migration of settings and shortcut scripts from legacy to new locations.
+
+    Wine prefixes are NOT migrated automatically — they're too large (GBs of DLLs/files).
+    If a prefix exists only in the legacy location, users should move it manually when
+    convenient. The app will still find it via SettingsManager.get_prefixes_dirs() which
+    scans both locations during runtime.
+    """
 
     DEFAULT_LEGACY_CONFIG_DIR = os.path.join(
         os.path.expanduser("~"), ".config", "gameyfin"
@@ -42,7 +48,6 @@ class MigrationService:
         results: dict[str, int] = {
             "settings": 0,
             "shortcuts": 0,
-            "prefixes": 0,
         }
 
         try:
@@ -55,18 +60,12 @@ class MigrationService:
         except OSError as e:
             logger.error("Shortcut scripts migration failed: %s", e)
 
-        try:
-            results["prefixes"] = self._migrate_prefixes()
-        except OSError as e:
-            logger.error("Prefixes migration failed: %s", e)
-
         total = sum(results.values())
         if total > 0:
             logger.info(
-                "Legacy data migration complete: %d settings, %d shortcut dirs, %d prefixes",
+                "Legacy data migration complete: %d settings, %d shortcut dirs",
                 results["settings"],
                 results["shortcuts"],
-                results["prefixes"],
             )
         else:
             logger.debug("No legacy data found to migrate.")
@@ -155,60 +154,5 @@ class MigrationService:
                 count += 1
         except OSError as e:
             logger.error("Error migrating shortcut scripts: %s", e)
-
-        return count
-
-    # ------------------------------------------------------------------
-    # Prefixes
-    # ------------------------------------------------------------------
-
-    def _migrate_prefixes(self) -> int:
-        """Scan legacy prefix dirs and migrate any prefix not yet in the new dir.
-
-        Returns:
-            Number of prefixes migrated.
-        """
-        if not self._legacy_exists():
-            return 0
-
-        legacy_dirs = [
-            os.path.join(self.LEGACY_CONFIG_DIR, "prefixes"),
-        ]
-        new_dir = os.path.join(self.settings_dir, "prefixes")
-
-        # Collect existing prefix names from new location only
-        # (legacy dirs are what we're migrating FROM, so their contents should be migrated)
-        existing_names: set[str] = set()
-        if os.path.isdir(new_dir):
-            try:
-                existing_names.update(os.listdir(new_dir))
-            except OSError:
-                pass
-
-        count = 0
-        for legacy_base in legacy_dirs:
-            if not os.path.isdir(legacy_base):
-                continue
-
-            try:
-                for entry in sorted(os.listdir(legacy_base)):
-                    src_path = os.path.join(legacy_base, entry)
-                    if not os.path.isdir(src_path):
-                        continue
-
-                    dst_path = os.path.join(new_dir, entry)
-                    if entry in existing_names or os.path.exists(dst_path):
-                        logger.debug(
-                            "Prefix '%s' already in new location, skipping.",
-                            entry,
-                        )
-                        continue
-
-                    shutil.copytree(src_path, dst_path)
-                    logger.info("Migrated prefix '%s'", entry)
-                    count += 1
-                    existing_names.add(entry)
-            except OSError as e:
-                logger.error("Error migrating prefix '%s': %s", entry, e)
 
         return count

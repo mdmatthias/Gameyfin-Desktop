@@ -31,7 +31,7 @@ class TestMigrationServiceSettings:
         """If no legacy directory exists, nothing is migrated."""
         service = MigrationService(str(tmp_path))
         result = service.migrate()
-        assert result == {"settings": 0, "shortcuts": 0, "prefixes": 0}
+        assert result == {"settings": 0, "shortcuts": 0}
 
     def test_migrates_settings_when_new_does_not_exist(self, tmp_path):
         """Settings are copied from legacy → new when new doesn't exist yet."""
@@ -127,60 +127,11 @@ class TestMigrationServiceShortcuts:
         assert result["shortcuts"] == 2
 
 
-class TestMigrationServicePrefixes:
-    """Test prefix directory migration from legacy → new."""
-
-    def _setup_legacy_prefixes(self, tmp_path, names=None):
-        """Create legacy prefix directories."""
-        if names is None:
-            names = ["dark-earth_pfx", "lotro_pfx"]
-        legacy_base = tmp_path / ".config" / "gameyfin" / "prefixes"
-        legacy_base.mkdir(parents=True)
-        for name in names:
-            pfx_dir = legacy_base / name
-            pfx_dir.mkdir()
-            (pfx_dir / "drive_c").mkdir()
-        return legacy_base
-
-    def test_migrates_prefixes_not_in_new_location(self, tmp_path):
-        """Prefixes are copied to new location if not already there."""
-        self._setup_legacy_prefixes(tmp_path)
-
-        service = MigrationService(str(tmp_path))
-        result = service.migrate()
-
-        assert result["prefixes"] == 2
-        new_base = tmp_path / "prefixes"
-        assert (new_base / "dark-earth_pfx").exists()
-        assert (new_base / "lotro_pfx").exists()
-
-    def test_skips_existing_prefix_in_new_location(self, tmp_path):
-        """Existing prefix in new location prevents migration."""
-        self._setup_legacy_prefixes(tmp_path, names=["a_pfx"])
-        # Also create it in the new location
-        (tmp_path / "prefixes" / "a_pfx").mkdir(parents=True)
-
-        service = MigrationService(str(tmp_path))
-        result = service.migrate()
-
-        assert result["prefixes"] == 0
-
-    def test_partial_migration_some_exist_already(self, tmp_path):
-        """Only non-existing prefixes are migrated."""
-        self._setup_legacy_prefixes(tmp_path, names=["existing_pfx", "new_pfx"])
-        (tmp_path / "prefixes" / "existing_pfx").mkdir(parents=True)
-
-        service = MigrationService(str(tmp_path))
-        result = service.migrate()
-
-        assert result["prefixes"] == 1
-
-
 class TestMigrationServiceCombined:
-    """Test that all three categories migrate together correctly."""
+    """Test that settings and shortcuts migrate together correctly."""
 
-    def test_all_categories_migrated_together(self, tmp_path):
-        """A full legacy setup migrates settings, shortcuts, and prefixes."""
+    def test_settings_and_shortcuts_migrated_together(self, tmp_path):
+        """A full legacy setup migrates settings and shortcut scripts."""
         # Settings
         legacy_settings = tmp_path / ".config" / "gameyfin" / "settings.json"
         legacy_settings.parent.mkdir(parents=True)
@@ -191,15 +142,9 @@ class TestMigrationServiceCombined:
         legacy_shortcut.mkdir(parents=True)
         (legacy_shortcut / "my-game.sh").write_text("#!/bin/sh\numu-run x")
 
-        # Prefixes
-        legacy_prefix = tmp_path / ".config" / "gameyfin" / "prefixes" / "my-game_pfx"
-        legacy_prefix.mkdir(parents=True)
-        (legacy_prefix / "drive_c").mkdir()
-
         service = MigrationService(str(tmp_path))
         result = service.migrate()
 
-        assert result == {"settings": 1, "shortcuts": 1, "prefixes": 1}
+        assert result == {"settings": 1, "shortcuts": 1}
         assert (tmp_path / "settings.json").exists()
         assert (tmp_path / "shortcut_scripts" / "my-game" / "my-game.sh").exists()
-        assert (tmp_path / "prefixes" / "my-game_pfx" / "drive_c").exists()

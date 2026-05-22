@@ -12,10 +12,14 @@ from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.utils import get_effective_icon
 from gameyfin_frontend.config import FLATPAK_ID
 
+import logging as _logging
+
 from gameyfin_frontend.services import MigrationService
 from gameyfin_frontend.settings import SettingsManager
 
 load_dotenv()
+
+_logger = _logging.getLogger(__name__)
 
 # Get settings instance early for logging config
 settings = SettingsManager.get_instance()
@@ -29,23 +33,23 @@ logging.basicConfig(
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-web-security"
 
 # Run one-time legacy data migration (settings, shortcuts, prefixes)
-logger.info("Starting legacy data migration...")
+_logger.info("Starting legacy data migration...")
 migration = MigrationService(settings.get_config_dir())
 result = migration.migrate()
 total_migrated = sum(result.values()) if result else 0
-logger.info(
+_logger.info(
     "Legacy data migration complete: %d settings, %d shortcut dirs, %d prefixes",
     result.get("settings", 0),
     result.get("shortcuts", 0),
     result.get("prefixes", 0),
 )
 if total_migrated > 0:
-    logger.info("%d items migrated — restart the app to use new locations.", total_migrated)
+    _logger.info("%d items migrated — restart the app to use new locations.", total_migrated)
 
 if __name__ == "__main__":
-    logger.debug("Creating QApplication...")
+    _logger.debug("Creating QApplication...")
     app = QApplication(sys.argv)
-    logger.debug("QApplication created.")
+    _logger.debug("QApplication created.")
 
     # Store default palette and font for "auto" theme fallback
     app.default_palette = app.palette()
