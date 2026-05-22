@@ -147,7 +147,12 @@ class PrefixService:
 
         return config
 
-    def update_scripts(self, prefix_path: str, config: dict[str, Any]) -> int:
+    def update_scripts(
+        self,
+        prefix_path: str,
+        config: dict[str, Any],
+        game_name: str | None = None,
+    ) -> int:
         """Update all .sh scripts for a game with new environment variables.
 
         Scans all script directories (new + legacy), rebuilds the umu-run
@@ -156,13 +161,24 @@ class PrefixService:
         Args:
             prefix_path: WINEPREFIX path.
             config: Dict of environment variables to write.
+            game_name: Name of the game (for finding script dirs).
+                Falls back to extracting from ``config`` or stripping ``_pfx``
+                from ``prefix_path`` if not provided.
 
         Returns:
             Number of scripts updated.
         """
+        # Resolve game name: explicit param > config key > derive from prefix_path
+        if not game_name:
+            game_name = config.get("GAME_NAME", "")
+        if not game_name:
+            pn = os.path.basename(prefix_path)
+            if pn.endswith("_pfx"):
+                game_name = pn[:-4]
+
         # Collect .sh files from all script dirs
         sh_files: list[str] = []
-        for sd in self.settings.get_shortcuts_dirs(config.get("GAME_NAME", "")):
+        for sd in self.settings.get_shortcuts_dirs(game_name):
             if os.path.exists(sd):
                 sh_files.extend(glob.glob(os.path.join(sd, "*.sh")))
 

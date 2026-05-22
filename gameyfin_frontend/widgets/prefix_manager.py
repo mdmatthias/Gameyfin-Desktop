@@ -275,7 +275,9 @@ class PrefixManagerWidget(QWidget):
                 return
 
             # Update scripts in the primary dir
-            count = self.prefix_service.update_scripts(prefix_path, new_config)
+            count = self.prefix_service.update_scripts(
+                prefix_path, new_config, game_name
+            )
             if count > 0:
                 QMessageBox.information(self, "Scripts Updated", f"Updated {count} shortcut script(s) with new configuration.")
             else:
