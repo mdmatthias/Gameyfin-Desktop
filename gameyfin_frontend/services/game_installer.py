@@ -70,7 +70,13 @@ class GameInstaller:
                     logger.info("API results (by codename): %s", results)
 
             if not results:
-                filename = self.settings.get("filename", os.path.basename(self.settings.get("path", ""))) if hasattr(self.settings, 'get') else ""
+                filename = ""
+                if hasattr(self.settings, 'get'):
+                    filename = self.settings.get("filename", "") or ""
+                    if not filename:
+                        path = self.settings.get("path")
+                        if path:
+                            filename = os.path.basename(path)
                 zip_name_base = os.path.splitext(filename)[0]
                 search_title = zip_name_base.replace('_', ' ').replace('-', ' ').strip()
 
