@@ -20,6 +20,7 @@ from gameyfin_frontend.umu_database import UmuDatabase
 from .settings_widget import SettingsWidget
 from .settings import SettingsManager
 from .utils import get_effective_icon, parse_size
+from .config import FIXED_TAB_COUNT
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +203,7 @@ class GameyfinWindow(QMainWindow):
     def close_tab(self, index: int) -> None:
         """Close an external browser tab, preventing closure of the four fixed tabs."""
         # Prevent closing the fixed tabs (Main, Downloads, Prefixes, Settings)
-        if index < 4:
+        if index < FIXED_TAB_COUNT:
             return
 
         widget = self.tab_widget.widget(index)
@@ -256,8 +257,8 @@ class GameyfinWindow(QMainWindow):
         """
         # Close all external tabs (starting from the end to avoid index shift issues)
         count = self.tab_widget.count()
-        # Fixed tabs are 0 (Main), 1 (Downloads), 2 (Prefixes), 3 (Settings) - indices < 4
-        for i in range(count - 1, 3, -1):
+        # Fixed tabs are 0 (Main), 1 (Downloads), 2 (Prefixes), 3 (Settings) - indices < FIXED_TAB_COUNT
+        for i in range(count - 1, FIXED_TAB_COUNT - 1, -1):
             self.close_tab(i)
 
         # Ensure we are on the main tab
@@ -281,7 +282,7 @@ class GameyfinWindow(QMainWindow):
         sender_page = self.sender()
         if isinstance(sender_page, CustomWebEnginePage):
             count = self.tab_widget.count()
-            for i in range(count - 1, 3, -1):
+            for i in range(count - 1, FIXED_TAB_COUNT - 1, -1):
                 self.close_tab(i)
 
     def update_tab_title(self, view: QWebEngineView, title: str) -> None:

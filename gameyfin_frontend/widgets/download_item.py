@@ -24,6 +24,7 @@ from gameyfin_frontend.utils import (
     create_shortcuts, resolve_shortcut_game_info,
     format_size, parse_size,
 )
+from gameyfin_frontend.config import COLOR_STATUS_DOWNLOADING, COLOR_STATUS_INSTALLING
 from gameyfin_frontend.workers import StreamDownloadWorker
 from gameyfin_frontend.services import LauncherResolver, GameInstaller, GameLauncher
 from gameyfin_frontend.settings import SettingsManager
@@ -158,18 +159,18 @@ class DownloadItemWidget(QWidget):
         """Set the status label to 'Running...' with size info."""
         size = self.record.get("total_bytes", 0)
         self.status_label.setText(f"Running... ({format_size(size)})")
-        self.status_label.setStyleSheet("color: #3498DB;")
+        self.status_label.setStyleSheet(f"color: {COLOR_STATUS_DOWNLOADING};")
 
     def _handle_launcher_selection(self, target_dir: str) -> str | None:
         """Delegate to LauncherResolver and update UI on special outcomes."""
         def on_no_exe() -> None:
             self.status_label.setText("Install complete, no .exe found.")
-            self.status_label.setStyleSheet("color: #E67E22;")
+            self.status_label.setStyleSheet(f"color: {COLOR_STATUS_INSTALLING};")
             QDesktopServices.openUrl(QUrl.fromLocalFile(target_dir))
 
         def on_no_launcher() -> None:
             self.status_label.setText("Install complete, no launcher selected.")
-            self.status_label.setStyleSheet("color: #E67E22;")
+            self.status_label.setStyleSheet(f"color: {COLOR_STATUS_INSTALLING};")
 
         def on_cancelled() -> None:
             self.status_label.setText("Install complete, launch cancelled.")

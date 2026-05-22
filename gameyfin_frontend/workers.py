@@ -7,6 +7,8 @@ import requests
 from stream_unzip import stream_unzip
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QThread
 
+from .config import DOWNLOAD_CHUNK_SIZE, PROGRESS_SIGNAL_INTERVAL
+
 logger = logging.getLogger(__name__)
 
 
@@ -52,17 +54,16 @@ class StreamDownloadWorker(QObject):
 
             total = int(self._response.headers.get('content-length', 0)) or self.estimated_total
             received = 0
-            chunk_size = 131072
             last_signal_time = 0.0
 
             def http_chunks():
                 nonlocal received, last_signal_time
-                for chunk in self._response.iter_content(chunk_size):
+                for chunk in self._response.iter_content(DOWNLOAD_CHUNK_SIZE):
                     if not self._is_running:
                         return
                     received += len(chunk)
                     now = time.monotonic()
-                    if now - last_signal_time >= 0.1:
+                    if now - last_signal_time >= PROGRESS_SIGNAL_INTERVAL:
                         self.bytes_received.emit(received, total)
                         if total > 0:
                             self.progress.emit(min(int(received / total * 100), 99))

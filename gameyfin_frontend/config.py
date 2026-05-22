@@ -11,3 +11,16 @@ SCRIPT_PERMISSION = 0o755
 
 # Flatpak application ID
 FLATPAK_ID = "org.gameyfin.Gameyfin-Desktop"
+
+# Number of fixed tabs (Main, Downloads, Prefixes, Settings)
+FIXED_TAB_COUNT = 4
+
+# Download chunk size for streaming (128 KB)
+DOWNLOAD_CHUNK_SIZE = 131072
+
+# Progress signal interval (seconds)
+PROGRESS_SIGNAL_INTERVAL = 0.1
+
+# UI colors (named for maintainability)
+COLOR_STATUS_DOWNLOADING = "#3498DB"
+COLOR_STATUS_INSTALLING = "#E67E22"
