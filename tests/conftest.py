@@ -53,6 +53,72 @@ def umu_cache_file(tmp_app_data):
 
 
 @pytest.fixture()
+def fresh_settings(settings_file, tmp_app_data):
+    """Return a fresh SettingsManager instance with no prior state."""
+    from gameyfin_frontend.settings import SettingsManager
+    from PyQt6.QtCore import QStandardPaths
+
+    # Force a new singleton by clearing the existing one
+    SettingsManager._instance = None
+
+    # Patch QStandardPaths to use our temp directory
+    original_writable = QStandardPaths.writableLocation
+
+    def mock_writable(loc):
+        if loc == QStandardPaths.StandardLocation.AppDataLocation:
+            return tmp_app_data
+        return original_writable(loc)
+
+    QStandardPaths.writableLocation = mock_writable
+
+    try:
+        sm = SettingsManager()
+        # Ensure settings file is the one we control
+        sm.settings_file = settings_file
+        if os.path.exists(settings_file):
+            os.remove(settings_file)
+        sm.settings = sm.defaults.copy()
+        yield sm
+    finally:
+        QStandardPaths.writableLocation = original_writable
+        SettingsManager._instance = None
+
+
+@pytest.fixture()
+def mock_umu_database():
+    """Return a mock UmuDatabase instance."""
+    from unittest.mock import MagicMock
+    db = MagicMock()
+    db.search_by_partial_title.return_value = []
+    db.get_game_by_codename.return_value = []
+    return db
+
+
+@pytest.fixture()
+def mock_settings(monkeypatch, tmp_app_data):
+    """Mock settings_manager to use temp directory for cache."""
+    from gameyfin_frontend import settings as settings_module
+
+    class MockSettings:
+        def __init__(self):
+            self._data = {
+                "GF_UMU_API_URL": "http://test.umu.api/umu_api.php",
+                "GF_UMU_DB_STORES": ["none", "steam"],
+            }
+            self.cache_path = os.path.join(tmp_app_data, "umu_cache.json")
+
+        def get(self, key, fallback=None):
+            return self._data.get(key, fallback)
+
+        def get_umu_cache_path(self):
+            return self.cache_path
+
+    mock = MockSettings()
+    monkeypatch.setattr(settings_module, "settings_manager", mock)
+    return mock
+
+
+@pytest.fixture()
 def sample_umu_entries():
     """Return a list of sample UMU database entries for testing."""
     return [
