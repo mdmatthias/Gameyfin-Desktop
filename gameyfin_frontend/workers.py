@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class StreamDownloadWorker(QObject):
     progress = pyqtSignal(int)
     current_file = pyqtSignal(str)
-    bytes_received = pyqtSignal(int, int)
+    bytes_received = pyqtSignal("long long", "long long")
     finished = pyqtSignal()
     error = pyqtSignal(str)
 

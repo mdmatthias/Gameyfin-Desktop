@@ -1,3 +1,4 @@
+import glob
 import logging
 import os
 import shutil
@@ -267,13 +268,17 @@ class DownloadItemWidget(QWidget):
         """Clear the thread reference when the thread object is deleted."""
         self.thread = None
 
-    @pyqtSlot(int, int)
+    @pyqtSlot("long long", "long long")
     def _on_bytes_received(self, received: int, total: int) -> None:
         """Update the status label with received bytes and computed download speed."""
         if total > 0:
             self.record["total_bytes"] = total
         else:
             total = self.record.get("total_bytes", 0)
+
+        if total > 0 and received > 0:
+            pct = min(int(received / total * 100), 99)
+            self.progress_bar.setValue(pct)
 
         now = time.time()
         elapsed = now - self.last_time
@@ -284,8 +289,10 @@ class DownloadItemWidget(QWidget):
 
         if total > 0:
             self.status_label.setText(f"{format_size(received)} / {format_size(total)} {self.last_speed_str}")
+        elif received > 0:
+            self.status_label.setText(f"{format_size(received)} {self.last_speed_str}")
         else:
-            self.status_label.setText(f"{format_size(received)} / ??? {self.last_speed_str}")
+            self.status_label.setText(f"Starting... {self.last_speed_str}")
 
     @pyqtSlot()
     def on_download_finished(self) -> None:

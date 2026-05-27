@@ -249,7 +249,7 @@ def build_flatpak_exec_command(inner_cmd: str) -> str:
     # Escape special characters for the flatpak -c shell context
     for char in ('\\', '"', '$', '`'):
         inner_cmd = inner_cmd.replace(char, f'\\{char}')
-    return f'flatpak run --command=sh {FLATPAK_ID} -c "{inner_cmd}"'
+    return f'flatpak run --command=sh {FLATPAK_ID} -c \'"{inner_cmd}"\''
 
 
 def resource_path(relative_path: str) -> str:
