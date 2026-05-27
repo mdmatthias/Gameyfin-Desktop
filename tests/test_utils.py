@@ -91,7 +91,7 @@ class TestBuildUmuEnvPrefix:
 class TestBuildFlatpakExecCommand:
     def test_basic_command(self):
         result = build_flatpak_exec_command("/home/user/script.sh")
-        assert result == 'flatpak run --command=sh org.gameyfin.Gameyfin-Desktop -c "/home/user/script.sh"'
+        assert result == 'flatpak run --command=sh org.gameyfin.Gameyfin-Desktop -c \'"/home/user/script.sh"\''
 
     def test_escapes_backslash(self):
         result = build_flatpak_exec_command('echo "test\\path"')
