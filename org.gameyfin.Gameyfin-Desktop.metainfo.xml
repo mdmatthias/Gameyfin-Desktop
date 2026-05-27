@@ -27,7 +27,7 @@
             </li>
             <li>
                 <strong>Integrated Settings:</strong>
-            Configure your Gameyfin URL, window dimensions, and more directly within the app.
+                Configure your Gameyfin URL, window dimensions, and more directly within the app.
             </li>
             <li>
                 <strong>Download Manager:</strong>
@@ -64,7 +64,8 @@
             <caption>Downloads</caption>
         </screenshot>
         <screenshot>
-            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/install_linux.png</image>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/install_linux.png
+            </image>
             <caption>Linux Pre Installer</caption>
         </screenshot>
         <screenshot>
@@ -80,23 +81,42 @@
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="2.6.0-dev" date="2026-05-28">
+            <description>
+                <p>This is a development release with improved data management and bug fixes. Please report any issues on GitHub.</p>
+                <ul>
+                    <li>Internal codebase refactor for better maintainability and reliability.</li>
+                    <li>Moved all config data (settings, downloads, shortcuts, cache) to standard XDG directories depending on your OS. Existing data is migrated automatically on first launch, no action needed.</li>
+                    <li>(Linux) Added native 32-bit library support in the Flatpak build, fixing compatibility with older 32-bit games.</li>
+                    <li>(Linux) Fixed shortcut scripts so they cd into the game's executable directory before launching. This resolves issues with games that require their working directory to match the .exe location. To apply to existing installs, open the Prefix Manager, click "Configure Prefix" on the affected game, then click OK.</li>
+                    <li>(Linux) Log level is now configurable directly from the Settings tab.</li>
+                </ul>
+            </description>
+        </release>
         <release version="2.5.0" date="2026-04-22">
             <description>
                 <ul>
                     <li>
                         <strong>⚡ Streaming Download &amp; Extraction:</strong>
-                        Downloads and extracts ZIP archives simultaneously using stream-unzip — no intermediate ZIP file is ever saved to disk.
+                        Downloads and extracts ZIP archives simultaneously using stream-unzip — no intermediate ZIP file
+                        is ever saved to disk.
                     </li>
                     <li>Saves disk space and skips the separate unzip step entirely.</li>
-                    <li>Once the download completes, the <strong>Install</strong> button appears immediately.</li>
+                    <li>Once the download completes, the <strong>Install</strong> button appears immediately.
+                    </li>
                 </ul>
             </description>
         </release>
         <release version="2.4.22" date="2026-04-22">
             <description>
                 <ul>
-                    <li>Integrated umu launcher in Flatpak build. All dependencies are now included in this flatpak to install Gameyfin-Desktop, you are no longer required to install umu-launcher on your system. This makes it easy to use Gameyfin on Steamdeck.</li>
-                    <li>Note: On SteamOS/Bazzite you will need to use desktop mode to install games and add the shortcuts on your desktop to Steam to be able to run games from Steam big picture mode.</li>
+                    <li>Integrated umu launcher in Flatpak build. All dependencies are now included in this flatpak to
+                        install Gameyfin-Desktop, you are no longer required to install umu-launcher on your system.
+                        This makes it easy to use Gameyfin on Steamdeck.
+                    </li>
+                    <li>Note: On SteamOS/Bazzite you will need to use desktop mode to install games and add the
+                        shortcuts on your desktop to Steam to be able to run games from Steam big picture mode.
+                    </li>
                     <li>Added some more settings in prefix manager: WOW64, MANGOHUD</li>
                 </ul>
             </description>
@@ -104,7 +124,10 @@
         <release version="2.3.0" date="2026-03-15">
             <description>
                 <ul>
-                    <li>ZIP lifecycle management: The installation process is now a two-step workflow where the "Unzip" button transforms into "Install" upon completion, accompanied by a new "Remove ZIP" button for easy post-extraction cleanup.</li>
+                    <li>ZIP lifecycle management: The installation process is now a two-step workflow where the "Unzip"
+                        button transforms into "Install" upon completion, accompanied by a new "Remove ZIP" button for
+                        easy post-extraction cleanup.
+                    </li>
                 </ul>
             </description>
         </release>
