@@ -1,19 +1,35 @@
+import logging
 import os
 import time
+from typing import Any
 
 import requests
 from stream_unzip import stream_unzip
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QThread
 
+from .config import DOWNLOAD_CHUNK_SIZE, PROGRESS_SIGNAL_INTERVAL
+
+logger = logging.getLogger(__name__)
+
 
 class StreamDownloadWorker(QObject):
     progress = pyqtSignal(int)
     current_file = pyqtSignal(str)
-    bytes_received = pyqtSignal('long long', 'long long')
+    bytes_received = pyqtSignal("long long", "long long")
     finished = pyqtSignal()
     error = pyqtSignal(str)
 
-    def __init__(self, url: str, target_dir: str, cookies: dict = None, estimated_total: int = 0):
+    def __init__(self, url: str, target_dir: str, cookies: dict[str, Any] | None = None, estimated_total: int = 0) -> None:
+        """Initialize a background worker that streams a URL to a directory while unzipping.
+
+        Emits progress, bytes_received, current_file, finished, and error signals.
+
+        Args:
+            url: The URL to download from.
+            target_dir: The directory to extract files into.
+            cookies: Optional dict of cookies to include in the request.
+            estimated_total: Fallback total byte count if Content-Length is missing.
+        """
         super().__init__()
         self.url = url
         self.target_dir = target_dir
@@ -25,7 +41,8 @@ class StreamDownloadWorker(QObject):
         self._response = None
 
     @pyqtSlot()
-    def run(self):
+    def run(self) -> None:
+        """Execute the streaming download with unzip, path traversal protection, and progress signals."""
         try:
             real_target = os.path.realpath(self.target_dir)
             os.makedirs(self.target_dir, exist_ok=True)
@@ -37,17 +54,16 @@ class StreamDownloadWorker(QObject):
 
             total = int(self._response.headers.get('content-length', 0)) or self.estimated_total
             received = 0
-            chunk_size = 65536
             last_signal_time = 0.0
 
             def http_chunks():
                 nonlocal received, last_signal_time
-                for chunk in self._response.iter_content(chunk_size):
+                for chunk in self._response.iter_content(DOWNLOAD_CHUNK_SIZE):
                     if not self._is_running:
                         return
                     received += len(chunk)
                     now = time.monotonic()
-                    if now - last_signal_time >= 0.1:
+                    if now - last_signal_time >= PROGRESS_SIGNAL_INTERVAL:
                         self.bytes_received.emit(received, total)
                         if total > 0:
                             self.progress.emit(min(int(received / total * 100), 99))
@@ -90,13 +106,21 @@ class StreamDownloadWorker(QObject):
             self.progress.emit(100)
             self.finished.emit()
 
-        except Exception as e:
+        except requests.exceptions.RequestException as e:
+            logger.error("Network error during download: %s", e)
+            if self._cancelled:
+                self.error.emit("Download cancelled by user.")
+            else:
+                self.error.emit(f"Network error: {e}")
+        except (OSError, ValueError, RuntimeError) as e:
+            logger.error("Unexpected error during download: %s", e)
             if self._cancelled:
                 self.error.emit("Download cancelled by user.")
             else:
                 self.error.emit(str(e))
 
-    def stop(self):
+    def stop(self) -> None:
+        """Stops the download worker and closes all network connections."""
         self._cancelled = True
         self._is_running = False
         if self._response:
@@ -109,32 +133,39 @@ class ProcessMonitorWorker(QThread):
 
     finished = pyqtSignal()
 
-    def __init__(self, pid, parent=None):
+    def __init__(self, pid: int, parent: QObject | None = None) -> None:
+        """Initialize a worker that monitors a process by PID.
+
+        Args:
+            pid: The process ID to monitor.
+            parent: Parent QObject.
+        """
         super().__init__(parent)
         self.pid = pid
         self._running = True
 
-    def run(self):
+    def run(self) -> None:
+        """Poll the PID using os.kill() until the process exits or stop() is called."""
         if not self.pid > 0:
-            print(f"ProcessMonitor: Invalid PID ({self.pid}), stopping.")
+            logger.warning("ProcessMonitor: Invalid PID (%s), stopping.", self.pid)
             return
 
-        print(f"ProcessMonitor: Monitoring PID {self.pid}")
-        self._running = True
+        logger.info("ProcessMonitor: Monitoring PID %s", self.pid)
         while self._running:
             try:
                 os.kill(self.pid, 0)
             except OSError:
-                print(f"ProcessMonitor: PID {self.pid} finished.")
+                logger.info("ProcessMonitor: PID %s finished.", self.pid)
                 self._running = False
-                self.finished.emit()
                 break
             else:
                 if not self._running:
                     break
                 self.msleep(1000)
 
-        print(f"ProcessMonitor: Stopping monitor for {self.pid}")
+        logger.info("ProcessMonitor: Stopping monitor for %s", self.pid)
+        self.finished.emit()
 
-    def stop(self):
+    def stop(self) -> None:
+        """Stops the process monitor thread."""
         self._running = False

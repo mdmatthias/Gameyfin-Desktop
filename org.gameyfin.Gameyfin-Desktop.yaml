@@ -49,6 +49,8 @@ finish-args:
 
   # Standard Path setup
   - --env=PATH=/app/bin:/app/utils/bin:/usr/bin:/app/lib/extensions/vulkan/MangoHud/bin:/app/lib/i386-linux-gnu/extensions/vulkan/MangoHud/bin
+  # Ensure i386 libs are found at runtime
+  - --env=LD_LIBRARY_PATH=/app/lib32:/app/lib/i386-linux-gnu:/app/lib:/app/lib/i386-linux-gnu/GL/lib
   - --env=SteamVirtualGamepadInfo=
   - --env=QTWEBENGINEPROCESS_PATH=/app/bin/QtWebEngineProcess
 
@@ -67,16 +69,25 @@ add-extensions:
     no-autodownload: false
     autodelete: false
 
+  # 32-bit runtime compat libraries (glibc, etc.)
   org.freedesktop.Platform.Compat.i386:
     directory: lib/i386-linux-gnu
     version: '25.08'
+    add-ld-path: lib
 
+  # 32-bit GL drivers - version should match runtime, not legacy '1.4'
   org.freedesktop.Platform.GL32:
     directory: lib/i386-linux-gnu/GL
     version: '1.4'
     versions: 25.08;1.4
     subdirectories: true
+    no-autodownload: false
+    autodelete: false
     add-ld-path: lib
+    merge-dirs: vulkan/icd.d;glvnd/egl_vendor.d;OpenCL/vendors;lib/dri;lib/d3d;vulkan/explicit_layer.d;vulkan/implicit_layer.d
+    download-if: active-gl-driver
+    enable-if: active-gl-driver
+    autoprune-unless: active-gl-driver
 
   com.valvesoftware.Steam.Utility:
     subdirectories: true
@@ -90,6 +101,8 @@ modules:
     buildsystem: simple
     build-commands:
       - mkdir -p /app/lib/i386-linux-gnu/GL
+      - mkdir -p /app/lib32
+      - mkdir -p /app/lib/debug/lib/i386-linux-gnu
       - mkdir -p /app/lib/python3.13/site-packages
       - mkdir -p /app/utils
       - mkdir -p /app/etc

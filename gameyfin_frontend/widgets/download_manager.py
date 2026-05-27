@@ -1,21 +1,41 @@
 import json
+import logging
 import os
+from typing import Any
 
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (QGridLayout, QWidget, QScrollArea, QVBoxLayout, QPushButton, QHBoxLayout, QSpacerItem, QSizePolicy)
 
+from gameyfin_frontend.settings import SettingsManager
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.widgets.download_item import DownloadItemWidget
+from gameyfin_frontend.workers import StreamDownloadWorker
+from gameyfin_frontend.services import DownloadHistoryService
+
+logger = logging.getLogger(__name__)
 
 
 class DownloadManagerWidget(QWidget):
 
-    def __init__(self, data_path: str, umu_database: UmuDatabase, parent=None):
+    def __init__(self, umu_database: UmuDatabase, parent: QWidget | None = None, settings: SettingsManager | None = None):
+        """Create the download manager widget with a scrollable grid of download items.
+
+        Loads persisted download history from JSON on startup.
+
+        Args:
+            umu_database: UmuDatabase instance for UMU lookups.
+            parent: Parent widget.
+            settings: SettingsManager instance providing app configuration.
+        """
         super().__init__(parent)
         self.umu_database = umu_database
-        self.json_path = os.path.join(data_path, "downloads.json")
-        self.download_records = []
-        self.widget_map = {}
+        self.prefix_manager = None
+        self.settings = settings
+        self.download_history = DownloadHistoryService(
+            settings.get_downloads_json_path()
+        ) if settings else None
+        self.download_records: list[dict[str, Any]] = []
+        self.widget_map: dict[DownloadItemWidget, list[QWidget]] = {}
 
         self.main_layout = QVBoxLayout(self)
         self.scroll_area = QScrollArea(self)
@@ -34,7 +54,8 @@ class DownloadManagerWidget(QWidget):
 
         self.load_history()
 
-    def add_download_to_grid(self, controller: DownloadItemWidget):
+    def add_download_to_grid(self, controller: DownloadItemWidget) -> None:
+        """Adds a download item widget to the grid layout at the next available row."""
         row = self.downloads_layout.rowCount()
         widgets = controller.get_widgets_for_grid()
         self.downloads_layout.addWidget(widgets[0], row, 0)
@@ -44,15 +65,19 @@ class DownloadManagerWidget(QWidget):
         self.downloads_layout.addWidget(widgets[4], row, 4)
         self.widget_map[controller] = widgets
 
-    def add_download(self, worker, record: dict):
-        controller = DownloadItemWidget(self.umu_database, worker=worker, record=record)
+    def add_download(self, worker: StreamDownloadWorker, record: dict[str, Any]) -> None:
+        """Add a new download to the grid and persist it to history."""
+        controller = DownloadItemWidget(self.umu_database, worker=worker, record=record, settings=self.settings)
 
         controller.finished.connect(self.on_download_finished)
+        controller.installation_finished.connect(self.on_installation_finished)
         controller.remove_requested.connect(self.remove_download_item)
 
-        existing_controller = self.find_controller_by_url(record["url"])
-        if existing_controller:
-            self.remove_download_item(existing_controller)
+        existing_record = self.download_history.find_by_url(self.download_records, record["url"]) if self.download_history else None
+        if existing_record:
+            existing_controller = self.find_controller_by_record(existing_record)
+            if existing_controller:
+                self.remove_download_item(existing_controller)
 
         self.insert_row_at(0, controller)
         if controller.record not in self.download_records:
@@ -60,31 +85,37 @@ class DownloadManagerWidget(QWidget):
 
         self.save_history()
 
-    def on_download_finished(self, record: dict):
+    def on_download_finished(self, record: dict[str, Any]) -> None:
+        """Save download history and refresh prefix list after download completion."""
         self.save_history()
+        if self.prefix_manager:
+            self.prefix_manager.refresh_prefixes()
 
-    def load_history(self):
+    def on_installation_finished(self) -> None:
+        """Refresh the prefix list after a game installation completes."""
+        if self.prefix_manager:
+            self.prefix_manager.refresh_prefixes()
+
+    def load_history(self) -> None:
+        """Load persisted download history from JSON and recreate widgets for each record."""
         try:
-            if os.path.exists(self.json_path):
-                with open(self.json_path, 'r') as f:
-                    self.download_records = json.load(f)
+            if self.download_history:
+                self.download_records = self.download_history.load()
 
                 for record in reversed(self.download_records):
-                    if record["status"] == "Downloading":
-                        record["status"] = "Failed"
-
-                    controller = DownloadItemWidget(self.umu_database, record=record)
+                    controller = DownloadItemWidget(self.umu_database, record=record, settings=self.settings)
                     controller.remove_requested.connect(self.remove_download_item)
                     self.add_download_to_grid(controller)
 
             # Add a stretch row at the bottom to push all items to the top
             self.downloads_layout.setRowStretch(self.downloads_layout.rowCount(), 1)
 
-        except Exception as e:
-            print(f"Error loading download history: {e}")
+        except (json.JSONDecodeError, OSError) as e:
+            logger.error("Error loading download history: %s", e)
             self.download_records = []
 
-    def save_history(self):
+    def save_history(self) -> None:
+        """Persist the current download list to JSON, preserving grid order."""
         try:
             # Rebuild records from widget_map to ensure correct order
             label_to_controller = {
@@ -105,22 +136,32 @@ class DownloadManagerWidget(QWidget):
 
             self.download_records = records
 
-            with open(self.json_path, 'w') as f:
-                json.dump(self.download_records, f, indent=4)
-        except Exception as e:
-            print(f"Error saving download history: {e}")
+            if self.download_history:
+                self.download_history.save(records)
+        except OSError as e:
+            logger.error("Error saving download history: %s", e)
 
     def closeEvent(self, event: QCloseEvent):
+        """Persist download history before the widget is closed."""
         self.save_history()
         event.accept()
 
     def find_controller_by_url(self, url: str) -> DownloadItemWidget | None:
+        """Find a download controller by its URL for duplicate detection."""
         for controller in self.widget_map.keys():
             if controller.record.get("url") == url:
                 return controller
         return None
 
-    def remove_download_item(self, controller: DownloadItemWidget):
+    def find_controller_by_record(self, record: dict[str, Any]) -> DownloadItemWidget | None:
+        """Find a download controller by its record dict."""
+        for controller in self.widget_map.keys():
+            if controller.record is record:
+                return controller
+        return None
+
+    def remove_download_item(self, controller: DownloadItemWidget) -> None:
+        """Remove a download widget from the grid and clean up its resources."""
         if controller not in self.widget_map:
             return
 
@@ -169,7 +210,13 @@ class DownloadManagerWidget(QWidget):
         controller.deleteLater()
         self.save_history()
 
-    def insert_row_at(self, row_index: int, controller: DownloadItemWidget):
+    def insert_row_at(self, row_index: int, controller: DownloadItemWidget) -> None:
+        """Insert a download widget at a specific grid row, shifting existing rows down.
+
+        Args:
+            row_index: The row index to insert at.
+            controller: The DownloadItemWidget to insert.
+        """
         # Remove the old stretch row
         current_row_count = self.downloads_layout.rowCount()
         if current_row_count > 0:

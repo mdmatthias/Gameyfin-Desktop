@@ -1,35 +1,29 @@
 import os
 from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QIcon, QAction
-from .settings import settings_manager
-from .utils import get_app_icon_path
+
+from .settings import SettingsManager
+from .utils import get_effective_icon
 
 
 class GameyfinTray:
-    def __init__(self, app, window):
+    def __init__(self, app, window, settings: SettingsManager):
+        """Create and show the system tray icon with menu actions.
+
+        Args:
+            app: The QApplication instance.
+            window: The main GameyfinWindow instance.
+            settings: SettingsManager instance providing app configuration.
+        """
         self.app = app
         self.window = window
+        self.settings = settings
         self.tray = QSystemTrayIcon()
-        
-        icon_name = "org.gameyfin.Gameyfin-Desktop"
-        
-        custom_icon_path = settings_manager.get("GF_ICON_PATH")
-        theme = settings_manager.get("GF_THEME")
-        
-        internal_icon_path = get_app_icon_path(custom_icon_path, theme=theme)
-        
-        is_light_variant = "icon_light.png" in internal_icon_path
-        has_custom_path = custom_icon_path is not None and custom_icon_path != ""
 
-        if has_custom_path or is_light_variant:
-             icon = QIcon(internal_icon_path)
-        else:
-             # Try to use the theme icon (especially for Flatpak), fall back to file path
-             icon = QIcon.fromTheme(icon_name)
-             if icon.isNull():
-                 icon = QIcon(internal_icon_path)
-            
-        self.tray.setIcon(icon)
+        custom_icon_path = settings.get("GF_ICON_PATH")
+        theme = settings.get("GF_THEME")
+
+        self.tray.setIcon(get_effective_icon(custom_icon_path, theme=theme))
         self.menu = QMenu()
 
         self.show_action = QAction("Gameyfin")
@@ -56,14 +50,16 @@ class GameyfinTray:
         self.tray.activated.connect(self.icon_clicked)
         self.tray.show()
 
-    def icon_clicked(self, reason):
+    def icon_clicked(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        """Handles single-click on the tray icon — toggles window visibility."""
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
             if self.window.isVisible():
                 self.window.hide()
             else:
                 self.window.show_main_tab()
 
-    def quit_app(self):
+    def quit_app(self) -> None:
+        """Performs a full application quit — hides tray, closes window, exits app."""
         self.tray.hide()
         self.window.is_really_quitting = True
         self.window.close()
