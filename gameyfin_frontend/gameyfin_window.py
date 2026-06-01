@@ -14,6 +14,7 @@ from qt_material import apply_stylesheet
 
 from gameyfin_frontend.widgets.download_manager import DownloadManagerWidget
 from gameyfin_frontend.widgets.prefix_manager import PrefixManagerWidget
+from gameyfin_frontend.widgets.loading_overlay import LoadingOverlay
 from gameyfin_frontend.workers import StreamDownloadWorker
 from gameyfin_frontend.umu_database import UmuDatabase
 
@@ -188,6 +189,17 @@ class GameyfinWindow(QMainWindow):
 
         self.browser.page().profile().downloadRequested.connect(self.on_download_requested)
 
+        # --- Loading overlay (initial load only) ---
+        app_icon = get_effective_icon(
+            custom_path=self.settings.get("GF_ICON_PATH"),
+            theme=self.settings.get("GF_THEME"),
+        )
+        self._loading_overlay = LoadingOverlay(self, app_icon)
+        self._position_overlay()
+        self._initial_load_complete = False
+        self.browser.loadStarted.connect(self._on_load_started)
+        self.browser.loadFinished.connect(self._on_load_finished)
+
     def _inject_css(self) -> None:
         """Inject CSS to hide horizontal overflow in the browser."""
         script = QWebEngineScript()
@@ -296,6 +308,46 @@ class GameyfinWindow(QMainWindow):
         idx = self.tab_widget.indexOf(view)
         if idx != -1:
             self.tab_widget.setTabIcon(idx, icon)
+
+    # ------------------------------------------------------------------
+    # Loading overlay helpers
+    # ------------------------------------------------------------------
+
+    def _position_overlay(self) -> None:
+        """Position the loading overlay over the central widget area."""
+        if not hasattr(self, "_loading_overlay"):
+            return
+        geo = self.geometry()
+        # Account for window decorations (title bar etc.)
+        title_bar_height = self.frameGeometry().height() - self.geometry().height()
+        self._loading_overlay.setGeometry(
+            geo.x(),
+            geo.y() + title_bar_height,
+            geo.width(),
+            geo.height() - title_bar_height,
+        )
+
+    def _on_load_started(self) -> None:
+        """Show the loading overlay on initial page load."""
+        if not self._initial_load_complete and self.tab_widget.currentIndex() < FIXED_TAB_COUNT:
+            self._loading_overlay.show_overlay()
+
+    def _on_load_finished(self, success: bool) -> None:
+        """Hide the loading overlay after initial load completes."""
+        if not self._initial_load_complete:
+            self._initial_load_complete = True
+            self._loading_overlay.hide_overlay()
+
+    def resizeEvent(self, event: Any) -> None:  # type: ignore[override]
+        """Reposition the overlay on window resize."""
+        super().resizeEvent(event)
+        self._position_overlay()
+
+    def showEvent(self, event: Any) -> None:  # type: ignore[override]
+        """Show the loading overlay when the window becomes visible."""
+        super().showEvent(event)
+        self._position_overlay()
+        self._loading_overlay.show_overlay()
 
     def show_main_tab(self) -> None:
         """Show the window and switch to the main Gameyfin browser tab."""
