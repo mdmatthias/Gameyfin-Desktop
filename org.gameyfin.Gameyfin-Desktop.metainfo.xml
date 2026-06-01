@@ -81,15 +81,16 @@
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
-        <release version="2.6.0-dev" date="2026-05-28">
+        <release version="2.6.1" date="2026-06-01">
             <description>
-                <p>This is a development release with improved data management and bug fixes. Please report any issues on GitHub.</p>
                 <ul>
                     <li>Internal codebase refactor for better maintainability and reliability.</li>
+                    <li>Add loading animation on initial start.</li>
                     <li>Moved all config data (settings, downloads, shortcuts, cache) to standard XDG directories depending on your OS. Existing data is migrated automatically on first launch, no action needed.</li>
+                    <li>Log level is now configurable directly from the Settings tab.</li>
                     <li>(Linux) Added native 32-bit library support in the Flatpak build, fixing compatibility with older 32-bit games.</li>
                     <li>(Linux) Fixed shortcut scripts so they cd into the game's executable directory before launching. This resolves issues with games that require their working directory to match the .exe location. To apply to existing installs, open the Prefix Manager, click "Configure Prefix" on the affected game, then click OK.</li>
-                    <li>(Linux) Log level is now configurable directly from the Settings tab.</li>
+                    <li>(Linux) Added regedit button to prefix manager.</li>
                 </ul>
             </description>
         </release>
