@@ -26,7 +26,7 @@ A dedicated desktop client for [Gameyfin](https://github.com/gameyfin/gameyfin) 
   * Detects `.exe` files. If multiple are found, it asks you to choose which one to launch.
   * Automatically lookup the umu-id for proton fixes by codename, folder name or manual search entry.
   * Automatically creates a wineprefix and launches the installer using `umu-run`.
-  * **🛠️ Wine Tools:** Quick access to `winecfg` and `winetricks` for manual prefix configuration during installation.
+  * **🛠️ Wine Tools:** Quick access to `winecfg`, `winetricks`, and `regedit` for manual prefix configuration during installation.
 * **🍷 Prefix & Game Manager (Linux):**
   * **Quick Launch:** Launch any game shortcut script directly from the Prefix Manager via a select box.
   * **Post-Install Configuration:** Edit wine prefix settings (environment variables, Wayland, MangoHud, WOW64) after a game is installed.
@@ -60,6 +60,7 @@ While the application can be configured using environment variables (see below),
 | `GF_UMU_API_URL`          | **(Linux Only)** URL for the UMU API to search for game fixes.                                    |
 | `GF_DEFAULT_DOWNLOAD_DIR` | Default directory where game archives are extracted (defaults to `~/Downloads`). |
 | `GF_PROMPT_DOWNLOAD_DIR`  | Set to `1` to always prompt for a download directory when a download starts.     |
+| `GF_LOG_LEVEL`            | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). Defaults to `WARNING`.      |
 
 ---
 
