@@ -146,9 +146,11 @@ class InstallConfigDialog(QDialog):
 
         self.winecfg_button = QPushButton("Run Winecfg")
         self.winetricks_button = QPushButton("Run Winetricks")
+        self.regedit_button = QPushButton("Run Regedit")
 
         wine_tools_layout.addWidget(self.winecfg_button)
         wine_tools_layout.addWidget(self.winetricks_button)
+        wine_tools_layout.addWidget(self.regedit_button)
 
         main_layout.addWidget(self.wine_tools_widget)
 
@@ -156,6 +158,7 @@ class InstallConfigDialog(QDialog):
 
         self.winecfg_button.clicked.connect(self.run_winecfg)
         self.winetricks_button.clicked.connect(self.run_winetricks)
+        self.regedit_button.clicked.connect(self.run_regedit)
         self.search_button.clicked.connect(self.search_for_game_id)
 
     @pyqtSlot()
@@ -242,6 +245,23 @@ class InstallConfigDialog(QDialog):
 
         logger.info("Starting winetricks with PROTONPATH=%s WINEPREFIX=%s", proton_path, self.wine_prefix_path)
         subprocess.Popen([UMU_RUN_CMD, "winetricks", "--gui"], env=proc_env, start_new_session=True)
+
+    @pyqtSlot()
+    def run_regedit(self):
+        """Runs regedit in the correct prefix using umu-run."""
+        if not self.wine_prefix_path:
+            return
+
+        os.makedirs(self.wine_prefix_path, exist_ok=True)
+
+        proton_path = self.settings.get("PROTONPATH", DEFAULT_PROTON) if self.settings else DEFAULT_PROTON
+
+        proc_env = os.environ.copy()
+        proc_env["PROTONPATH"] = proton_path
+        proc_env["WINEPREFIX"] = self.wine_prefix_path
+
+        logger.info("Starting regedit with PROTONPATH=%s WINEPREFIX=%s", proton_path, self.wine_prefix_path)
+        subprocess.Popen([UMU_RUN_CMD, "regedit"], env=proc_env, start_new_session=True)
 
     def get_config(self) -> dict[str, str]:
         """
