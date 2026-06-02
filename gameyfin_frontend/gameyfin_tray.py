@@ -1,9 +1,14 @@
+import logging
 import os
+from typing import Any
+
 from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QIcon, QAction
 
 from .settings import SettingsManager
 from .utils import get_effective_icon
+
+logger = logging.getLogger(__name__)
 
 
 class GameyfinTray:
@@ -49,6 +54,40 @@ class GameyfinTray:
 
         self.tray.activated.connect(self.icon_clicked)
         self.tray.show()
+
+        # Wire tray into download manager and all its existing widgets
+        if hasattr(self.window, "download_manager"):
+            dm = self.window.download_manager
+            dm.tray = self
+            for child in dm.widget_map:
+                child.tray = self
+
+    def show_notification(self, title: str, message: str, enabled_key: str | None = None) -> None:
+        """Show a desktop notification via the system tray icon.
+
+        Respects the user's notification preference stored under *enabled_key*
+        (defaults to ``GF_DOWNLOAD_NOTIFICATIONS``).  Notifications are only
+        shown when the tray is visible — if the user has quit the app there's
+        nobody to notify.
+
+        Args:
+            title: Notification title.
+            message: Notification body text.
+            enabled_key: Settings key that controls whether notifications are
+                enabled.  Pass ``None`` to always show regardless of setting.
+        """
+
+        if not self.tray.isVisible():
+            return
+
+        if enabled_key is not None:
+            if int(self.settings.get(enabled_key, 1)) == 0:
+                logger.debug("Notifications disabled by setting %s", enabled_key)
+                return
+
+        logger.info("Showing notification: %s — %s", title, message)
+        # Informational urgency (lowest) — suitable for download/install events
+        self.tray.showMessage(title, message, QSystemTrayIcon.MessageIcon.Information, 4000)
 
     def icon_clicked(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         """Handles single-click on the tray icon — toggles window visibility."""

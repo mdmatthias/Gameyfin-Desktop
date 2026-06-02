@@ -96,3 +96,44 @@ class TestGameyfinTray:
     def test_quit_app_hides_tray(self, tray):
         tray.quit_app()
         assert not tray.tray.isVisible()
+
+
+class TestShowNotification:
+    """Tests for GameyfinTray.show_notification()."""
+
+    def test_show_notification_calls_messageBox(self, tray):
+        msg_box = MagicMock()
+        tray.tray.showMessage = msg_box
+        tray.show_notification("Title", "Message")
+        msg_box.assert_called_once_with(
+            "Title", "Message", QSystemTrayIcon.MessageIcon.Information, 4000
+        )
+
+    def test_show_notification_skipped_when_tray_not_visible(self, tray):
+        msg_box = MagicMock()
+        tray.tray.showMessage = msg_box
+        tray.tray.setVisible(False)
+        tray.show_notification("Title", "Message")
+        msg_box.assert_not_called()
+
+    def test_show_notification_respects_disabled_setting(self, tray):
+        tray.settings.get.return_value = 0
+        msg_box = MagicMock()
+        tray.tray.showMessage = msg_box
+        tray.show_notification("Title", "Message", enabled_key="GF_DOWNLOAD_NOTIFICATIONS")
+        msg_box.assert_not_called()
+
+    def test_show_notification_bypasses_setting_when_enabled_key_none(self, tray):
+        tray.settings.get.return_value = 0
+        msg_box = MagicMock()
+        tray.tray.showMessage = msg_box
+        tray.show_notification("Title", "Message", enabled_key=None)
+        msg_box.assert_called_once()
+
+    def test_show_notification_uses_default_enabled(self, tray):
+        # When key is GF_DOWNLOAD_NOTIFICATIONS and setting returns 1, should show
+        tray.settings.get.return_value = 1
+        msg_box = MagicMock()
+        tray.tray.showMessage = msg_box
+        tray.show_notification("Title", "Message", enabled_key="GF_DOWNLOAD_NOTIFICATIONS")
+        msg_box.assert_called_once()

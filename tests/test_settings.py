@@ -59,6 +59,9 @@ class TestSettingsManagerDefaults:
         assert "none" in stores
         assert "steam" in stores
 
+    def test_has_download_notifications_default(self, fresh_settings):
+        assert fresh_settings.get("GF_DOWNLOAD_NOTIFICATIONS") == 1
+
 
 class TestSettingsManagerGetSet:
     def test_set_and_get(self, fresh_settings):

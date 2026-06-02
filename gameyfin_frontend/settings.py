@@ -50,7 +50,8 @@ class SettingsManager:
             "GF_THEME": "auto",
             "GF_DEFAULT_DOWNLOAD_DIR": "",
             "GF_PROMPT_DOWNLOAD_DIR": 0,
-            "GF_LOG_LEVEL": "WARNING"
+            "GF_LOG_LEVEL": "WARNING",
+            "GF_DOWNLOAD_NOTIFICATIONS": 1
         }
         
         self.settings = self.defaults.copy()

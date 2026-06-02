@@ -36,10 +36,10 @@ logger = logging.getLogger(__name__)
 class DownloadItemWidget(QWidget):
     remove_requested = pyqtSignal(QWidget)
     finished = pyqtSignal(dict)
-    installation_finished = pyqtSignal()
+    installation_finished = pyqtSignal(str)
 
     def __init__(self, umu_database: UmuDatabase, worker: StreamDownloadWorker | None = None, record: dict[str, Any] | None = None,
-                 parent: QWidget | None = None, settings: SettingsManager | None = None):
+                 parent: QWidget | None = None, settings: SettingsManager | None = None, tray=None):
         """Create a download item widget showing progress, status, and action buttons.
 
         Args:
@@ -52,6 +52,7 @@ class DownloadItemWidget(QWidget):
         super().__init__(parent)
         self.umu_database = umu_database
         self.settings = settings
+        self.tray = tray
         self.record = record or {}
         self.last_time = time.time()
         self.last_bytes = 0
@@ -418,7 +419,18 @@ class DownloadItemWidget(QWidget):
         """
         logger.info("umu-run process finished with code %s, status %s.", exit_code, exit_status)
 
-        self.installation_finished.emit()
+        game_name = self.filename_label.text()
+        # Notify synchronously — the shortcut dialog below blocks the event loop,
+        # so queued signals would never fire in time.
+        if self.tray is not None:
+            self.tray.show_notification(
+                f"Installation complete: {game_name}",
+                f"{game_name} has been installed.",
+                enabled_key="GF_DOWNLOAD_NOTIFICATIONS",
+            )
+
+        self.installation_finished.emit(game_name)
+
 
         if self.current_wine_prefix and os.path.isdir(self.current_wine_prefix):
             shortcuts_dir = os.path.join(self.current_wine_prefix, "drive_c", "proton_shortcuts")

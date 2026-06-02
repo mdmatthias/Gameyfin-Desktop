@@ -87,7 +87,11 @@ class SettingsWidget(QWidget):
         self.prompt_download_check = QCheckBox()
         self.prompt_download_check.setChecked(bool(settings.get("GF_PROMPT_DOWNLOAD_DIR")) if settings else False)
         self.form_layout.addRow("Prompt for Download Dir:", self.prompt_download_check)
-        
+
+        self.notifications_check = QCheckBox()
+        self.notifications_check.setChecked(bool(settings.get("GF_DOWNLOAD_NOTIFICATIONS")) if settings else True)
+        self.form_layout.addRow("Download Notifications:", self.notifications_check)
+
         self.layout.addLayout(self.form_layout)
         
         self.save_button = QPushButton("Save and Apply")
@@ -130,6 +134,7 @@ class SettingsWidget(QWidget):
             self.settings.set("GF_ICON_PATH", self.icon_path_edit.text())
             self.settings.set("GF_DEFAULT_DOWNLOAD_DIR", self.download_dir_edit.text())
             self.settings.set("GF_PROMPT_DOWNLOAD_DIR", 1 if self.prompt_download_check.isChecked() else 0)
+            self.settings.set("GF_DOWNLOAD_NOTIFICATIONS", 1 if self.notifications_check.isChecked() else 0)
             self.settings.set("GF_LOG_LEVEL", self.log_level_combo.currentText().upper())
         
         # Apply settings immediately

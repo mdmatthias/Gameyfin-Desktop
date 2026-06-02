@@ -30,6 +30,7 @@ class DownloadManagerWidget(QWidget):
         super().__init__(parent)
         self.umu_database = umu_database
         self.prefix_manager = None
+        self.tray = None  # Set by GameyfinTray after init
         self.settings = settings
         self.download_history = DownloadHistoryService(
             settings.get_downloads_json_path()
@@ -67,7 +68,10 @@ class DownloadManagerWidget(QWidget):
 
     def add_download(self, worker: StreamDownloadWorker, record: dict[str, Any]) -> None:
         """Add a new download to the grid and persist it to history."""
-        controller = DownloadItemWidget(self.umu_database, worker=worker, record=record, settings=self.settings)
+        controller = DownloadItemWidget(
+            self.umu_database, worker=worker, record=record,
+            settings=self.settings, tray=self.tray,
+        )
 
         controller.finished.connect(self.on_download_finished)
         controller.installation_finished.connect(self.on_installation_finished)
@@ -86,13 +90,30 @@ class DownloadManagerWidget(QWidget):
         self.save_history()
 
     def on_download_finished(self, record: dict[str, Any]) -> None:
-        """Save download history and refresh prefix list after download completion."""
+        """Save download history, refresh prefix list, and notify on completion."""
         self.save_history()
         if self.prefix_manager:
             self.prefix_manager.refresh_prefixes()
 
-    def on_installation_finished(self) -> None:
-        """Refresh the prefix list after a game installation completes."""
+        filename = record.get("filename", "Unknown")
+        error_msg = record.pop("_error_message", None)
+
+        if error_msg:
+            self._notify(f"Download failed: {filename}", str(error_msg))
+        elif record.get("status") == "Completed":
+            self._notify(f"Download complete: {filename}", f"{filename} has been downloaded.")
+
+    def _notify(self, title: str, message: str) -> None:
+        """Show a desktop notification via the tray, respecting user preferences."""
+        if self.tray is not None:
+            self.tray.show_notification(title, message, enabled_key="GF_DOWNLOAD_NOTIFICATIONS")
+
+    def on_installation_finished(self, game_name: str) -> None:
+        """Refresh the prefix list after a game installation completes.
+
+        Args:
+            game_name: The name of the game that was just installed (carried via signal).
+        """
         if self.prefix_manager:
             self.prefix_manager.refresh_prefixes()
 
