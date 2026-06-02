@@ -60,6 +60,7 @@ While the application can be configured using environment variables (see below),
 | `GF_UMU_API_URL`          | **(Linux Only)** URL for the UMU API to search for game fixes.                                    |
 | `GF_DEFAULT_DOWNLOAD_DIR` | Default directory where game archives are extracted (defaults to `~/Downloads`). |
 | `GF_PROMPT_DOWNLOAD_DIR`  | Set to `1` to always prompt for a download directory when a download starts.     |
+| `GF_DOWNLOAD_NOTIFICATIONS` | Show desktop notifications on download/install completion (default: enabled).    |
 | `GF_LOG_LEVEL`            | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). Defaults to `WARNING`.      |
 
 ---
