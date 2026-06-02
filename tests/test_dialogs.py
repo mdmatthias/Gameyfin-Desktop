@@ -281,3 +281,68 @@ class TestSelectShortcutsDialog:
         # Should return basename if file is not a valid desktop file
         result = SelectShortcutsDialog.parse_desktop_name("/some/path/file.txt")
         assert result == "file.txt"
+
+
+class TestLaunchLoadingDialog:
+    def test_dialog_initializes(self, qtbot):
+        from PyQt6.QtWidgets import QLabel
+        from gameyfin_frontend.dialogs import LaunchLoadingDialog
+        dialog = LaunchLoadingDialog(game_name="TestGame")
+        qtbot.addWidget(dialog)
+        assert dialog.windowTitle() == "Launching Game"
+        # Check that game name appears in one of the labels
+        labels = dialog.findChildren(QLabel)
+        names = [l.text() for l in labels]
+        assert any("TestGame" in n for n in names)
+
+    def test_dialog_shows_and_hides(self, qtbot):
+        from unittest.mock import patch
+        from gameyfin_frontend.dialogs import LaunchLoadingDialog
+        with patch.object(LaunchLoadingDialog, "_wineserver_running", return_value=True):
+            dialog = LaunchLoadingDialog(game_name="Dark Earth")
+            qtbot.addWidget(dialog)
+            # wineserver detected during init → dialog auto-closes immediately
+            assert not dialog.isVisible()
+
+    def test_dialog_starts_grace_period_on_wineserver(self, qtbot):
+        from gameyfin_frontend.dialogs import LaunchLoadingDialog
+        dialog = LaunchLoadingDialog(game_name="Test")
+        qtbot.addWidget(dialog)
+        dialog.show()
+        assert dialog.isVisible()
+        # Simulate wineserver appearing after a poll cycle
+        dialog._wineserver_running = lambda: True
+        dialog._on_poll()
+        # Grace timer should be running, dialog still visible
+        assert dialog._grace_timer.isActive()
+        assert dialog.isVisible()
+        # Verify _close_now is connected to grace timer by triggering it
+        dialog._grace_timer.timeout.emit()
+        assert not dialog.isVisible()
+
+    def test_polling_starts_with_safety_timeout(self, qtbot):
+        from gameyfin_frontend.dialogs import LaunchLoadingDialog
+        dialog = LaunchLoadingDialog(game_name="Test")
+        qtbot.addWidget(dialog)
+        dialog.show()
+        assert dialog._poll_timer is not None
+        assert dialog._poll_timer.isActive()
+        assert dialog._safety_timer is not None
+        assert dialog._safety_timer.isActive()
+
+    def test_spinner_animates(self, qtbot):
+        from gameyfin_frontend.dialogs import _SpinnerWidget
+        spinner = _SpinnerWidget()
+        qtbot.addWidget(spinner)
+        spinner.start()
+        initial_angle = spinner._angle
+        qtbot.wait(200)
+        assert spinner._angle != initial_angle or spinner._angle == 4.0
+
+    def test_spinner_stops_cleanly(self, qtbot):
+        from gameyfin_frontend.dialogs import _SpinnerWidget
+        spinner = _SpinnerWidget()
+        qtbot.addWidget(spinner)
+        spinner.start()
+        spinner.stop()
+        assert not spinner._running

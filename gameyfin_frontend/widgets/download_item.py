@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
 )
 
-from gameyfin_frontend.dialogs import SelectShortcutsDialog
+from gameyfin_frontend.dialogs import LaunchLoadingDialog, SelectShortcutsDialog
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.utils import (
     create_shortcuts, resolve_shortcut_game_info,
@@ -63,6 +63,7 @@ class DownloadItemWidget(QWidget):
 
         self.run_process = None
         self.current_wine_prefix = None
+        self._loading_dialog = None
 
         self.monitor_thread = None
         self.monitor_worker = None
@@ -375,11 +376,18 @@ class DownloadItemWidget(QWidget):
     def _start_linux_installation(self, launcher_to_run: str, target_dir: str, install_config: dict[str, Any]) -> None:
         """Launch the game via UMU environment prefix and umu-run on Linux.
 
+        Shows a loading dialog while Proton initializes.
+
         Args:
             launcher_to_run: Path to the game executable.
             target_dir: Download target directory (unused, for future use).
             install_config: Dict of environment variables and UMU settings.
         """
+        # Show loading dialog before launching
+        game_name = self.filename_label.text()
+        self._loading_dialog = LaunchLoadingDialog(game_name, parent=self)
+        self._loading_dialog.show()
+
         proton_path = self.settings.get("PROTONPATH") if self.settings else None
         self.run_process = self._game_launcher.start_linux(
             launcher_to_run=launcher_to_run,
@@ -389,11 +397,14 @@ class DownloadItemWidget(QWidget):
             proton_path=proton_path,
         )
         if self.run_process is None:
+            self._loading_dialog.close()
+            self._loading_dialog = None
             self.status_label.setText("Launch failed. Is 'umu-run' installed?")
             self.status_label.setStyleSheet("color: red;")
             self.current_wine_prefix = None
             return
         self.run_process.finished.connect(self.on_run_finished)
+        self.run_process.finished.connect(self._loading_dialog.close)  # Close loading dialog when game process ends
         self._set_running_status()
 
     @pyqtSlot()

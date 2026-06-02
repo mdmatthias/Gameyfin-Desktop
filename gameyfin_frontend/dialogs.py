@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import subprocess
 import sys
@@ -6,7 +7,8 @@ from os import getenv
 from os.path import relpath
 from typing import Any
 
-from PyQt6.QtCore import pyqtSlot
+from PyQt6.QtCore import pyqtSlot, QTimer, Qt
+from PyQt6.QtGui import QPainter, QColor
 from PyQt6.QtWidgets import (
     QVBoxLayout, QFormLayout, QCheckBox, QLineEdit, QPushButton, QStyle,
     QHBoxLayout, QWidget, QComboBox, QPlainTextEdit, QDialogButtonBox,
@@ -518,3 +520,169 @@ class SelectShortcutsDialog(QDialog):
         desktop_selected = [fp for cb, fp in self.desktop_checkboxes if cb.isChecked()]
         apps_selected = [fp for cb, fp in self.apps_checkboxes if cb.isChecked()]
         return desktop_selected, apps_selected
+
+
+class LaunchLoadingDialog(QDialog):
+    """A transient dialog shown while a game is launching via UMU.
+
+    Displays an animated spinner with the game name and a short description.
+    Closes automatically when ``wineserver`` appears (indicating UMU has
+    finished initializing). Falls back to a safety timeout of 120 seconds.
+    Can be dismissed early by clicking outside or pressing Escape.
+    """
+
+    _SAFETY_TIMEOUT_MS = 120_000
+    _WINE_SERVER_GRACE_MS = 10_000
+    _POLL_INTERVAL_MS = 500
+
+    @staticmethod
+    def _wineserver_running() -> bool:
+        """Check whether any wineserver process is currently running."""
+        result = subprocess.run(["pgrep", "-x", "wineserver"], capture_output=True, text=True)
+        return result.returncode == 0
+
+    def __init__(self, game_name: str, parent: QDialog | None = None) -> None:
+        super().__init__(parent)
+        self._game_name = game_name
+        self._poll_timer: QTimer | None = None
+        self._grace_timer: QTimer | None = None
+        self._safety_timer: QTimer | None = None
+        self._wineserver_detected = False
+
+        self.setWindowFlags(
+            Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet("background-color: #2c3e50; border-radius: 10px;")
+        self.setWindowTitle("Launching Game")
+        self.setModal(True)
+        self.setMinimumSize(320, 160)
+
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Animated circular progress ring
+        self.spinner = _SpinnerWidget()
+        layout.addWidget(self.spinner, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # Game name label
+        name_label = QLabel(f"Launching {game_name}…")
+        name_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #ecf0f1;")
+        layout.addWidget(name_label, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # Subtitle — updated dynamically as we wait
+        self.subtitle = QLabel("Starting umu-run …")
+        self.subtitle.setStyleSheet("font-size: 11px; color: #95a5a6;")
+        layout.addWidget(self.subtitle, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # Poll for wineserver every 500 ms
+        self._poll_timer = QTimer(self)
+        self._poll_timer.setInterval(self._POLL_INTERVAL_MS)
+        self._poll_timer.timeout.connect(self._on_poll)
+        self._poll_timer.start()
+
+        # Safety timeout (120 s) in case something goes wrong
+        self._safety_timer = QTimer(self)
+        self._safety_timer.setSingleShot(True)
+        self._safety_timer.timeout.connect(self._on_safety_timeout)
+        self._safety_timer.start(self._SAFETY_TIMEOUT_MS)
+
+        # Grace period timer — starts after wineserver is detected
+        self._grace_timer = QTimer(self)
+        self._grace_timer.setSingleShot(True)
+        self._grace_timer.timeout.connect(self._close_now)
+        self._grace_timer.stop()
+
+        # Start spinner animation
+        self.spinner.start()
+
+    def _on_poll(self) -> None:
+        """Check whether wineserver has appeared. Start grace period when it does."""
+        if not self._wineserver_detected and self._wineserver_running():
+            logger.info("LaunchLoadingDialog: wineserver detected — starting %d ms grace period", self._WINE_SERVER_GRACE_MS)
+            self._wineserver_detected = True
+            self.subtitle.setText("Game launching…")
+            self._grace_timer.start(self._WINE_SERVER_GRACE_MS)
+            return
+
+        if self._wineserver_detected:
+            return
+
+        # Update subtitle to give the user a sense of progress
+        phase_text = "Waiting for Wine server …"
+        self.subtitle.setText(phase_text)
+
+    def _on_safety_timeout(self) -> None:
+        """Close the dialog after 120 seconds even if wineserver hasn't appeared."""
+        logger.warning("LaunchLoadingDialog safety timeout reached — closing anyway.")
+        self._close_now()
+
+    def _close_now(self) -> None:
+        """Stop all timers and close the dialog."""
+        if self._poll_timer:
+            self._poll_timer.stop()
+        if self._grace_timer:
+            self._grace_timer.stop()
+        if self._safety_timer:
+            self._safety_timer.stop()
+        self.close()
+
+    def closeEvent(self, event: Any) -> None:  # noqa: ANN401
+        self._close_now()
+        self.spinner.stop()
+        super().closeEvent(event)
+
+
+class _SpinnerWidget(QWidget):
+    """A simple animated circular spinner used by LaunchLoadingDialog."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._angle = 0.0
+        self._running = False
+        self._timer = QTimer(self)
+        self._timer.setInterval(30)
+        self._timer.timeout.connect(self._on_tick)
+
+    def start(self) -> None:
+        self._running = True
+        self._timer.start()
+
+    def stop(self) -> None:
+        self._running = False
+        self._timer.stop()
+        self.update()
+
+    def paintEvent(self, event: Any) -> None:  # noqa: ANN401
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        size = min(self.width(), self.height())
+        center_x = self.width() / 2
+        center_y = self.height() / 2
+        radius = size * 0.38
+        arc_span = 60  # degrees
+
+        for i in range(8):
+            angle = self._angle + i * 45
+            rad = math.radians(angle)
+            x = center_x + radius * math.cos(rad)
+            y = center_y + radius * math.sin(rad)
+
+            alpha = int(200 * (1.0 - i / 8.0))
+            color = QColor("#3498db")
+            color.setAlpha(alpha)
+            painter.setPen(color)
+            painter.setBrush(color)
+            dot_radius = size * 0.04
+            painter.drawEllipse(int(x - dot_radius), int(y - dot_radius),
+                                int(dot_radius * 2), int(dot_radius * 2))
+
+        painter.end()
+
+    def _on_tick(self) -> None:
+        if not self._running:
+            return
+        self._angle = (self._angle + 4) % 360
+        self.update()

@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QListWidget, QPushButton,
                              QHBoxLayout, QLabel, QMessageBox, QDialog, QComboBox, QListWidgetItem)
 from PyQt6.QtCore import Qt
 
-from gameyfin_frontend.dialogs import InstallConfigDialog
+from gameyfin_frontend.dialogs import InstallConfigDialog, LaunchLoadingDialog
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.settings import SettingsManager
 from gameyfin_frontend.services import PrefixService, ShortcutService
@@ -30,6 +30,7 @@ class PrefixItemWidget(QWidget):
         self.prefix_name = prefix_name
         self.prefix_path = prefix_path
         self.settings = settings
+        self._loading_dialog = None
 
         # Determine scripts_dir based on prefix_name
         game_name = prefix_name.removesuffix("_pfx")
@@ -77,6 +78,8 @@ class PrefixItemWidget(QWidget):
     def launch_script(self, index: int) -> None:
         """Launch the selected script via subprocess and reset the combo box.
 
+        Shows a loading dialog with the script name while Proton initializes.
+
         Args:
             index: The combo box index of the selected script.
         """
@@ -87,6 +90,13 @@ class PrefixItemWidget(QWidget):
         script_path = self.script_combo.itemData(index)
         if script_path:
             try:
+                # Use the script filename (without .sh) as the display name
+                script_name = os.path.splitext(os.path.basename(script_path))[0]
+
+                # Show loading dialog before launching (keep reference to prevent GC)
+                self._loading_dialog = LaunchLoadingDialog(script_name, parent=self)
+                self._loading_dialog.show()
+
                 subprocess.Popen([script_path], cwd=os.path.dirname(script_path),
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 # Reset to placeholder
