@@ -344,10 +344,11 @@ class GameyfinWindow(QMainWindow):
         self._position_overlay()
 
     def showEvent(self, event: Any) -> None:  # type: ignore[override]
-        """Show the loading overlay when the window becomes visible."""
+        """Show the window; position overlay without showing loading screen after initial load."""
         super().showEvent(event)
         self._position_overlay()
-        self._loading_overlay.show_overlay()
+        if not self._initial_load_complete:
+            self._loading_overlay.show_overlay()
 
     def show_main_tab(self) -> None:
         """Show the window and switch to the main Gameyfin browser tab."""
