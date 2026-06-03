@@ -446,7 +446,8 @@ class GameyfinWindow(QMainWindow):
                 "status": "Downloading",
                 "total_bytes": total_size,
             }
-            worker = StreamDownloadWorker(url, target_dir, cookies, estimated_total=total_size)
+            bandwidth_limit = self.settings.get("GF_BANDWIDTH_LIMIT") or 0
+            worker = StreamDownloadWorker(url, target_dir, cookies, estimated_total=total_size, bandwidth_limit=bandwidth_limit)
             self.download_manager.add_download(worker, record)
             self.tab_widget.setCurrentWidget(self.download_manager)
 

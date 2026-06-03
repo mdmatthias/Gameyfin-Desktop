@@ -2,10 +2,12 @@ import os
 import sys
 import json
 import subprocess
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QLineEdit, 
-                             QPushButton, QLabel, QSpinBox, QMessageBox, QCheckBox, QHBoxLayout, QFileDialog, QComboBox)
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QLineEdit,
+                             QPushButton, QLabel, QSlider, QSpinBox, QMessageBox, QCheckBox, QHBoxLayout, QFileDialog, QComboBox)
+from PyQt6.QtCore import Qt
 from qt_material import list_themes
 from .settings import SettingsManager
+
 
 class SettingsWidget(QWidget):
     def __init__(self, parent=None, settings: SettingsManager | None = None):
@@ -92,12 +94,29 @@ class SettingsWidget(QWidget):
         self.notifications_check.setChecked(bool(settings.get("GF_DOWNLOAD_NOTIFICATIONS")) if settings else True)
         self.form_layout.addRow("Download Notifications:", self.notifications_check)
 
+        # Bandwidth Throttling — QSlider with 0.1 MB/s steps (range 0–1000 → 0.0–100.0 MB/s)
+        bandwidth_hbox = QHBoxLayout()
+        self.bandwidth_slider = QSlider(Qt.Orientation.Horizontal)
+        self.bandwidth_slider.setRange(0, 1000)
+        self.bandwidth_slider.setSingleStep(1)
+        limit_bytes = settings.get("GF_BANDWIDTH_LIMIT") if settings else 0
+        tenths_mbps = int(round((limit_bytes / (1024 * 1024)) * 10)) if isinstance(limit_bytes, (int, float)) and limit_bytes > 0 else 0
+        self.bandwidth_slider.setValue(min(tenths_mbps, 1000))
+        self.bandwidth_label = QLabel("Unlimited")
+        self.bandwidth_label.setMinimumWidth(80)
+        self._update_bandwidth_label(self.bandwidth_slider.value())
+        self.bandwidth_slider.valueChanged.connect(self._update_bandwidth_label)
+        self.bandwidth_slider.valueChanged.connect(self._on_bandwidth_changed)
+        bandwidth_hbox.addWidget(self.bandwidth_slider)
+        bandwidth_hbox.addWidget(self.bandwidth_label)
+        self.form_layout.addRow("Download Speed Limit:", bandwidth_hbox)
+
         self.layout.addLayout(self.form_layout)
-        
+
         self.save_button = QPushButton("Save and Apply")
         self.save_button.clicked.connect(self.save_settings)
         self.layout.addWidget(self.save_button)
-        
+
         self.layout.addStretch()
 
     def browse_icon(self):
@@ -135,10 +154,25 @@ class SettingsWidget(QWidget):
             self.settings.set("GF_DEFAULT_DOWNLOAD_DIR", self.download_dir_edit.text())
             self.settings.set("GF_PROMPT_DOWNLOAD_DIR", 1 if self.prompt_download_check.isChecked() else 0)
             self.settings.set("GF_DOWNLOAD_NOTIFICATIONS", 1 if self.notifications_check.isChecked() else 0)
+            # Convert tenths of MB/s → bytes/sec for internal storage; 0 means unlimited
+            tenths = self.bandwidth_slider.value()
+            self.settings.set("GF_BANDWIDTH_LIMIT", int(tenths / 10 * 1024 * 1024) if tenths > 0 else 0)
             self.settings.set("GF_LOG_LEVEL", self.log_level_combo.currentText().upper())
-        
+
         # Apply settings immediately
         if hasattr(self.window(), 'apply_settings'):
             self.window().apply_settings()
-        
+
         QMessageBox.information(self, "Settings Saved", "Settings have been saved and applied.")
+
+    def _update_bandwidth_label(self, value: int) -> None:
+        """Update the bandwidth label to show human-readable speed."""
+        if value == 0:
+            self.bandwidth_label.setText("Unlimited")
+        else:
+            mbps = value / 10.0
+            self.bandwidth_label.setText(f"{mbps:.1f} MB/s")
+
+    def _on_bandwidth_changed(self, value: int) -> None:
+        """Optional hook — no-op, available for future wiring (e.g. live preview)."""
+        pass

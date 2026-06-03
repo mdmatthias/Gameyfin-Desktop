@@ -19,7 +19,7 @@ class StreamDownloadWorker(QObject):
     finished = pyqtSignal()
     error = pyqtSignal(str)
 
-    def __init__(self, url: str, target_dir: str, cookies: dict[str, Any] | None = None, estimated_total: int = 0) -> None:
+    def __init__(self, url: str, target_dir: str, cookies: dict[str, Any] | None = None, estimated_total: int = 0, bandwidth_limit: int = 0) -> None:
         """Initialize a background worker that streams a URL to a directory while unzipping.
 
         Emits progress, bytes_received, current_file, finished, and error signals.
@@ -29,12 +29,14 @@ class StreamDownloadWorker(QObject):
             target_dir: The directory to extract files into.
             cookies: Optional dict of cookies to include in the request.
             estimated_total: Fallback total byte count if Content-Length is missing.
+            bandwidth_limit: Max download speed in bytes/sec. 0 means unlimited.
         """
         super().__init__()
         self.url = url
         self.target_dir = target_dir
         self.cookies = cookies or {}
         self.estimated_total = estimated_total
+        self.bandwidth_limit = bandwidth_limit
         self._is_running = True
         self._cancelled = False
         self._session = requests.Session()
@@ -58,16 +60,27 @@ class StreamDownloadWorker(QObject):
 
             def http_chunks():
                 nonlocal received, last_signal_time
+                chunk_start = time.monotonic()
+                chunk_bytes = 0
                 for chunk in self._response.iter_content(DOWNLOAD_CHUNK_SIZE):
                     if not self._is_running:
                         return
                     received += len(chunk)
+                    chunk_bytes += len(chunk)
                     now = time.monotonic()
                     if now - last_signal_time >= PROGRESS_SIGNAL_INTERVAL:
                         self.bytes_received.emit(received, total)
                         if total > 0:
                             self.progress.emit(min(int(received / total * 100), 99))
                         last_signal_time = now
+                    # Bandwidth throttling: sleep if we're going too fast
+                    if self.bandwidth_limit > 0:
+                        elapsed = time.monotonic() - chunk_start
+                        min_elapsed = chunk_bytes / self.bandwidth_limit
+                        if min_elapsed > elapsed:
+                            time.sleep(min_elapsed - elapsed)
+                        chunk_start = time.monotonic()
+                        chunk_bytes = 0
                     yield chunk
 
             for file_name, _file_size, unzipped_chunks in stream_unzip(http_chunks()):

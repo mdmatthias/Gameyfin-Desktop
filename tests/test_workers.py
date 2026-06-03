@@ -1,8 +1,10 @@
 """Tests for background workers (StreamDownloadWorker, ProcessMonitorWorker)."""
 
+import io
 import os
 import signal
 import time
+import zipfile
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -53,6 +55,76 @@ class TestStreamDownloadWorker:
         # Should not raise
         worker.stop()
         assert worker._is_running is False
+
+    def test_worker_initializes_with_bandwidth_limit(self):
+        from gameyfin_frontend.workers import StreamDownloadWorker
+        worker = StreamDownloadWorker("http://example.com", "/tmp/dir", bandwidth_limit=5_000_000)
+        assert worker.bandwidth_limit == 5_000_000
+
+    def test_worker_default_bandwidth_limit_is_zero(self):
+        from gameyfin_frontend.workers import StreamDownloadWorker
+        worker = StreamDownloadWorker("http://example.com", "/tmp/dir")
+        assert worker.bandwidth_limit == 0
+
+    def test_throttle_sleep_called_when_limit_set(self):
+        """Verify that time.sleep is called when bandwidth_limit > 0."""
+        from gameyfin_frontend.workers import StreamDownloadWorker
+        import io
+
+        chunks = [b"x" * (64 * 1024), b"y" * (64 * 1024)]  # 64 KB chunks
+        mock_response = MagicMock()
+        mock_response.iter_content.return_value = iter(chunks)
+        mock_response.headers = {"content-length": str(sum(len(c) for c in chunks))}
+        mock_response.raise_for_status = MagicMock()
+
+        # 1 MB/s limit -> each 64 KB chunk takes ~0.064s minimum
+        worker = StreamDownloadWorker(
+            "http://example.com/file.zip", "/tmp/throttle_test",
+            bandwidth_limit=1024 * 1024  # 1 MB/s
+        )
+
+        with patch.object(worker._session, 'get', return_value=mock_response), \
+             patch("time.sleep") as mock_sleep:
+            os.makedirs("/tmp/throttle_test", exist_ok=True)
+            try:
+                worker.run()
+            except Exception:
+                pass  # May fail on unzip; we only care about sleep calls
+
+            # At least one sleep call should have been made due to throttling
+            assert mock_sleep.call_count >= 1, f"Expected sleep calls for throttling, got {mock_sleep.call_count}"
+
+    def test_no_throttle_sleep_when_unlimited(self):
+        """Verify that time.sleep is NOT called for throttling when bandwidth_limit == 0."""
+        from gameyfin_frontend.workers import StreamDownloadWorker
+
+        # Create a valid ZIP file (single text file)
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("test.txt", "hello world")
+        zip_data = zip_buffer.getvalue()
+
+        chunks = [zip_data[i:i + 64] for i in range(0, len(zip_data), 64)]
+        mock_response = MagicMock()
+        mock_response.iter_content.return_value = iter(chunks)
+        mock_response.headers = {"content-length": str(len(zip_data))}
+        mock_response.raise_for_status = MagicMock()
+
+        worker = StreamDownloadWorker(
+            "http://example.com/file.zip", "/tmp/no_throttle_test",
+            bandwidth_limit=0  # unlimited
+        )
+
+        with patch.object(worker._session, 'get', return_value=mock_response), \
+             patch("time.sleep") as mock_sleep:
+            os.makedirs("/tmp/no_throttle_test", exist_ok=True)
+            try:
+                worker.run()
+            except Exception:
+                pass  # May fail on unzip; we only care about sleep calls
+
+            # No sleep calls should have been made for throttling
+            assert mock_sleep.call_count == 0, f"Expected no sleep calls, got {mock_sleep.call_count}"
 
 
 class TestProcessMonitorWorker:
