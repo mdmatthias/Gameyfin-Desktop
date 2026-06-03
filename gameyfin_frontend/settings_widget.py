@@ -2,7 +2,7 @@ import os
 import sys
 import json
 import subprocess
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QLineEdit,
+from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QFormLayout, QLineEdit,
                              QPushButton, QLabel, QSlider, QSpinBox, QMessageBox, QCheckBox, QHBoxLayout, QFileDialog, QComboBox)
 from PyQt6.QtCore import Qt
 from qt_material import list_themes
@@ -18,27 +18,33 @@ class SettingsWidget(QWidget):
         self.form_layout = QFormLayout()
 
         self.url_edit = QLineEdit()
+        self.url_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.url_edit.setText(settings.get("GF_URL") if settings else "")
         self.form_layout.addRow("Gameyfin URL:", self.url_edit)
 
         self.width_spin = QSpinBox()
+        self.width_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.width_spin.setRange(800, 3840)
         self.width_spin.setValue(settings.get("GF_WINDOW_WIDTH") if settings else 1420)
         self.form_layout.addRow("Window Width:", self.width_spin)
 
         self.height_spin = QSpinBox()
+        self.height_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.height_spin.setRange(600, 2160)
         self.height_spin.setValue(settings.get("GF_WINDOW_HEIGHT") if settings else 940)
         self.form_layout.addRow("Window Height:", self.height_spin)
 
         self.proton_edit = QLineEdit()
+        self.proton_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.proton_edit.setText(settings.get("PROTONPATH") if settings else "")
 
         self.umu_api_edit = QLineEdit()
+        self.umu_api_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.umu_api_edit.setText(settings.get("GF_UMU_API_URL") if settings else "")
 
         self.stores_edit = QLineEdit()
         stores = settings.get("GF_UMU_DB_STORES") if settings else []
+        self.stores_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.stores_edit.setText(json.dumps(stores))
 
         if sys.platform == "linux":
@@ -47,10 +53,12 @@ class SettingsWidget(QWidget):
             self.form_layout.addRow("UMU Stores (JSON):", self.stores_edit)
 
         self.minimized_check = QCheckBox()
+        self.minimized_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.minimized_check.setChecked(bool(settings.get("GF_START_MINIMIZED")) if settings else False)
         self.form_layout.addRow("Start Minimized:", self.minimized_check)
 
         self.theme_combo = QComboBox()
+        self.theme_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.theme_combo.addItem("auto")
         self.theme_combo.addItems(list_themes())
         current_theme = settings.get("GF_THEME") if settings else "auto"
@@ -59,6 +67,7 @@ class SettingsWidget(QWidget):
         self.form_layout.addRow("Theme:", self.theme_combo)
 
         self.log_level_combo = QComboBox()
+        self.log_level_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.log_level_combo.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
         current_log = (settings.get("GF_LOG_LEVEL", "WARNING") if settings else "WARNING").upper()
         if current_log:
@@ -66,9 +75,11 @@ class SettingsWidget(QWidget):
         self.form_layout.addRow("Log Level:", self.log_level_combo)
 
         self.icon_path_edit = QLineEdit()
+        self.icon_path_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.icon_path_edit.setPlaceholderText("(default)")
         self.icon_path_edit.setText(settings.get("GF_ICON_PATH") if settings else "")
         self.icon_browse_btn = QPushButton("Browse...")
+        self.icon_browse_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.icon_browse_btn.clicked.connect(self.browse_icon)
         icon_layout = QHBoxLayout()
         icon_layout.addWidget(self.icon_path_edit)
@@ -77,9 +88,11 @@ class SettingsWidget(QWidget):
 
         # Extraction Settings
         self.download_dir_edit = QLineEdit()
+        self.download_dir_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.download_dir_edit.setPlaceholderText("(defaults to ~/Downloads/<game-name>)")
         self.download_dir_edit.setText(settings.get("GF_DEFAULT_DOWNLOAD_DIR") if settings else "")
         self.download_dir_btn = QPushButton("Browse...")
+        self.download_dir_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.download_dir_btn.clicked.connect(lambda: self.browse_directory(self.download_dir_edit, "Select Download Directory"))
         download_dir_layout = QHBoxLayout()
         download_dir_layout.addWidget(self.download_dir_edit)
@@ -87,16 +100,19 @@ class SettingsWidget(QWidget):
         self.form_layout.addRow("Default Download Dir:", download_dir_layout)
 
         self.prompt_download_check = QCheckBox()
+        self.prompt_download_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.prompt_download_check.setChecked(bool(settings.get("GF_PROMPT_DOWNLOAD_DIR")) if settings else False)
         self.form_layout.addRow("Prompt for Download Dir:", self.prompt_download_check)
 
         self.notifications_check = QCheckBox()
+        self.notifications_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.notifications_check.setChecked(bool(settings.get("GF_DOWNLOAD_NOTIFICATIONS")) if settings else True)
         self.form_layout.addRow("Download Notifications:", self.notifications_check)
 
         # Bandwidth Throttling — QSlider with 0.1 MB/s steps (range 0–1000 → 0.0–100.0 MB/s)
         bandwidth_hbox = QHBoxLayout()
         self.bandwidth_slider = QSlider(Qt.Orientation.Horizontal)
+        self.bandwidth_slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.bandwidth_slider.setRange(0, 1000)
         self.bandwidth_slider.setSingleStep(1)
         limit_bytes = settings.get("GF_BANDWIDTH_LIMIT") if settings else 0
@@ -114,10 +130,16 @@ class SettingsWidget(QWidget):
         self.layout.addLayout(self.form_layout)
 
         self.save_button = QPushButton("Save and Apply")
+        self.save_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.save_button.clicked.connect(self.save_settings)
         self.layout.addWidget(self.save_button)
 
         self.layout.addStretch()
+
+        # Wire explicit tab order: last form field → save button
+        self._tab_order_chain: list[tuple[QWidget, QWidget]] = []
+        QWidget.setTabOrder(self.bandwidth_slider, self.save_button)
+        self._tab_order_chain.append((self.bandwidth_slider, self.save_button))
 
     def browse_icon(self):
         """Open a file dialog to select a custom tray icon and write the path to the edit field."""

@@ -3,8 +3,9 @@ import logging
 import os
 from typing import Any
 
-from PyQt6.QtGui import QCloseEvent
-from PyQt6.QtWidgets import (QGridLayout, QWidget, QScrollArea, QVBoxLayout, QPushButton, QHBoxLayout, QSpacerItem, QSizePolicy)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QCloseEvent, QKeyEvent
+from PyQt6.QtWidgets import (QApplication, QGridLayout, QWidget, QScrollArea, QVBoxLayout, QPushButton, QHBoxLayout, QSpacerItem, QSizePolicy, QLabel, QProgressBar)
 
 from gameyfin_frontend.settings import SettingsManager
 from gameyfin_frontend.umu_database import UmuDatabase
@@ -54,6 +55,54 @@ class DownloadManagerWidget(QWidget):
         self.main_layout.addWidget(self.scroll_area)
 
         self.load_history()
+
+    @staticmethod
+    def _is_button(widget: QWidget) -> bool:
+        """Return True if the widget is a QPushButton."""
+        return isinstance(widget, QPushButton)
+
+    def _all_visible_buttons(self) -> list[QPushButton]:
+        """Collect every visible QPushButton across all download rows."""
+        buttons: list[QPushButton] = []
+        for row in range(self.downloads_layout.rowCount() - 1):  # skip stretch
+            for col in range(self.downloads_layout.columnCount()):
+                item = self.downloads_layout.itemAtPosition(row, col)
+                if item and item.widget():
+                    w = item.widget()
+                    if self._is_button(w) and w.isVisible():
+                        buttons.append(w)
+                    else:
+                        # Grab child buttons from containers like button_container
+                        for child in w.children():
+                            if isinstance(child, QPushButton) and child.isVisible():
+                                buttons.append(child)
+        return buttons
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """Handle Tab / Shift+Tab by cycling focus through visible download buttons only."""
+        if event.key() == Qt.Key.Key_Tab or event.key() == Qt.Key.Key_Backtab:
+            buttons = self._all_visible_buttons()
+            if not buttons:
+                super().keyPressEvent(event)
+                return
+
+            current = QApplication.focusWidget()
+            try:
+                idx = buttons.index(current)
+            except ValueError:
+                idx = -1
+
+            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                # Shift+Tab → previous button (wrap around)
+                new_idx = (idx - 1) % len(buttons)
+            else:
+                # Tab → next button (wrap around)
+                new_idx = (idx + 1) % len(buttons)
+
+            buttons[new_idx].setFocus(Qt.FocusReason.TabFocusReason)
+            return
+
+        super().keyPressEvent(event)
 
     def add_download_to_grid(self, controller: DownloadItemWidget) -> None:
         """Adds a download item widget to the grid layout at the next available row."""
