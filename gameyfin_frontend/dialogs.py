@@ -288,7 +288,7 @@ class InstallConfigDialog(QDialog):
         extra_vars_text = self.extra_vars_input.toPlainText().strip()
         if extra_vars_text:
             for line in extra_vars_text.splitlines():
-                if "=" in line:
+               if "=" in line:
                     parts = line.split("=", 1)
                     key = parts[0].strip()
                     value = parts[1].strip()
@@ -296,6 +296,13 @@ class InstallConfigDialog(QDialog):
                         config[key] = value
 
         return config
+
+    def keyPressEvent(self, event) -> None:  # noqa: ANN201
+        """Close the dialog when Escape is pressed."""
+        if event.key() == Qt.Key.Key_Escape:
+            self.reject()
+        else:
+            super().keyPressEvent(event)
 
 
 class SelectLauncherDialog(QDialog):
@@ -352,6 +359,13 @@ class SelectLauncherDialog(QDialog):
         relative_path = item.text()
         return self.exe_map.get(relative_path)
 
+    def keyPressEvent(self, event) -> None:  # noqa: ANN201
+        """Close the dialog when Escape is pressed."""
+        if event.key() == Qt.Key.Key_Escape:
+            self.reject()
+        else:
+            super().keyPressEvent(event)
+
 
 class SelectUmuIdDialog(QDialog):
     """
@@ -406,6 +420,13 @@ class SelectUmuIdDialog(QDialog):
             return None
         return self.results[current_row]
 
+    def keyPressEvent(self, event) -> None:  # noqa: ANN201
+        """Close the dialog when Escape is pressed."""
+        if event.key() == Qt.Key.Key_Escape:
+            self.reject()
+        else:
+            super().keyPressEvent(event)
+
 
 class SelectShortcutsDialog(QDialog):
     """
@@ -429,7 +450,7 @@ class SelectShortcutsDialog(QDialog):
         self.setModal(True)
 
         self.main_layout = QVBoxLayout(self)
-        
+
         # Scroll Area
         self.scroll_area = QScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
@@ -438,7 +459,7 @@ class SelectShortcutsDialog(QDialog):
         self.content_layout.setSpacing(2)  # Minimal spacing between checkboxes
         self.content_layout.setContentsMargins(10, 10, 10, 10)
         self.scroll_area.setWidget(self.scroll_content)
-        
+
         self.main_layout.addWidget(self.scroll_area)
 
         self.desktop_checkboxes = []
@@ -456,7 +477,7 @@ class SelectShortcutsDialog(QDialog):
                 checkbox.setChecked(True)
             self.content_layout.addWidget(checkbox)
             self.desktop_checkboxes.append((checkbox, file_path))
-            
+
         self.content_layout.addSpacing(15)
 
         # Application Menu Section
@@ -520,6 +541,13 @@ class SelectShortcutsDialog(QDialog):
         desktop_selected = [fp for cb, fp in self.desktop_checkboxes if cb.isChecked()]
         apps_selected = [fp for cb, fp in self.apps_checkboxes if cb.isChecked()]
         return desktop_selected, apps_selected
+
+    def keyPressEvent(self, event) -> None:  # noqa: ANN201
+        """Close the dialog when Escape is pressed."""
+        if event.key() == Qt.Key.Key_Escape:
+            self.reject()
+        else:
+            super().keyPressEvent(event)
 
 
 class LaunchLoadingDialog(QDialog):
@@ -627,6 +655,14 @@ class LaunchLoadingDialog(QDialog):
         if self._safety_timer:
             self._safety_timer.stop()
         self.close()
+
+    def keyPressEvent(self, event) -> None:  # noqa: ANN201
+        """Close the dialog when Escape is pressed."""
+        if event.key() == Qt.Key.Key_Escape:
+            self._close_now()
+            self.close()
+        else:
+            super().keyPressEvent(event)
 
     def closeEvent(self, event: Any) -> None:  # noqa: ANN401
         self._close_now()

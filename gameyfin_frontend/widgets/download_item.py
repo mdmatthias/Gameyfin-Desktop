@@ -6,7 +6,7 @@ import sys
 import time
 from typing import Any
 
-from PyQt6.QtCore import pyqtSlot, QProcess, QUrl, QThread, pyqtSignal
+from PyQt6.QtCore import pyqtSlot, QProcess, QUrl, QThread, pyqtSignal, Qt
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QDialog,
@@ -82,6 +82,10 @@ class DownloadItemWidget(QWidget):
         self.open_folder_button = QPushButton("Open Folder")
         self.remove_button = QPushButton("Remove")
         self.install_button = QPushButton("Install")
+
+        # Ensure all buttons can receive keyboard/gamepad focus
+        for btn in (self.cancel_button, self.install_button, self.open_folder_button, self.remove_button):
+            btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         self.button_container = QWidget()
         self.button_layout = QHBoxLayout(self.button_container)

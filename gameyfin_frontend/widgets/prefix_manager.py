@@ -4,7 +4,7 @@ import os
 import subprocess
 from typing import Any
 
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QListWidget, QPushButton,
+from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QListWidget, QPushButton,
                              QHBoxLayout, QLabel, QMessageBox, QDialog, QComboBox, QListWidgetItem)
 from PyQt6.QtCore import Qt
 
@@ -171,6 +171,7 @@ class PrefixManagerWidget(QWidget):
 
         self.refresh_btn = QPushButton("Refresh")
         self.refresh_btn.setFixedWidth(100)
+        self.refresh_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.refresh_btn.clicked.connect(self.refresh_prefixes)
         header_layout.addWidget(self.refresh_btn)
 
@@ -179,17 +180,20 @@ class PrefixManagerWidget(QWidget):
         # List
         self.list_widget = QListWidget()
         self.list_widget.setAlternatingRowColors(True)
+        self.list_widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.list_widget.itemDoubleClicked.connect(self.open_selected_prefix_config)
         layout.addWidget(self.list_widget)
 
         # Buttons
         btn_layout = QHBoxLayout()
         self.config_btn = QPushButton("Configure Prefix")
+        self.config_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.config_btn.clicked.connect(self.open_selected_prefix_config)
         self.config_btn.setEnabled(False)
 
         self.delete_btn = QPushButton("Delete Prefix")
         self.delete_btn.setStyleSheet("background-color: #d9534f; color: white;")  # Bootstrap danger colorish
+        self.delete_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.delete_btn.clicked.connect(self.delete_selected_prefix)
         self.delete_btn.setEnabled(False)
 
@@ -200,6 +204,19 @@ class PrefixManagerWidget(QWidget):
         layout.addLayout(btn_layout)
 
         self.list_widget.itemSelectionChanged.connect(self.on_selection_changed)
+
+       # Wire explicit tab order for keyboard/gamepad navigation
+        self._tab_order_chain: list[tuple[QWidget, QWidget]] = []
+        self._wire_tab_order()
+
+    def _wire_tab_order(self) -> None:
+        """Wire setTabOrder chain: Refresh → List → Configure → Delete."""
+        widgets = [self.refresh_btn, self.list_widget, self.config_btn, self.delete_btn]
+        for i in range(len(widgets) - 1):
+            pair = (widgets[i], widgets[i + 1])
+            if pair not in self._tab_order_chain:
+                self._tab_order_chain.append(pair)
+                QWidget.setTabOrder(widgets[i], widgets[i + 1])
 
     def refresh_prefixes(self) -> None:
         """Scan the prefix directories and rebuild the list widget with prefix items."""
