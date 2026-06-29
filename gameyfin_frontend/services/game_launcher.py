@@ -31,7 +31,7 @@ class GameLauncher:
             process = QProcess()
             process.setProgram(launcher_to_run)
             process.setWorkingDirectory(os.path.dirname(launcher_to_run))
-
+            process.start()
             if not process.waitForStarted():
                 logger.info("Launch failed (QProcess failed to start).")
                 return None

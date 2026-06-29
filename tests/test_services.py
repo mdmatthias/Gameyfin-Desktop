@@ -238,3 +238,4 @@ class TestGameLauncher:
             assert result is not None
             MockProcess.return_value.setProgram.assert_called_once_with("/tmp/game/game.exe")
             MockProcess.return_value.setWorkingDirectory.assert_called_once_with("/tmp/game")
+            MockProcess.return_value.start.assert_called_once()
