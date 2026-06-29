@@ -317,15 +317,11 @@ class GameyfinWindow(QMainWindow):
         """Position the loading overlay over the central widget area."""
         if not hasattr(self, "_loading_overlay"):
             return
-        geo = self.geometry()
-        # Account for window decorations (title bar etc.)
-        title_bar_height = self.frameGeometry().height() - self.geometry().height()
-        self._loading_overlay.setGeometry(
-            geo.x(),
-            geo.y() + title_bar_height,
-            geo.width(),
-            geo.height() - title_bar_height,
-        )
+        # The overlay is a child widget, so its geometry is in the window's
+        # client-area coordinate system (top-left = 0,0). self.rect() already
+        # excludes window decorations, so it covers the client area exactly and
+        # keeps the centered logo centered.
+        self._loading_overlay.setGeometry(self.rect())
 
     def _on_load_started(self) -> None:
         """Show the loading overlay on initial page load."""

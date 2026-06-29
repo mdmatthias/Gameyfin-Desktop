@@ -55,6 +55,13 @@ class LoadingOverlay(QWidget):
         pixmap = self._app_icon.pixmap(512, 512)  # request high-res source
         if pixmap.isNull():
             return None
+        # Neutralize the device-pixel ratio. On HiDPI displays QIcon.pixmap()
+        # returns a pixmap with devicePixelRatio > 1, which scaled() preserves;
+        # the layout math below uses pixmap.width() (device pixels) while
+        # drawPixmap() renders at the logical (smaller) size, which pushed the
+        # logo into the top-left quadrant of the glow circle. Working in plain
+        # pixels keeps the logo centered.
+        pixmap.setDevicePixelRatio(1.0)
         self._base_icon_pixmap = pixmap
         return pixmap
 
@@ -67,8 +74,15 @@ class LoadingOverlay(QWidget):
         self.update()
 
     def hide_overlay(self) -> None:
-        """Hide the loading overlay (smooth fade-out over 400 ms)."""
-        if self._opacity <= 0.0 or not self.isVisible():
+        """Hide the loading overlay (smooth fade-out over 400 ms).
+
+        Uses ``isHidden()`` (true only when ``hide()`` was explicitly called)
+        rather than ``isVisible()``/opacity so the fade-out is triggered
+        reliably even if the page finishes loading before the fade-in starts
+        or while the window is minimized — otherwise the overlay could get
+        stuck fully opaque over an already-loaded page.
+        """
+        if self.isHidden():
             return
         self._fading_out = True
         self.update()
