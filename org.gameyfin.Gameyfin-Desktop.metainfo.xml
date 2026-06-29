@@ -81,6 +81,18 @@
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="2.7.0" date="2026-06-29">
+            <description>
+                <ul>
+                    <li>Added system tray notifications.</li>
+                    <li>Added a configurable download speed limit (defaults to unlimited).</li>
+                    <li>(Linux) Added a loading dialog when starting launch scripts.</li>
+                    <li>(Windows) Fixed the install button.</li>
+                    <li>Fixed the loading screen getting stuck when the app was started minimized.</li>
+                    <li>Fixed the loading screen logo not being centered on HiDPI displays.</li>
+                </ul>
+            </description>
+        </release>
         <release version="2.6.2" date="2026-06-02">
             <description>
                 <ul>
