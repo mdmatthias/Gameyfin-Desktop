@@ -129,7 +129,7 @@ modules:
   - name: cabextract
     sources:
       - type: archive
-        url: https://www.cabextract.org.uk/cabextract-1.11.tar.gz
+        url: http://archive.ubuntu.com/ubuntu/pool/universe/c/cabextract/cabextract_1.11.orig.tar.gz
         sha256: b5546db1155e4c718ff3d4b278573604f30dd64c3c5bfd4657cd089b823a3ac6
 
   - name: unrar
