@@ -52,6 +52,7 @@ class PrefixItemWidget(QWidget):
 
         self.script_combo = QComboBox()
         self.script_combo.setFixedWidth(300)
+        self._navigating_popup = False  # block activated during gamepad nav
         self.script_combo.activated.connect(self.launch_script)
         layout.addWidget(self.script_combo)
 
@@ -78,32 +79,40 @@ class PrefixItemWidget(QWidget):
     def launch_script(self, index: int) -> None:
         """Launch the selected script via subprocess and reset the combo box.
 
-        Shows a loading dialog with the script name while Proton initializes.
+        Skips launch if we're still navigating (gamepad highlight != confirm).
 
         Args:
             index: The combo box index of the selected script.
         """
+        if self._navigating_popup:
+            return
+        self._do_launch(index)
+
+    def _do_launch(self, index: int) -> None:
+        """Actually perform the script launch."""
         # Skip the placeholder at index 0
         if index == 0:
             return
 
         script_path = self.script_combo.itemData(index)
-        if script_path:
-            try:
-                # Use the script filename (without .sh) as the display name
-                script_name = os.path.splitext(os.path.basename(script_path))[0]
+        if not script_path:
+            return
 
-                # Show loading dialog before launching (keep reference to prevent GC)
-                self._loading_dialog = LaunchLoadingDialog(script_name, parent=self)
-                self._loading_dialog.show()
+        try:
+            # Use the script filename (without .sh) as the display name
+            script_name = os.path.splitext(os.path.basename(script_path))[0]
 
-                subprocess.Popen([script_path], cwd=os.path.dirname(script_path),
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                # Reset to placeholder
-                self.script_combo.setCurrentIndex(0)
-            except OSError as e:
-                logger.error("Failed to launch script %s: %s", script_path, e)
-                QMessageBox.critical(self, "Launch Error", f"Failed to launch: {e}")
+            # Show loading dialog before launching (keep reference to prevent GC)
+            self._loading_dialog = LaunchLoadingDialog(script_name, parent=self)
+            self._loading_dialog.show()
+
+            subprocess.Popen([script_path], cwd=os.path.dirname(script_path),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # Reset to placeholder
+            self.script_combo.setCurrentIndex(0)
+        except OSError as e:
+            logger.error("Failed to launch script %s: %s", script_path, e)
+            QMessageBox.critical(self, "Launch Error", f"Failed to launch: {e}")
 
     def recreate_shortcuts(self) -> None:
         """Open the shortcut selection dialog and recreate desktop shortcuts for this prefix."""
@@ -212,7 +221,7 @@ class PrefixManagerWidget(QWidget):
 
         self.list_widget.itemSelectionChanged.connect(self.on_selection_changed)
 
-       # Wire explicit tab order for keyboard/gamepad navigation
+        # Wire explicit tab order for keyboard/gamepad navigation
         self._tab_order_chain: list[tuple[QWidget, QWidget]] = []
         self._wire_tab_order()
 

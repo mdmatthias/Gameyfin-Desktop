@@ -52,7 +52,8 @@ class SettingsManager:
             "GF_PROMPT_DOWNLOAD_DIR": 0,
             "GF_LOG_LEVEL": "WARNING",
             "GF_DOWNLOAD_NOTIFICATIONS": 1,
-            "GF_BANDWIDTH_LIMIT": 0
+            "GF_BANDWIDTH_LIMIT": 0,
+            "GF_GAMEPAD_ENABLED": 0
         }
         
         self.settings = self.defaults.copy()
