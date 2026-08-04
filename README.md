@@ -35,7 +35,8 @@ A dedicated desktop client for [Gameyfin](https://github.com/gameyfin/gameyfin) 
 * **⤴️ Integrated Shortcut Management (Linux):**
   * When a game installation finishes, the app automatically detects any shortcuts created by the installer.
   * **You're in Control:** A dialog pops up letting you choose exactly which shortcuts (e.g., "Game" "Settings," "Uninstall") you want to add.
-  * **Dual-Location Selection:** Choose exactly which shortcuts you want on your **Desktop** and which should go in your **Application Menu** via a redesigned management dialog.
+  * **Dual-Location Selection:** Choose exactly which shortcuts go on your **Desktop** and which go in your **Application Menu**.
+  * **Steam Library Integration:** Optionally add any shortcut as a non-Steam game entry in your local Steam library, making it launchable from Big Picture mode.
   * **Just like Windows:** This gives you the simple, familiar "Create a desktop shortcut?" experience.
   * **Auto-generated Helpers:** Even if system shortcuts aren't created, helper scripts are always generated for the internal launch menu.
 
@@ -94,17 +95,8 @@ Choose your platform below to get started.
 1. **Dependencies:** None required! The Flatpak build now includes the `umu-launcher` and all necessary dependencies.
 2. **Install:** Download the latest `Gameyfin-Desktop-vX.X.X.flatpak` from the [Releases](https://github.com/mdmatthias/Gameyfin-Desktop/releases) page.
 
-> **Note for SteamOS/Bazzite users:** You will need to use desktop mode to install games and add shortcuts to Steam to run them in Big Picture mode.
-   Install it by running:
-   ```bash
-   flatpak install Gameyfin-Desktop-vX.X.X.flatpak
-   ```
-   Or with Discover:
-   ```
-      1. Remove the previous installed version if you are updating (settings will be kept) otherwise Discover will not be able to install the update.
-      2. Open the new flatpak with Discover
-      3. Install it.
-   ```
+2a. **CLI install:** Run `flatpak install Gameyfin-Desktop-vX.X.X.flatpak`.
+2b. **Discover install:** If updating from a prior version, remove it first (settings persist), then open the `.flatpak` file with Discover to install.
 
 3. **Run:** Launch it from your application menu or run:
    ```bash
@@ -158,3 +150,5 @@ Build with the help from Gemini,Claude,Gemma4. If you see something that could b
 <img src="screenshots/install_linux.png" alt="Linux Pre Install" width="800">
 <img src="screenshots/install.png" alt="Install" width="800">
 <img src="screenshots/settings.png" alt="Settings" width="800">
+<img src="screenshots/shortcuts.png" alt="Settings" width="400">
+
