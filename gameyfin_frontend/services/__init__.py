@@ -9,6 +9,7 @@ from .prefix_service import PrefixService
 from .download_history_service import DownloadHistoryService
 from .shortcut_service import ShortcutService
 from .migration_service import MigrationService
+from .steam_integration import SteamIntegrationService
 
 __all__ = [
     "LauncherResolver",
@@ -18,4 +19,5 @@ __all__ = [
     "DownloadHistoryService",
     "ShortcutService",
     "MigrationService",
+    "SteamIntegrationService",
 ]

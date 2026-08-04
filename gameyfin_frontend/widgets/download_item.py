@@ -27,7 +27,8 @@ from gameyfin_frontend.utils import (
 )
 from gameyfin_frontend.config import COLOR_STATUS_DOWNLOADING, COLOR_STATUS_INSTALLING
 from gameyfin_frontend.workers import StreamDownloadWorker
-from gameyfin_frontend.services import LauncherResolver, GameInstaller, GameLauncher
+from gameyfin_frontend.services import LauncherResolver, GameInstaller, GameLauncher, SteamIntegrationService
+from gameyfin_frontend.services.shortcut_service import ShortcutService
 from gameyfin_frontend.settings import SettingsManager
 
 logger = logging.getLogger(__name__)
@@ -442,14 +443,22 @@ class DownloadItemWidget(QWidget):
                 if desktop_files:
                     logger.info("Found %d potential .desktop files.", len(desktop_files))
 
-                    dialog = SelectShortcutsDialog(desktop_files, self.parentWidget())
-                    if dialog.exec() == QDialog.DialogCode.Accepted:
-                        selected_desktop, selected_apps = dialog.get_selected_files()
-                        logger.info("User selected shortcuts to create. Processing...")
-                        self.create_desktop_shortcuts(desktop_files, selected_desktop, selected_apps)
+                    steam_service = SteamIntegrationService(self.settings)
+                    shortcut_svc = ShortcutService(self.settings, steam_service=steam_service)
+                    selection = shortcut_svc.show_shortcut_dialog(
+                        desktop_files, self.parentWidget(),
+                        game_name=game_name,
+                    )
+                    if selection is not None:
+                        selected_desktop, selected_apps, steam_shortcuts = selection
+                        logger.info("User selected shortcuts to create. Processing... steam_shortcuts=%s", steam_shortcuts)
+                        self.create_desktop_shortcuts(
+                            desktop_files, selected_desktop, selected_apps,
+                            steam_shortcuts=steam_shortcuts,
+                        )
                     else:
                         logger.info("User cancelled shortcut creation dialog. Still creating helper scripts.")
-                        self.create_desktop_shortcuts(desktop_files, [], [])
+                        self.create_desktop_shortcuts(desktop_files, [], [], steam_shortcuts=[])
 
                 else:
                     logger.info("No .desktop files found in proton_shortcuts.")
@@ -465,7 +474,13 @@ class DownloadItemWidget(QWidget):
         self.current_install_config = None
         self.current_wine_prefix = None
 
-    def create_desktop_shortcuts(self, all_desktop_files: list[str], selected_desktop: list[str], selected_apps: list[str]) -> None:
+    def create_desktop_shortcuts(
+        self,
+        all_desktop_files: list[str],
+        selected_desktop: list[str],
+        selected_apps: list[str],
+        steam_shortcuts: list[str] | None = None,
+    ) -> None:
         """Create helper .sh scripts and system .desktop shortcuts for the installed game.
 
         Uses ``resolve_shortcut_game_info`` and ``create_shortcuts`` from utils.
@@ -474,6 +489,7 @@ class DownloadItemWidget(QWidget):
             all_desktop_files: All detected .desktop files in the game.
             selected_desktop: Basenames to place on the user's Desktop.
             selected_apps: Basenames to place in ~/.local/share/applications.
+            steam_shortcuts: List of .desktop file basenames to also add to Steam.
         """
         if not self.current_install_config:
             logger.error("Install config was cleared too early. Cannot create shortcuts.")
@@ -494,3 +510,19 @@ class DownloadItemWidget(QWidget):
             selected_apps=selected_apps,
             remove_unselected=False,
         )
+
+        # Optionally add non-Steam game entries to the local Steam library
+        if steam_shortcuts and self.settings:
+            steam_service = SteamIntegrationService(self.settings)
+            for desktop_bn in steam_shortcuts:
+                sh_file = os.path.splitext(desktop_bn)[0] + ".sh"
+                sh_path = os.path.join(shortcut_scripts_path, sh_file)
+                if os.path.isfile(sh_path):
+                    try:
+                        steam_service.add_game_to_steam(
+                            name=game_name,
+                            exe=sh_path,
+                            start_dir=os.path.dirname(sh_path),
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.error("Failed to add '%s' to Steam: %s", sh_file, exc)

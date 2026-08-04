@@ -11,7 +11,7 @@ from PyQt6.QtCore import Qt
 from gameyfin_frontend.dialogs import InstallConfigDialog, LaunchLoadingDialog
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.settings import SettingsManager
-from gameyfin_frontend.services import PrefixService, ShortcutService
+from gameyfin_frontend.services import PrefixService, ShortcutService, SteamIntegrationService
 
 logger = logging.getLogger(__name__)
 
@@ -119,22 +119,29 @@ class PrefixItemWidget(QWidget):
             QMessageBox.warning(self, "No Shortcuts Found", "No .desktop files found in the proton_shortcuts directory.")
             return
 
-        shortcut_service = ShortcutService(self.settings)
+        steam_service = SteamIntegrationService(self.settings)
+        shortcut_service = ShortcutService(self.settings, steam_service=steam_service)
         existing_desktop, existing_apps = shortcut_service.detect_existing_shortcuts(desktop_files)
 
+        game_name = self.prefix_name.removesuffix("_pfx")
+        logger.info("Opening shortcut dialog for %d .desktop files (Steam service=%s)", len(desktop_files), steam_service)
         selection = shortcut_service.show_shortcut_dialog(
             desktop_files, self,
             existing_desktop=existing_desktop,
             existing_apps=existing_apps,
+            game_name=game_name,
         )
         if selection is None:
+            logger.info("Shortcut dialog cancelled.")
             return
 
-        selected_desktop, selected_apps = selection
+        selected_desktop, selected_apps, steam_shortcuts = selection
+        logger.info("Dialog accepted — desktop=%d apps=%d steam=%d", len(selected_desktop), len(selected_apps), len(steam_shortcuts))
         game_name = self.prefix_name.removesuffix("_pfx")
         success = shortcut_service.create_shortcuts_for_prefix(
             self.prefix_path, game_name,
             selected_desktop, selected_apps, self,
+            steam_shortcuts=steam_shortcuts,
         )
         if success:
             self.populate_scripts()

@@ -413,7 +413,7 @@ class SelectShortcutsDialog(QDialog):
     select which ones to create shortcuts for (Desktop vs Application Menu).
     """
 
-    def __init__(self, desktop_files: list[str], parent: QWidget | None = None, existing_desktop: list[str] | None = None, existing_apps: list[str] | None = None):
+    def __init__(self, desktop_files: list[str], parent: QWidget | None = None, existing_desktop: list[str] | None = None, existing_apps: list[str] | None = None, steam_names: set[str] | None = None):
         """Let the user select which .desktop files get shortcuts on the Desktop and in the Application Menu.
 
         Args:
@@ -421,6 +421,8 @@ class SelectShortcutsDialog(QDialog):
             parent: Parent widget.
             existing_desktop: Existing desktop shortcut basenames (for pre-checking).
             existing_apps: Existing application menu shortcut basenames (for pre-checking).
+            steam_names: Set of game display names already present in Steam — used
+                         to pre-check the corresponding Steam checkboxes.
         """
         super().__init__(parent)
         self.setWindowTitle("Manage Shortcuts")
@@ -429,7 +431,7 @@ class SelectShortcutsDialog(QDialog):
         self.setModal(True)
 
         self.main_layout = QVBoxLayout(self)
-        
+
         # Scroll Area
         self.scroll_area = QScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
@@ -438,11 +440,12 @@ class SelectShortcutsDialog(QDialog):
         self.content_layout.setSpacing(2)  # Minimal spacing between checkboxes
         self.content_layout.setContentsMargins(10, 10, 10, 10)
         self.scroll_area.setWidget(self.scroll_content)
-        
+
         self.main_layout.addWidget(self.scroll_area)
 
         self.desktop_checkboxes = []
         self.apps_checkboxes = []
+        self.steam_checkboxes = []  # One checkbox per .desktop file
 
         # Desktop Section
         desktop_label = QLabel("<b>Desktop Shortcuts</b>")
@@ -456,7 +459,7 @@ class SelectShortcutsDialog(QDialog):
                 checkbox.setChecked(True)
             self.content_layout.addWidget(checkbox)
             self.desktop_checkboxes.append((checkbox, file_path))
-            
+
         self.content_layout.addSpacing(15)
 
         # Application Menu Section
@@ -472,10 +475,33 @@ class SelectShortcutsDialog(QDialog):
             self.content_layout.addWidget(checkbox)
             self.apps_checkboxes.append((checkbox, file_path))
 
+        self.content_layout.addSpacing(15)
+
+        # Steam Library Section — one checkbox per .desktop file
+        steam_label = QLabel("<b>Add to Steam Library</b>")
+        steam_tip = QLabel(
+            "When enabled, creates a non-Steam game entry in your local Steam "
+            "library so you can launch the shortcut from Big Picture mode."
+        )
+        steam_tip.setStyleSheet("font-size: 11px; color: palette(Text);")
+        steam_tip.setWordWrap(True)
+        self.content_layout.addWidget(steam_label)
+        self.content_layout.addWidget(steam_tip)
+        for file_path in desktop_files:
+            name = self.parse_desktop_name(file_path)
+            checkbox = QCheckBox(name)
+            # Pre-check if this shortcut's script basename is already in Steam.
+            if steam_names is not None:
+                script_bn = os.path.splitext(os.path.basename(file_path))[0]
+                if script_bn in steam_names:
+                    checkbox.setChecked(True)
+            self.content_layout.addWidget(checkbox)
+            self.steam_checkboxes.append((checkbox, file_path))
+
         # Add stretch at the end to push everything to the top
         self.content_layout.addStretch(1)
 
-        # Global Select/Deselect
+        # Global Select/Deselect (applies to all sections)
         self.select_button_layout = QHBoxLayout()
         self.select_all_button = QPushButton("Select All")
         self.select_all_button.clicked.connect(self.select_all)
@@ -506,13 +532,13 @@ class SelectShortcutsDialog(QDialog):
         return os.path.basename(file_path)
 
     def select_all(self):
-        """Check all desktop and application menu checkboxes."""
-        for checkbox, _ in self.desktop_checkboxes + self.apps_checkboxes:
+        """Check all desktop, app-menu, and Steam checkboxes."""
+        for checkbox, _ in self.desktop_checkboxes + self.apps_checkboxes + self.steam_checkboxes:
             checkbox.setChecked(True)
 
     def deselect_all(self):
-        """Uncheck all desktop and application menu checkboxes."""
-        for checkbox, _ in self.desktop_checkboxes + self.apps_checkboxes:
+        """Uncheck all desktop, app-menu, and Steam checkboxes."""
+        for checkbox, _ in self.desktop_checkboxes + self.apps_checkboxes + self.steam_checkboxes:
             checkbox.setChecked(False)
 
     def get_selected_files(self) -> tuple[list[str], list[str]]:
@@ -520,6 +546,10 @@ class SelectShortcutsDialog(QDialog):
         desktop_selected = [fp for cb, fp in self.desktop_checkboxes if cb.isChecked()]
         apps_selected = [fp for cb, fp in self.apps_checkboxes if cb.isChecked()]
         return desktop_selected, apps_selected
+
+    def get_steam_shortcuts(self) -> list[str]:
+        """Return list of .desktop file basenames the user wants added to Steam."""
+        return [os.path.basename(fp) for cb, fp in self.steam_checkboxes if cb.isChecked()]
 
 
 class LaunchLoadingDialog(QDialog):
