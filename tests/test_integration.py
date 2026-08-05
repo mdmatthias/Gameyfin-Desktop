@@ -210,8 +210,8 @@ class TestDownloadAddRemoveCycle:
         )
         qtbot.addWidget(widget)
 
-        # Verify grid is empty initially (empty row 0 + stretch row at bottom)
-        assert widget.downloads_layout.rowCount() == 2
+        # Verify widget is empty initially (no download items)
+        assert widget.list_widget.count() == 0
 
     def test_load_history_and_verify_widgets(self, qtbot, mock_umu_database, tmp_app_data):
         """Load persisted history and verify widgets are created for each record."""

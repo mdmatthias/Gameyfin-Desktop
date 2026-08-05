@@ -49,14 +49,18 @@ class TestDownloadItemWidget:
         assert widget.cancel_button.isHidden()
         assert widget.install_button.isHidden()
 
-    def test_get_widgets_for_grid(self, qtbot, mock_umu_database):
+    def test_download_item_in_list(self, qtbot, mock_umu_database):
         from gameyfin_frontend.widgets.download_item import DownloadItemWidget
+        from gameyfin_frontend.widgets.download_manager import DownloadManagerWidget
         record = {"filename": "game.zip", "path": "/tmp/downloads/game", "status": "Completed"}
-        widget = DownloadItemWidget(umu_database=mock_umu_database, record=record)
-        qtbot.addWidget(widget)
-        widgets = widget.get_widgets_for_grid()
-        assert len(widgets) == 5
-        assert isinstance(widgets[0], type(widget.icon_label))
+        manager = DownloadManagerWidget(umu_database=mock_umu_database)
+        qtbot.addWidget(manager)
+        controller = DownloadItemWidget(umu_database=mock_umu_database, record=record, settings=manager.settings)
+        manager.add_download_to_list(controller)
+        assert manager.list_widget.count() == 1
+        item = manager.list_widget.item(0)
+        widget = manager.list_widget.itemWidget(item)
+        assert widget is controller
 
 
 class TestDownloadManagerWidget:

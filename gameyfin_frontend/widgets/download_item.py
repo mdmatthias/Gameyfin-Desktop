@@ -74,6 +74,11 @@ class DownloadItemWidget(QWidget):
         self._game_installer = GameInstaller(umu_database, settings, self)
         self._game_launcher = GameLauncher()
 
+        # Internal horizontal layout so QListWidgetItem can compute sizeHint
+        item_layout = QHBoxLayout(self)
+        item_layout.setContentsMargins(5, 5, 5, 5)
+        item_layout.setSpacing(8)
+
         self.icon_label = QLabel()
         self.filename_label = QLabel()
         self.progress_bar = QProgressBar()
@@ -91,6 +96,7 @@ class DownloadItemWidget(QWidget):
         self.button_container = QWidget()
         self.button_layout = QHBoxLayout(self.button_container)
         self.button_layout.setContentsMargins(0, 0, 0, 0)
+        self.button_layout.setSpacing(4)
         self.button_layout.addWidget(self.cancel_button)
         self.button_layout.addWidget(self.install_button)
         self.button_layout.addWidget(self.open_folder_button)
@@ -100,7 +106,13 @@ class DownloadItemWidget(QWidget):
         self.icon_label.setFixedWidth(font_metrics.height())
         self.status_label.setMinimumWidth(font_metrics.horizontalAdvance("Completed (999.99 MB)") + 10)
         self.progress_bar.setMinimumWidth(100)
-        self.progress_bar.setMaximumHeight(font_metrics.height() + 4)
+
+        # Pack everything into the row layout
+        item_layout.addWidget(self.icon_label)
+        item_layout.addWidget(self.filename_label, stretch=1)
+        item_layout.addWidget(self.progress_bar)
+        item_layout.addWidget(self.status_label)
+        item_layout.addWidget(self.button_container)
 
         self.cancel_button.clicked.connect(self.cancel_download)
         self.open_folder_button.clicked.connect(self.open_folder)
@@ -144,10 +156,6 @@ class DownloadItemWidget(QWidget):
         self.status_label.setText("Starting download...")
 
         self.thread.start()
-
-    def get_widgets_for_grid(self) -> list[QWidget]:
-        """Return the list of widgets to add to the download manager grid."""
-        return [self.icon_label, self.filename_label, self.progress_bar, self.status_label, self.button_container]
 
     def _show_completed_buttons(self):
         """Show the buttons visible after download completion (Install, Open Folder, Remove)."""
