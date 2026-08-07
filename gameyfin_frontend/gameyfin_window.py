@@ -4,7 +4,7 @@ import sys
 from typing import Any
 
 from PyQt6.QtWidgets import (QMainWindow, QFileDialog, QTabWidget, QApplication, QTabBar,
-                             QWidget, QComboBox, QDialog)
+                             QWidget, QComboBox)
 from PyQt6.QtGui import QCloseEvent, QDesktopServices
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtCore import QUrl, QStandardPaths, pyqtSignal, Qt, QTimer
@@ -261,10 +261,7 @@ class GameyfinWindow(QMainWindow):
             list_w = getattr(tab, 'list_widget', None)
             if isinstance(list_w, QListWidget):
                 for i in range(list_w.count()):
-                    item = list_w.item(i)
-                    if item is None:
-                        continue
-                    item_widget = list_w.itemWidget(item)
+                    item_widget = list_w.itemWidget(list_w.item(i))
                     if item_widget is not None:
                         for child in item_widget.findChildren(QWidget):
                             if (child.focusPolicy() != Qt.FocusPolicy.NoFocus
@@ -273,7 +270,7 @@ class GameyfinWindow(QMainWindow):
                                     and child not in focusable):
                                 focusable.append(child)
 
-            # Sort by visual row then column for intuitive left-to-right ordering
+            # Sort by visual row then column for intuitive up/down/left/right
             focusable.sort(key=self._widget_sort_key)
             logger.info("Gamepad: tab %d has %d focusable widgets", idx, len(focusable))
             for i, w in enumerate(focusable):
@@ -286,34 +283,67 @@ class GameyfinWindow(QMainWindow):
 
     @staticmethod
     def _widget_sort_key(widget: QWidget) -> tuple[int, ...]:
-        """Return a sort key based on the widget's visual screen position.
+        """Return a sort key based on the widget's visual position.
 
-        Widgets are sorted top-to-bottom first, then left-to-right within
-        each row. Uses global screen coordinates so it works regardless of
-        nested layouts, QListWidget item widgets, or missing layouts.
+        Priority:
+        1. QListWidget row index + child position within item widget
+        2. Layout position (QGridLayout → row,col; QVBoxLayout/HBoxLayout → index)
+        3. Fallback to ``(0,)``
         """
-        # Get global screen position
-        geo = widget.geometry()
-        center_x = geo.center().x()
-        center_y = geo.center().y()
+        from PyQt6.QtWidgets import QListWidget
 
-        # Convert to screen coords via the window
-        top = widget
-        while top.parent() is not None:
-            top = top.parent()
+        # Check if widget is inside a QListWidget item by walking up the
+        # parent chain looking for a QListWidget ancestor.
+        ancestor = widget.parent()
+        while ancestor is not None and isinstance(ancestor, QWidget):
+            if isinstance(ancestor, QListWidget):
+                for i in range(ancestor.count()):
+                    item = ancestor.item(i)
+                    if item is None:
+                        continue
+                    item_widget = ancestor.itemWidget(item)
+                    if item_widget is not None and item_widget is widget:
+                        return (i, 0)
+                    if item_widget is not None:
+                        children = list(item_widget.findChildren(QWidget))
+                        # Sort children by layout position for correct left-to-right ordering
+                        try:
+                            ilayout = item_widget.layout()
+                            if ilayout is not None:
+                                child_positions = []
+                                for ch in children:
+                                    p = ilayout.indexOf(ch)
+                                    child_positions.append((p if p >= 0 else 999, ch))
+                                child_positions.sort(key=lambda x: x[0])
+                                children = [ch for _, ch in child_positions]
+                        except (TypeError, AttributeError):
+                            pass
+                        if widget in children:
+                            col_idx = children.index(widget)
+                            return (i, col_idx)
+                break  # Not found in any item of this QListWidget
+            ancestor = ancestor.parent()
 
-        if hasattr(top, 'geometry'):
-            win_geo = top.geometry()
-            global_x = win_geo.x() + center_x
-            global_y = win_geo.y() + center_y
-        else:
-            global_x = center_x
-            global_y = center_y
+        # Layout-based positioning for non-list widgets
+        parent = widget.parent()
+        if parent is None or not isinstance(parent, QWidget):
+            return (0,)
 
-        # Round to 50px bands to group widgets into rows
-        row = global_y // 50
-        col = global_x // 50
-        return (row, col)
+        try:
+            layout = parent.layout()
+        except (TypeError, AttributeError):
+            layout = None
+
+        if layout is not None:
+            pos = layout.indexOf(widget)
+            if pos >= 0:
+                try:
+                    r, c, _, _ = layout.cellPosition(pos)
+                    return (r, c)
+                except AttributeError:
+                    return (pos, 0)
+
+        return (0,)
 
     def _set_gamepad_focus(self, index: int) -> None:
         """Give keyboard/gamepad focus to the widget at *index* in the current tab."""
@@ -387,36 +417,6 @@ class GameyfinWindow(QMainWindow):
             "rightshoulder": ("R1 (Next Tab)", lambda: self._handle_tab_switch(1)),
         }
 
-        # -- Modal dialog interception ----------------------------------------
-        # When a QDialog is shown modally (exec()), Qt gives it modal event
-        # processing but our QTimer still fires. Route A/B through the dialog
-        # so gamepad works inside any dialog.
-        active_dialog = self._find_active_dialog()
-        if active_dialog is not None:
-            if self.gamepad.was_pressed("a"):
-                logger.info("Gamepad: A pressed → accept dialog")
-                active_dialog.accept()
-                return
-            if self.gamepad.was_pressed("b"):
-                logger.info("Gamepad: B pressed → reject dialog")
-                active_dialog.reject()
-                return
-            # Stick navigation inside combo boxes within the dialog
-            cb = self._active_combo
-            if cb is not None:
-                direction = self.gamepad.get_new_navigation_direction()
-                if direction:
-                    self._navigate_combo_box_item(direction)
-                    return
-                if self.gamepad.was_pressed("a"):
-                    self._select_combo_box_item(cb)
-                    return
-                if self.gamepad.was_pressed("b"):
-                    cb.hidePopup()
-                    GameyfinWindow._set_navigating(self, cb, False)
-                    self._active_combo = None
-                    return
-
         widget = QApplication.focusWidget()
 
         # -- Combo box popup handling -----------------------------------------
@@ -460,14 +460,6 @@ class GameyfinWindow(QMainWindow):
                 logger.info("Gamepad: %s pressed", label)
                 handler()
                 break  # only one action per poll cycle
-
-    @staticmethod
-    def _find_active_dialog() -> "QDialog | None":
-        """Return the currently visible modal QDialog, or None."""
-        for w in QApplication.topLevelWidgets():
-            if isinstance(w, QDialog) and w.isVisible() and w.modality() != Qt.WindowModality.NonModal:
-                return w
-        return None
 
     # -- action handlers (same logic as before, just renamed) ---------------
 
@@ -589,14 +581,16 @@ class GameyfinWindow(QMainWindow):
             logger.info("Gamepad: selected combo-box item %d — '%s'", index, text)
 
     def _handle_tab_switch(self, direction: int) -> None:
-        """Switch tabs using L1/R1 — cycles through all tabs including the browser tab."""
-        total = self.tab_widget.count()
-        if total < 2:
+        """Switch tabs using L1/R1 — skips the WebEngine tab (index 0)."""
+        nav_count = FIXED_TAB_COUNT - 1
+        if nav_count < 1:
             return
 
-        new_idx = (self.tab_widget.currentIndex() + direction) % total
+        start = self.tab_widget.currentIndex()
+        rel = max(start, 1) - 1
+        new_idx = (rel + direction) % nav_count + 1
 
-        if new_idx != self.tab_widget.currentIndex():
+        if new_idx != start:
             self.tab_widget.setCurrentIndex(new_idx)
             QTimer.singleShot(50, lambda i=new_idx: self._set_gamepad_focus(0))
 
