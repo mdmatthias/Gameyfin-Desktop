@@ -109,12 +109,6 @@ class SettingsWidget(QWidget):
         self.notifications_check.setChecked(bool(settings.get("GF_DOWNLOAD_NOTIFICATIONS")) if settings else True)
         self.form_layout.addRow("Download Notifications:", self.notifications_check)
 
-        self.gamepad_check = QCheckBox()
-        self.gamepad_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.gamepad_check.setChecked(bool(settings.get("GF_GAMEPAD_ENABLED")) if settings else False)
-        self.gamepad_check.setToolTip("Enable gamepad/controller navigation on supported platforms (Linux)")
-        self.form_layout.addRow("Gamepad Support:", self.gamepad_check)
-
         # Bandwidth Throttling — QSlider with 0.1 MB/s steps (range 0–1000 → 0.0–100.0 MB/s)
         bandwidth_hbox = QHBoxLayout()
         self.bandwidth_slider = QSlider(Qt.Orientation.Horizontal)
@@ -182,7 +176,6 @@ class SettingsWidget(QWidget):
             self.settings.set("GF_DEFAULT_DOWNLOAD_DIR", self.download_dir_edit.text())
             self.settings.set("GF_PROMPT_DOWNLOAD_DIR", 1 if self.prompt_download_check.isChecked() else 0)
             self.settings.set("GF_DOWNLOAD_NOTIFICATIONS", 1 if self.notifications_check.isChecked() else 0)
-            self.settings.set("GF_GAMEPAD_ENABLED", 1 if self.gamepad_check.isChecked() else 0)
             # Convert tenths of MB/s → bytes/sec for internal storage; 0 means unlimited
             tenths = self.bandwidth_slider.value()
             self.settings.set("GF_BANDWIDTH_LIMIT", int(tenths / 10 * 1024 * 1024) if tenths > 0 else 0)

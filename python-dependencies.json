@@ -193,20 +193,6 @@
           "sha256": "68c1a125cc49e343d535af2dd25074e9cb0908c6607f073947c4a04bbe234534"
         }
       ]
-    },
-    {
-      "name": "python3-pyglet",
-      "buildsystem": "simple",
-      "build-commands": [
-        "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"pyglet~=2.0\" --no-build-isolation"
-      ],
-      "sources": [
-        {
-          "type": "file",
-          "url": "https://files.pythonhosted.org/packages/1e/a8/9a203001fa496934708baf6cadc54b62e453f1256d5d88589c71019dd751/pyglet-2.1.15-py3-none-any.whl",
-          "sha256": "8709131baf5e96c496d38197ff9f9207ad06f273c9694570008b145c58bf51ae"
-        }
-      ]
     }
   ]
 }
