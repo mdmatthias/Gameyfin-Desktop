@@ -39,6 +39,26 @@ A dedicated desktop client for [Gameyfin](https://github.com/gameyfin/gameyfin) 
   * **Steam Library Integration:** Optionally add any shortcut as a non-Steam game entry in your local Steam library, making it launchable from Big Picture mode.
   * **Just like Windows:** This gives you the simple, familiar "Create a desktop shortcut?" experience.
   * **Auto-generated Helpers:** Even if system shortcuts aren't created, helper scripts are always generated for the internal launch menu.
+* **🎮 Full Gamepad Support:**
+  * Drive the **entire** application from a controller — the game library web view, the Downloads, Prefixes and Settings tabs, and every dialog (install configuration, launcher/shortcut pickers, confirmations, file dialogs).
+  * Any Xbox, PlayStation, Switch Pro or 8BitDo style pad works; SDL's controller database handles the button mapping, and pads can be plugged in or unplugged while the app runs.
+  * **Directional navigation:** the D-pad and left stick move between on-screen items by position, not by tab order, and the focused item is highlighted with a clear ring.
+  * **On-screen keyboard:** press **X** on any text field — including search boxes inside the Gameyfin web UI — to type without a keyboard.
+  * **Mouse mode:** press **Back** to turn the left stick into a mouse pointer for anything a focus ring can't reach.
+  * A hint bar shows the current bindings while a controller is connected; **Start** opens the full list.
+
+| Button                | Action                                    |
+|:----------------------|:------------------------------------------|
+| D-pad / Left stick    | Move between items                        |
+| A                     | Select / activate                         |
+| B                     | Back, cancel or close                     |
+| X                     | Edit text (opens the on-screen keyboard)  |
+| Y                     | Refresh / reload                          |
+| LB / RB               | Previous / next tab                       |
+| LT / RT               | Page up / page down                       |
+| Right stick           | Scroll                                    |
+| Back                  | Toggle mouse mode                         |
+| Start                 | Show the controls overlay                 |
 
 ### 🗓️ Planned Features
 * **Other ideas?:** Create a new issue/merge request and I will look into it.
@@ -63,6 +83,12 @@ While the application can be configured using environment variables (see below),
 | `GF_PROMPT_DOWNLOAD_DIR`  | Set to `1` to always prompt for a download directory when a download starts.     |
 | `GF_DOWNLOAD_NOTIFICATIONS` | Show desktop notifications on download/install completion (default: enabled).    |
 | `GF_LOG_LEVEL`            | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). Defaults to `WARNING`.      |
+| `GF_GAMEPAD_ENABLED`      | Set to `0` to disable gamepad support entirely (default: enabled).               |
+| `GF_GAMEPAD_HINTS`        | Set to `0` to hide the button hint bar (default: shown when a pad is connected). |
+| `GF_GAMEPAD_DEADZONE`     | Stick deadzone in percent of full deflection (default: `25`).                    |
+| `GF_GAMEPAD_REPEAT_MS`    | Milliseconds between repeats while a direction is held (default: `140`).         |
+| `GF_GAMEPAD_SCROLL_SPEED` | Right-stick scroll speed in pixels (default: `60`).                              |
+| `GF_GAMEPAD_MOUSE_SPEED`  | Pointer speed in mouse mode, in pixels (default: `22`).                          |
 
 ---
 
@@ -106,15 +132,16 @@ Choose your platform below to get started.
 **Option 2: Running from Source (Python)**
 1. **Dependencies:** Install Python, required libraries, and `umu-launcher`.
    - stream-unzip is currently not available in the arch/fedora repo's, you will need to install it with pip with the --break-system-packages flag
+   - `pygame-ce` provides gamepad support; without it the app still runs, it just reports gamepad support as unavailable. It is not packaged by Arch/Fedora, so install it with pip (it is a drop-in replacement for `pygame` — do not install both)
    *   **Arch:**
        ```bash
        sudo pacman -Syu python-pyqt6 python-pyqt6-webengine python-dotenv python-requests python-qt-material umu-launcher
-       pip install --user --break-system-packages stream-unzip
+       pip install --user --break-system-packages stream-unzip pygame-ce
        ```
    *   **Fedora:**
        ```bash
        sudo dnf install python3-pyqt6 python3-pyqt6-webengine python3-dotenv python3-requests python3-qt-material umu-launcher
-       pip install --user --break-system-packages stream-unzip
+       pip install --user --break-system-packages stream-unzip pygame-ce
        ```
    *   **Pip (General):**
        ```bash

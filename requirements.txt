@@ -6,3 +6,4 @@ python-dotenv~=1.0
 qt-material~=2.17
 stream-unzip~=0.0.101
 vdf~=3.4
+pygame-ce

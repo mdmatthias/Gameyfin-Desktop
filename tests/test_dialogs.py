@@ -2,6 +2,8 @@ import os
 from unittest.mock import MagicMock, patch
 
 import pytest
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QLineEdit
 
 
 @pytest.fixture()
@@ -148,55 +150,122 @@ class TestSelectLauncherDialog:
         assert result is None
 
 
-class TestSelectUmuIdDialog:
-    def test_dialog_initializes(self, qtbot):
-        from gameyfin_frontend.dialogs import SelectUmuIdDialog
-        results = [
+class TestUmuSearchDialog:
+    def test_dialog_initializes(self, qtbot, mock_umu_database):
+        from gameyfin_frontend.dialogs import UmuSearchDialog
+        dialog = UmuSearchDialog(mock_umu_database)
+        qtbot.addWidget(dialog)
+        assert dialog.windowTitle() == "Search UMU Database"
+        assert isinstance(dialog.search_input, QLineEdit)
+        assert dialog.search_input.placeholderText() != ""
+
+    def test_search_populates_results(self, qtbot, mock_umu_database):
+        from gameyfin_frontend.dialogs import UmuSearchDialog
+        mock_umu_database.search_by_partial_title.return_value = [
             {"umu_id": "UMU-1", "title": "Game A", "store": "steam"},
             {"umu_id": "UMU-2", "title": "Game B", "store": "gog"},
         ]
-        dialog = SelectUmuIdDialog(results)
+        dialog = UmuSearchDialog(mock_umu_database)
         qtbot.addWidget(dialog)
-        assert dialog.windowTitle() == "Select Game Entry"
+        dialog.search_input.setText("Game")
+        dialog._perform_search()
+        assert dialog.list_widget.count() == 2
 
-    def test_lists_results(self, qtbot):
-        from gameyfin_frontend.dialogs import SelectUmuIdDialog
-        results = [
-            {"umu_id": "UMU-1", "title": "Game A", "store": "steam"},
+    def test_display_text_includes_store(self, qtbot, mock_umu_database):
+        from gameyfin_frontend.dialogs import UmuSearchDialog
+        mock_umu_database.search_by_partial_title.return_value = [
+            {"umu_id": "UMU-1", "title": "Test Game", "store": "steam"},
         ]
-        dialog = SelectUmuIdDialog(results)
+        dialog = UmuSearchDialog(mock_umu_database)
         qtbot.addWidget(dialog)
-        assert dialog.list_widget.count() == 1
-
-    def test_display_text_includes_store(self, qtbot):
-        from gameyfin_frontend.dialogs import SelectUmuIdDialog
-        results = [{"umu_id": "UMU-1", "title": "Test Game", "store": "steam"}]
-        dialog = SelectUmuIdDialog(results)
-        qtbot.addWidget(dialog)
+        dialog.search_input.setText("Test")
+        dialog._perform_search()
         item_text = dialog.list_widget.item(0).text()
         assert "Test Game" in item_text
         assert "steam" in item_text
 
-    def test_get_selected_entry(self, qtbot):
-        from gameyfin_frontend.dialogs import SelectUmuIdDialog
-        results = [
+    def test_get_selected_entry(self, qtbot, mock_umu_database):
+        from gameyfin_frontend.dialogs import UmuSearchDialog
+        mock_umu_database.search_by_partial_title.return_value = [
             {"umu_id": "UMU-1", "title": "Game A", "store": "steam"},
             {"umu_id": "UMU-2", "title": "Game B", "store": "gog"},
         ]
-        dialog = SelectUmuIdDialog(results)
+        dialog = UmuSearchDialog(mock_umu_database)
         qtbot.addWidget(dialog)
+        dialog.search_input.setText("Game")
+        dialog._perform_search()
         dialog.list_widget.setCurrentRow(1)
+        dialog._accept()
         entry = dialog.get_selected_entry()
         assert entry["umu_id"] == "UMU-2"
         assert entry["store"] == "gog"
 
-    def test_get_selected_entry_no_selection(self, qtbot):
-        from gameyfin_frontend.dialogs import SelectUmuIdDialog
-        results = [{"umu_id": "UMU-1", "title": "Game A", "store": "steam"}]
-        dialog = SelectUmuIdDialog(results)
+    def test_no_results_shows_message(self, qtbot, mock_umu_database):
+        from gameyfin_frontend.dialogs import UmuSearchDialog
+        mock_umu_database.search_by_partial_title.return_value = []
+        dialog = UmuSearchDialog(mock_umu_database)
         qtbot.addWidget(dialog)
+        dialog.search_input.setText("Nonexistent")
+        dialog._perform_search()
+        assert "No games found" in dialog.label.text()
+
+    def test_ok_disabled_before_selection(self, qtbot, mock_umu_database):
+        from gameyfin_frontend.dialogs import UmuSearchDialog
+        dialog = UmuSearchDialog(mock_umu_database)
+        qtbot.addWidget(dialog)
+        assert dialog.ok_button.isEnabled() is False
+
+    def test_ok_enabled_after_selection(self, qtbot, mock_umu_database):
+        from gameyfin_frontend.dialogs import UmuSearchDialog
+        mock_umu_database.search_by_partial_title.return_value = [
+            {"umu_id": "UMU-1", "title": "Game A", "store": "steam"},
+        ]
+        dialog = UmuSearchDialog(mock_umu_database)
+        qtbot.addWidget(dialog)
+        dialog.search_input.setText("Game")
+        dialog._perform_search()
+        dialog.list_widget.setCurrentRow(0)
+        assert dialog.ok_button.isEnabled() is True
+
+    def test_search_on_return_pressed(self, qtbot, mock_umu_database):
+        from gameyfin_frontend.dialogs import UmuSearchDialog
+        mock_umu_database.search_by_partial_title.return_value = [
+            {"umu_id": "UMU-1", "title": "Game A", "store": "steam"},
+        ]
+        dialog = UmuSearchDialog(mock_umu_database)
+        qtbot.addWidget(dialog)
+        dialog.search_input.setText("Game")
+        qtbot.keyClick(dialog.search_input, Qt.Key.Key_Return)
+        assert dialog.list_widget.count() == 1
+
+    def test_results_only_mode(self, qtbot):
+        """Pass a results list directly — no search input shown."""
+        from gameyfin_frontend.dialogs import UmuSearchDialog
+        results = [
+            {"umu_id": "UMU-1", "title": "Game A", "store": "steam"},
+            {"umu_id": "UMU-2", "title": "Game B", "store": "gog"},
+        ]
+        dialog = UmuSearchDialog(results)
+        qtbot.addWidget(dialog)
+        assert dialog.windowTitle() == "Select Game Entry"
+        assert dialog.list_widget.count() == 2
+        # No search input in results-only mode
+        assert dialog.search_input is None  # type: ignore[union-attr]
+
+    def test_results_only_get_selected(self, qtbot):
+        """Select from pre-fetched results."""
+        from gameyfin_frontend.dialogs import UmuSearchDialog
+        results = [
+            {"umu_id": "UMU-1", "title": "Game A", "store": "steam"},
+            {"umu_id": "UMU-2", "title": "Game B", "store": "gog"},
+        ]
+        dialog = UmuSearchDialog(results)
+        qtbot.addWidget(dialog)
+        dialog.list_widget.setCurrentRow(1)
+        dialog._accept()
         entry = dialog.get_selected_entry()
-        assert entry is None
+        assert entry["umu_id"] == "UMU-2"
+        assert entry["store"] == "gog"
 
 
 class TestSelectShortcutsDialog:

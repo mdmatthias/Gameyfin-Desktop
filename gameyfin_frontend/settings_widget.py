@@ -127,6 +127,57 @@ class SettingsWidget(QWidget):
         bandwidth_hbox.addWidget(self.bandwidth_label)
         self.form_layout.addRow("Download Speed Limit:", bandwidth_hbox)
 
+        # --- Gamepad ---
+        self.gamepad_enabled_check = QCheckBox()
+        self.gamepad_enabled_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.gamepad_enabled_check.setChecked(bool(settings.get("GF_GAMEPAD_ENABLED")) if settings else True)
+        self.form_layout.addRow("Gamepad Support:", self.gamepad_enabled_check)
+
+        self.gamepad_status_label = QLabel("No controller detected")
+        self.gamepad_status_label.setStyleSheet("font-size: 11px; color: palette(mid);")
+        self.form_layout.addRow("Controller:", self.gamepad_status_label)
+
+        self.gamepad_hints_check = QCheckBox()
+        self.gamepad_hints_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.gamepad_hints_check.setChecked(bool(settings.get("GF_GAMEPAD_HINTS")) if settings else True)
+        self.form_layout.addRow("Show Button Hints:", self.gamepad_hints_check)
+
+        deadzone_hbox = QHBoxLayout()
+        self.gamepad_deadzone_slider = QSlider(Qt.Orientation.Horizontal)
+        self.gamepad_deadzone_slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.gamepad_deadzone_slider.setRange(5, 60)
+        self.gamepad_deadzone_slider.setValue(self._int_setting("GF_GAMEPAD_DEADZONE", 25))
+        self.gamepad_deadzone_label = QLabel()
+        self.gamepad_deadzone_label.setMinimumWidth(50)
+        self._update_deadzone_label(self.gamepad_deadzone_slider.value())
+        self.gamepad_deadzone_slider.valueChanged.connect(self._update_deadzone_label)
+        deadzone_hbox.addWidget(self.gamepad_deadzone_slider)
+        deadzone_hbox.addWidget(self.gamepad_deadzone_label)
+        self.form_layout.addRow("Stick Deadzone:", deadzone_hbox)
+
+        self.gamepad_repeat_spin = QSpinBox()
+        self.gamepad_repeat_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.gamepad_repeat_spin.setRange(40, 600)
+        self.gamepad_repeat_spin.setSingleStep(10)
+        self.gamepad_repeat_spin.setSuffix(" ms")
+        self.gamepad_repeat_spin.setValue(self._int_setting("GF_GAMEPAD_REPEAT_MS", 140))
+        self.form_layout.addRow("Navigation Repeat:", self.gamepad_repeat_spin)
+
+        self.gamepad_scroll_spin = QSpinBox()
+        self.gamepad_scroll_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.gamepad_scroll_spin.setRange(5, 400)
+        self.gamepad_scroll_spin.setSingleStep(5)
+        self.gamepad_scroll_spin.setSuffix(" px")
+        self.gamepad_scroll_spin.setValue(self._int_setting("GF_GAMEPAD_SCROLL_SPEED", 60))
+        self.form_layout.addRow("Scroll Speed:", self.gamepad_scroll_spin)
+
+        self.gamepad_mouse_spin = QSpinBox()
+        self.gamepad_mouse_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.gamepad_mouse_spin.setRange(2, 100)
+        self.gamepad_mouse_spin.setSuffix(" px")
+        self.gamepad_mouse_spin.setValue(self._int_setting("GF_GAMEPAD_MOUSE_SPEED", 22))
+        self.form_layout.addRow("Mouse Mode Speed:", self.gamepad_mouse_spin)
+
         self.layout.addLayout(self.form_layout)
 
         self.save_button = QPushButton("Save and Apply")
@@ -136,10 +187,30 @@ class SettingsWidget(QWidget):
 
         self.layout.addStretch()
 
-        # Wire explicit tab order: last form field → save button
+        # Wire explicit tab order: bandwidth → gamepad section → save button
         self._tab_order_chain: list[tuple[QWidget, QWidget]] = []
-        QWidget.setTabOrder(self.bandwidth_slider, self.save_button)
-        self._tab_order_chain.append((self.bandwidth_slider, self.save_button))
+        chain = [
+            self.bandwidth_slider,
+            self.gamepad_enabled_check,
+            self.gamepad_hints_check,
+            self.gamepad_deadzone_slider,
+            self.gamepad_repeat_spin,
+            self.gamepad_scroll_spin,
+            self.gamepad_mouse_spin,
+            self.save_button,
+        ]
+        for first, second in zip(chain, chain[1:]):
+            QWidget.setTabOrder(first, second)
+            self._tab_order_chain.append((first, second))
+
+    def _int_setting(self, key: str, default: int) -> int:
+        """Read a numeric setting, falling back to *default* on junk values."""
+        if not self.settings:
+            return default
+        try:
+            return int(self.settings.get(key, default))
+        except (TypeError, ValueError):
+            return default
 
     def browse_icon(self):
         """Open a file dialog to select a custom tray icon and write the path to the edit field."""
@@ -180,6 +251,12 @@ class SettingsWidget(QWidget):
             tenths = self.bandwidth_slider.value()
             self.settings.set("GF_BANDWIDTH_LIMIT", int(tenths / 10 * 1024 * 1024) if tenths > 0 else 0)
             self.settings.set("GF_LOG_LEVEL", self.log_level_combo.currentText().upper())
+            self.settings.set("GF_GAMEPAD_ENABLED", 1 if self.gamepad_enabled_check.isChecked() else 0)
+            self.settings.set("GF_GAMEPAD_HINTS", 1 if self.gamepad_hints_check.isChecked() else 0)
+            self.settings.set("GF_GAMEPAD_DEADZONE", self.gamepad_deadzone_slider.value())
+            self.settings.set("GF_GAMEPAD_REPEAT_MS", self.gamepad_repeat_spin.value())
+            self.settings.set("GF_GAMEPAD_SCROLL_SPEED", self.gamepad_scroll_spin.value())
+            self.settings.set("GF_GAMEPAD_MOUSE_SPEED", self.gamepad_mouse_spin.value())
 
         # Apply settings immediately
         if hasattr(self.window(), 'apply_settings'):
@@ -194,6 +271,14 @@ class SettingsWidget(QWidget):
         else:
             mbps = value / 10.0
             self.bandwidth_label.setText(f"{mbps:.1f} MB/s")
+
+    def _update_deadzone_label(self, value: int) -> None:
+        """Show the stick deadzone as a percentage."""
+        self.gamepad_deadzone_label.setText(f"{value}%")
+
+    def set_gamepad_status(self, text: str) -> None:
+        """Display the currently detected controller (set by the main window)."""
+        self.gamepad_status_label.setText(text)
 
     def _on_bandwidth_changed(self, value: int) -> None:
         """Optional hook — no-op, available for future wiring (e.g. live preview)."""

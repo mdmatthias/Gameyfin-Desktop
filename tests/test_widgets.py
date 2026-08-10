@@ -96,12 +96,12 @@ class TestPrefixManagerWidget:
         assert widget.list_widget is not None
         assert widget.refresh_btn is not None
 
-    def test_config_button_disabled_initially(self, qtbot, mock_umu_database):
+    def test_no_row_selection(self, qtbot, mock_umu_database):
+        from PyQt6.QtWidgets import QAbstractItemView
         from gameyfin_frontend.widgets.prefix_manager import PrefixManagerWidget
         widget = PrefixManagerWidget(umu_database=mock_umu_database)
         qtbot.addWidget(widget)
-        assert widget.config_btn.isEnabled() is False
-        assert widget.delete_btn.isEnabled() is False
+        assert widget.list_widget.selectionMode() == QAbstractItemView.SelectionMode.NoSelection
 
     def test_refresh_prefixes_creates_dir(self, qtbot, mock_umu_database):
         from gameyfin_frontend.widgets.prefix_manager import PrefixManagerWidget
@@ -113,15 +113,15 @@ class TestPrefixManagerWidget:
 
 
 class TestPrefixItemWidget:
-    def test_widget_initializes(self, qtbot):
+    def test_widget_initializes(self, qtbot, mock_umu_database):
         from gameyfin_frontend.widgets.prefix_manager import PrefixItemWidget
-        widget = PrefixItemWidget("test_game_pfx", "/tmp/test_game_pfx")
+        widget = PrefixItemWidget("test_game_pfx", "/tmp/test_game_pfx", umu_database=mock_umu_database)
         qtbot.addWidget(widget)
         assert "test_game_pfx" in widget.name_label.text()
 
-    def test_script_combo_disabled_when_no_scripts(self, qtbot):
+    def test_script_combo_disabled_when_no_scripts(self, qtbot, mock_umu_database):
         from gameyfin_frontend.widgets.prefix_manager import PrefixItemWidget
-        widget = PrefixItemWidget("empty_pfx", "/tmp/empty_pfx")
+        widget = PrefixItemWidget("empty_pfx", "/tmp/empty_pfx", umu_database=mock_umu_database)
         qtbot.addWidget(widget)
         # Should show "No scripts found" and be disabled
         assert widget.script_combo.count() == 1
