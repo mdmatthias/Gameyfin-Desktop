@@ -81,6 +81,13 @@
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="2.9.0-dev" date="2026-08-05">
+            <description>
+                <ul>
+                    <li>Experimental gamepad support as pre-release to test on Steamdeck.</li>
+                </ul>
+            </description>
+        </release>
         <release version="2.8.0" date="2026-08-05">
             <description>
                 <ul>
