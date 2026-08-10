@@ -104,6 +104,14 @@ def build_umu_env_prefix(proton_path: str, wine_prefix: str, config: dict) -> st
         Environment prefix string.
     """
     env_prefix = f'PROTONPATH="{proton_path}" WINEPREFIX="{wine_prefix}" '
+    if "STEAM_COMPAT_CONFIG" not in config:
+        # Proton restricts its bundled gamepad-accessibility tool (xalia) to a
+        # whitelist of "supported" dialog patterns unless "xalia" is present
+        # in STEAM_COMPAT_CONFIG. Without it, xalia drives simple Yes/No
+        # message boxes but ignores custom installer wizard pages, so gamepad
+        # navigation silently stops working once an installer's main window
+        # appears.
+        env_prefix += 'STEAM_COMPAT_CONFIG="xalia" '
     for key, value in config.items():
         if key not in ("PROTONPATH", "WINEPREFIX"):
             env_prefix += f'{key}="{value}" '

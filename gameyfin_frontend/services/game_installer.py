@@ -11,7 +11,7 @@ from typing import Any
 
 from PyQt6.QtWidgets import QDialog
 
-from gameyfin_frontend.dialogs import InstallConfigDialog, SelectUmuIdDialog
+from gameyfin_frontend.dialogs import InstallConfigDialog, UmuSearchDialog
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.settings import SettingsManager
 
@@ -94,7 +94,7 @@ class GameInstaller:
                     logger.info("One matching entry found.")
                 else:
                     logger.info("Multiple matching entries found, showing dialog.")
-                    umu_dialog = SelectUmuIdDialog(results, self.parent)
+                    umu_dialog = UmuSearchDialog(results, self.parent)
                     if umu_dialog.exec() == QDialog.DialogCode.Accepted:
                         selected_entry = umu_dialog.get_selected_entry()
                     else:

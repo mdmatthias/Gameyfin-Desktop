@@ -7,12 +7,12 @@ from os import getenv
 from os.path import relpath
 from typing import Any
 
-from PyQt6.QtCore import pyqtSlot, QTimer, Qt
-from PyQt6.QtGui import QPainter, QColor
+from PyQt6.QtCore import pyqtSlot, QEvent, QTimer, Qt
+from PyQt6.QtGui import QPainter, QColor, QShowEvent
 from PyQt6.QtWidgets import (
     QVBoxLayout, QFormLayout, QCheckBox, QLineEdit, QPushButton, QStyle,
     QHBoxLayout, QWidget, QComboBox, QPlainTextEdit, QDialogButtonBox,
-    QLabel, QInputDialog, QDialog, QMessageBox, QListWidget, QScrollArea
+    QLabel, QDialog, QMessageBox, QListWidget, QScrollArea
 )
 
 from gameyfin_frontend.umu_database import UmuDatabase
@@ -21,6 +21,22 @@ from gameyfin_frontend.utils import parse_desktop_file
 from gameyfin_frontend.config import DEFAULT_PROTON, UMU_RUN_CMD
 
 logger = logging.getLogger(__name__)
+
+# Absolute floor for input rows, used only when the widget cannot report a
+# usable height of its own.
+_MIN_FIELD_HEIGHT = 34
+
+
+def ensure_field_height(widget: QWidget) -> None:
+    """Stop a form row from collapsing to nothing.
+
+    Some style/stylesheet combinations (qt-material on certain platform styles)
+    report a ``minimumSizeHint`` of 0 for input widgets. A form layout is then
+    free to squeeze the row flat, and the field disappears — no border, no text.
+    Pinning the minimum to the widget's own size hint keeps it at the height the
+    theme intends, with a fixed floor for the case where the hint is unusable too.
+    """
+    widget.setMinimumHeight(max(widget.sizeHint().height(), _MIN_FIELD_HEIGHT))
 
 
 class InstallConfigDialog(QDialog):
@@ -59,13 +75,13 @@ class InstallConfigDialog(QDialog):
 
         self.gameid_input = QLineEdit()
         self.gameid_input.setText(default_game_id)
+        ensure_field_height(self.gameid_input)
 
         self.search_button = QPushButton()
         icon = self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView)
         self.search_button.setIcon(icon)
         self.search_button.setToolTip("Search for game by name")
-
-        button_size = self.gameid_input.sizeHint().height()
+        button_size = max(self.gameid_input.sizeHint().height(), _MIN_FIELD_HEIGHT)
         self.search_button.setFixedSize(button_size, button_size)
 
         self.gameid_layout = QHBoxLayout()
@@ -80,6 +96,7 @@ class InstallConfigDialog(QDialog):
             self.protonpath_input.setText(self.settings.get("PROTONPATH", DEFAULT_PROTON))
         else:
             self.protonpath_input.setText(DEFAULT_PROTON)
+        ensure_field_height(self.protonpath_input)
 
         self.store_combo = QComboBox()
         if self.settings:
@@ -89,6 +106,7 @@ class InstallConfigDialog(QDialog):
             stores = ["none", "gog", "amazon", "battlenet", "ea", "egs", "humble", "itchio", "steam", "ubisoft", "zoomplatform"]
         self.store_combo.addItems(stores)
         self.store_combo.setCurrentText(default_store)
+        ensure_field_height(self.store_combo)
 
         self.extra_vars_input = QPlainTextEdit()
         self.extra_vars_input.setPlaceholderText("KEY1=VALUE1\nKEY2=VALUE2")
@@ -163,55 +181,37 @@ class InstallConfigDialog(QDialog):
         self.regedit_button.clicked.connect(self.run_regedit)
         self.search_button.clicked.connect(self.search_for_game_id)
 
+    def showEvent(self, event: QShowEvent) -> None:
+        """Set focus on the first input widget when the dialog opens.
+
+        This ensures the gamepad navigator can immediately navigate the
+        form fields without requiring a mouse click first.
+        """
+        super().showEvent(event)
+        if self.gameid_input.isEnabled():
+            self.gameid_input.setFocus()
+        elif self.wayland_checkbox.isEnabled():
+            self.wayland_checkbox.setFocus()
+
     @pyqtSlot()
     def search_for_game_id(self) -> None:
         """
         Opens a dialog to search for a game by title, checks ALL stores,
         and populates the umu_id and store fields from the results.
         """
-        text, ok = QInputDialog.getText(self, "Search UMU", "Enter game title to search:")
-        if not ok or not text.strip():
-            return
-
-        search_title = text.strip()
-
-        all_results = []
         try:
-            logger.info("Searching all stores for title: %s...", search_title)
-
-            results = self.umu_database.search_by_partial_title(search_title)
-
-            processed_list = []
-            if isinstance(results, list):
-                processed_list = results
-            elif isinstance(results, dict) and results.get("umu_id"):
-                processed_list = [results]
-
-            for entry in processed_list:
-                if entry.get("umu_id"):
-                    all_results.append(entry)
-
-            if not all_results:
-                QMessageBox.information(self, "No Results",
-                                        f"No games found matching '{search_title}' in any store.")
-                return
-
-            selected_entry = None
-            dialog = SelectUmuIdDialog(all_results, self)
+            dialog = UmuSearchDialog(self.umu_database, self)
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 selected_entry = dialog.get_selected_entry()
-
-            if selected_entry:
-                umu_id = selected_entry.get("umu_id")
-                store = selected_entry.get("store")
-
-                if umu_id:
-                    self.gameid_input.setText(umu_id)
-                if store:
-                    self.store_combo.setCurrentText(store)
-
+                if selected_entry:
+                    umu_id = selected_entry.get("umu_id")
+                    store = selected_entry.get("store")
+                    if umu_id:
+                        self.gameid_input.setText(umu_id)
+                    if store:
+                        self.store_combo.setCurrentText(store)
         except (ValueError, KeyError, TypeError, RuntimeError) as e:
-            logger.error("Search error for title '%s': %s", search_title, e)
+            logger.error("Search error: %s", e)
             QMessageBox.warning(self, "Search Error", f"An error occurred during search:\n{e}")
 
     @pyqtSlot()
@@ -288,7 +288,7 @@ class InstallConfigDialog(QDialog):
         extra_vars_text = self.extra_vars_input.toPlainText().strip()
         if extra_vars_text:
             for line in extra_vars_text.splitlines():
-                if "=" in line:
+               if "=" in line:
                     parts = line.split("=", 1)
                     key = parts[0].strip()
                     value = parts[1].strip()
@@ -296,6 +296,13 @@ class InstallConfigDialog(QDialog):
                         config[key] = value
 
         return config
+
+    def keyPressEvent(self, event) -> None:  # noqa: ANN201
+        """Close the dialog when Escape is pressed."""
+        if event.key() == Qt.Key.Key_Escape:
+            self.reject()
+        else:
+            super().keyPressEvent(event)
 
 
 class SelectLauncherDialog(QDialog):
@@ -352,59 +359,179 @@ class SelectLauncherDialog(QDialog):
         relative_path = item.text()
         return self.exe_map.get(relative_path)
 
+    def keyPressEvent(self, event) -> None:  # noqa: ANN201
+        """Close the dialog when Escape is pressed."""
+        if event.key() == Qt.Key.Key_Escape:
+            self.reject()
+        else:
+            super().keyPressEvent(event)
 
-class SelectUmuIdDialog(QDialog):
+
+class UmuSearchDialog(QDialog):
     """
-    A dialog to select a UMU entry when multiple match a codename.
+    A dialog to search for a UMU game by title and select from matching results.
+
+    Combines the search input and results list into a single dialog so the
+    search textbox can receive the same ``ensure_field_height`` treatment
+    applied to other input fields in the install configuration form.
+
+    When ``results`` is passed directly (e.g. from auto-detection), the search
+    input row is hidden and the dialog acts as a pure results selector.
     """
 
-    def __init__(self, results: list[dict[str, Any]], parent: QWidget | None = None):
-        """Let the user choose a UMU game entry when multiple matches are found.
+    def __init__(self, umu_database_or_results: UmuDatabase | list[dict[str, Any]],
+                 parent: QWidget | None = None):
+        """Search the UMU database or select from pre-fetched results.
 
         Args:
-            results: List of UMU game entry dicts (with title, store, umu_id keys).
+            umu_database_or_results: Either a UmuDatabase instance (triggers
+                search mode with a textbox) or a list of result dicts
+                (results-only mode, no search input shown).
             parent: Parent widget.
         """
         super().__init__(parent)
-        self.setWindowTitle("Select Game Entry")
-        self.setMinimumWidth(450)
-        self.results = results
+
+        # Detect which mode we're in
+        if isinstance(umu_database_or_results, list):
+            self._results = umu_database_or_results
+            self.umu_database: UmuDatabase | None = None
+            self._search_mode = False
+        else:
+            self.umu_database = umu_database_or_results
+            self._results: list[dict] = []
+            self._search_mode = True
+
+        self._selected_entry: dict | None = None
+        self.setWindowTitle("Search UMU Database" if self._search_mode else "Select Game Entry")
+        self.setMinimumWidth(500)
+        self.setMinimumHeight(400)
 
         main_layout = QVBoxLayout(self)
-        main_layout.addWidget(QLabel("Multiple game entries found. Please select one:"))
 
+        # Search row (only in search mode)
+        if self._search_mode:
+            search_layout = QHBoxLayout()
+            self.search_input = QLineEdit()
+            self.search_input.setPlaceholderText("Enter game title to search…")
+            ensure_field_height(self.search_input)
+            search_layout.addWidget(self.search_input)
+
+            self.search_button = QPushButton("Search")
+            search_layout.addWidget(self.search_button)
+            main_layout.addLayout(search_layout)
+
+            # Wire up search triggers
+            self.search_button.clicked.connect(self._perform_search)
+            self.search_input.returnPressed.connect(self._perform_search)
+        else:
+            self.search_input = None  # type: ignore[assignment]
+            self.search_button = None  # type: ignore[assignment]
+
+        # Results label
+        self.label = QLabel()
+        main_layout.addWidget(self.label)
+
+        # Results list
         self.list_widget = QListWidget()
-        for entry in self.results:
+        self.list_widget.currentItemChanged.connect(self._on_selection_changed)
+        main_layout.addWidget(self.list_widget)
+
+        # Button box
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
+                                      QDialogButtonBox.StandardButton.Cancel)
+        self.ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
+        self.ok_button.setEnabled(False)
+        button_box.accepted.connect(self._accept)
+        button_box.rejected.connect(self.reject)
+        main_layout.addWidget(button_box)
+
+        # Populate results immediately in results-only mode
+        if not self._search_mode:
+            self._populate_results(self._results)
+
+    # -- search logic --------------------------------------------------------
+
+    def _perform_search(self) -> None:
+        """Run the database lookup and populate the results list."""
+        search_title = self.search_input.text().strip()
+        if not search_title:
+            return
+
+        self.label.setText(f"Searching for \"{search_title}\"…")
+        self.list_widget.clear()
+        self.ok_button.setEnabled(False)
+
+        # search_by_partial_title is synchronous
+        try:
+            results = self.umu_database.search_by_partial_title(search_title)
+            processed_list: list[dict] = []
+            if isinstance(results, list):
+                processed_list = results
+            elif isinstance(results, dict) and results.get("umu_id"):
+                processed_list = [results]
+
+            all_results: list[dict] = [
+                e for e in processed_list if e.get("umu_id")
+            ]
+            self._populate_results(all_results)
+        except (ValueError, KeyError, TypeError, RuntimeError) as e:
+            logger.error("Search error for title '%s': %s", search_title, e)
+            self.label.setText(f"Error: {e}")
+
+    def _populate_results(self, results: list[dict]) -> None:
+        """Fill the list widget with search results."""
+        if not results:
+            search_title = self.search_input.text().strip()
+            self.label.setText(f"No games found matching \"{search_title}\" in any store.")
+            return
+
+        self.label.setText(f"{len(results)} result(s) found. Select one:")
+        for entry in results:
             title = entry.get('title', 'No Title')
             store = entry.get('store', 'unknown')
             umu_id = entry.get('umu_id', 'no-id')
             display_text = f"{title} ({store}) - {umu_id}"
             self.list_widget.addItem(display_text)
 
-        main_layout.addWidget(self.list_widget)
+    # -- selection -----------------------------------------------------------
 
-        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
-                                      QDialogButtonBox.StandardButton.Cancel)
+    def _on_selection_changed(self, current, previous) -> None:  # noqa: ANN001
+        """Enable OK when a result is selected."""
+        self.ok_button.setEnabled(current is not None)
 
-        self.ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
-        self.ok_button.setEnabled(False)
-
-        self.list_widget.currentItemChanged.connect(self.on_selection_changed)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-
-        main_layout.addWidget(button_box)
-
-    def on_selection_changed(self, current_item, previous_item):
-        """Enable the OK button when a UMU entry is selected."""
-        self.ok_button.setEnabled(current_item is not None)
+    def _accept(self) -> None:
+        """Store the selected entry and close the dialog."""
+        current_row = self.list_widget.currentRow()
+        # We don't store raw results anymore; rebuild from the list items.
+        # Fallback: read from the displayed text.
+        item = self.list_widget.currentItem()
+        if item:
+            text = item.text()
+            # Parse "Title (store) - umu_id" back into a dict.
+            # This is a best-effort reconstruction.
+            try:
+                inner, umu_id = text.rsplit(' - ', 1)
+                title, store = inner.rsplit(' (', 1)
+                store = store.rstrip(')')
+                self._selected_entry = {
+                    'title': title,
+                    'store': store,
+                    'umu_id': umu_id,
+                }
+            except ValueError:
+                self._selected_entry = {'title': text, 'store': 'unknown', 'umu_id': text}
+        self.accept()
 
     def get_selected_entry(self) -> dict | None:
         """Return the full dictionary of the selected UMU game entry, or None."""
-        current_row = self.list_widget.currentRow()
-        if current_row < 0 or current_row >= len(self.results):
-            return None
-        return self.results[current_row]
+        return self._selected_entry
+
+    def keyPressEvent(self, event) -> None:  # noqa: ANN201
+        """Close the dialog when Escape is pressed."""
+        if event.key() == Qt.Key.Key_Escape:
+            self.reject()
+        else:
+            super().keyPressEvent(event)
 
 
 class SelectShortcutsDialog(QDialog):
@@ -435,7 +562,9 @@ class SelectShortcutsDialog(QDialog):
         # Scroll Area
         self.scroll_area = QScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # Don't steal focus from checkboxes
         self.scroll_content = QWidget()
+        self.scroll_content.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # Don't steal focus
         self.content_layout = QVBoxLayout(self.scroll_content)
         self.content_layout.setSpacing(2)  # Minimal spacing between checkboxes
         self.content_layout.setContentsMargins(10, 10, 10, 10)
@@ -518,6 +647,13 @@ class SelectShortcutsDialog(QDialog):
         self.button_box.rejected.connect(self.reject)
         self.main_layout.addWidget(self.button_box)
 
+    def changeEvent(self, event: QEvent) -> None:  # noqa: ANN001
+        """Set focus on the first checkbox after the window activates."""
+        if event.type() == QEvent.Type.WindowActivate:
+            if self.desktop_checkboxes:
+                self.desktop_checkboxes[0][0].setFocus()
+        super().changeEvent(event)
+
     @staticmethod
     def parse_desktop_name(file_path: str) -> str:
         """Read a .desktop file and extract its 'Name' entry, falling back to filename."""
@@ -550,6 +686,13 @@ class SelectShortcutsDialog(QDialog):
     def get_steam_shortcuts(self) -> list[str]:
         """Return list of .desktop file basenames the user wants added to Steam."""
         return [os.path.basename(fp) for cb, fp in self.steam_checkboxes if cb.isChecked()]
+
+    def keyPressEvent(self, event) -> None:  # noqa: ANN201
+        """Close the dialog when Escape is pressed."""
+        if event.key() == Qt.Key.Key_Escape:
+            self.reject()
+        else:
+            super().keyPressEvent(event)
 
 
 class LaunchLoadingDialog(QDialog):
@@ -657,6 +800,14 @@ class LaunchLoadingDialog(QDialog):
         if self._safety_timer:
             self._safety_timer.stop()
         self.close()
+
+    def keyPressEvent(self, event) -> None:  # noqa: ANN201
+        """Close the dialog when Escape is pressed."""
+        if event.key() == Qt.Key.Key_Escape:
+            self._close_now()
+            self.close()
+        else:
+            super().keyPressEvent(event)
 
     def closeEvent(self, event: Any) -> None:  # noqa: ANN401
         self._close_now()

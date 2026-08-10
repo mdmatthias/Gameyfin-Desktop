@@ -44,7 +44,10 @@ class TestParseDesktopFile:
 class TestBuildUmuCommand:
     def test_basic_command(self):
         result = build_umu_command("GE-Proton", "/home/user/.wine", {}, "umu-run /path/to/game.exe")
-        assert result == 'PROTONPATH="GE-Proton" WINEPREFIX="/home/user/.wine" umu-run /path/to/game.exe'
+        assert result == (
+            'PROTONPATH="GE-Proton" WINEPREFIX="/home/user/.wine" '
+            'STEAM_COMPAT_CONFIG="xalia" umu-run /path/to/game.exe'
+        )
 
     def test_command_with_extra_config(self):
         config = {"GAMEID": "UMU-Test", "MANGOHUD": "1"}
@@ -72,7 +75,13 @@ class TestBuildUmuCommand:
 class TestBuildUmuEnvPrefix:
     def test_basic_prefix(self):
         result = build_umu_env_prefix("GE-Proton", "/home/user/pfx", {})
-        assert result == 'PROTONPATH="GE-Proton" WINEPREFIX="/home/user/pfx" '
+        assert result == 'PROTONPATH="GE-Proton" WINEPREFIX="/home/user/pfx" STEAM_COMPAT_CONFIG="xalia" '
+
+    def test_respects_user_steam_compat_config(self):
+        config = {"STEAM_COMPAT_CONFIG": "noxalia"}
+        result = build_umu_env_prefix("GE-Proton", "/home/user/pfx", config)
+        assert result.count('STEAM_COMPAT_CONFIG="') == 1
+        assert 'STEAM_COMPAT_CONFIG="noxalia" ' in result
 
     def test_prefix_with_extra_config(self):
         config = {"GAMEID": "UMU-456"}

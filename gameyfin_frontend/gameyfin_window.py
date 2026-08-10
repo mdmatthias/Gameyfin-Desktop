@@ -3,7 +3,8 @@ import os
 import sys
 from typing import Any
 
-from PyQt6.QtWidgets import QMainWindow, QFileDialog, QTabWidget, QApplication, QTabBar
+from PyQt6.QtWidgets import (QMainWindow, QFileDialog, QTabWidget, QApplication, QTabBar,
+                             QVBoxLayout, QWidget)
 from PyQt6.QtGui import QCloseEvent, QDesktopServices
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtCore import QUrl, QStandardPaths, pyqtSignal, Qt
@@ -15,9 +16,13 @@ from qt_material import apply_stylesheet
 from gameyfin_frontend.widgets.download_manager import DownloadManagerWidget
 from gameyfin_frontend.widgets.prefix_manager import PrefixManagerWidget
 from gameyfin_frontend.widgets.loading_overlay import LoadingOverlay
+from gameyfin_frontend.widgets.gamepad_hud import GamepadHintBar
 from gameyfin_frontend.workers import StreamDownloadWorker
 from gameyfin_frontend.umu_database import UmuDatabase
 
+from .gamepad import GamepadManager
+from .gamepad_navigator import GamepadNavigator
+from .gamepad_webnav import build_nav_script
 from .settings_widget import SettingsWidget
 from .settings import SettingsManager
 from .utils import get_effective_icon, parse_size
@@ -105,6 +110,7 @@ class GameyfinWindow(QMainWindow):
         self._setup_widgets()
         self._setup_tabs()
         self._inject_css()
+        self._setup_gamepad()
 
     def _setup_profile(self) -> None:
         """Initialize the web browser profile with storage and settings."""
@@ -185,7 +191,18 @@ class GameyfinWindow(QMainWindow):
         settings_index = self.tab_widget.addTab(self.settings_widget, "Settings")
         self.tab_widget.tabBar().setTabButton(settings_index, QTabBar.ButtonPosition.RightSide, None)
 
-        self.setCentralWidget(self.tab_widget)
+        # Gamepad button hints live under the tabs and only appear once a
+        # controller is actually connected.
+        self.gamepad_hint_bar = GamepadHintBar()
+        self.gamepad_hint_bar.hide()
+
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+        container_layout.addWidget(self.tab_widget)
+        container_layout.addWidget(self.gamepad_hint_bar)
+        self.setCentralWidget(container)
 
         self.browser.page().profile().downloadRequested.connect(self.on_download_requested)
 
@@ -211,6 +228,72 @@ class GameyfinWindow(QMainWindow):
         script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         script.setRunsOnSubFrames(True)
         self.browser.page().scripts().insert(script)
+
+        # Gamepad navigation inside the page — installed on the profile so
+        # every tab (including externally opened ones) gets it.
+        self.profile.scripts().insert(build_nav_script())
+
+    def _setup_gamepad(self) -> None:
+        """Prepare gamepad support; nothing is constructed while it is disabled."""
+        self.gamepad: GamepadManager | None = None
+        self.gamepad_navigator: GamepadNavigator | None = None
+        self._apply_gamepad_settings()
+
+    def _create_gamepad(self) -> None:
+        """Construct the manager and navigator on first use."""
+        self.gamepad = GamepadManager(self.settings, self)
+        self.gamepad_navigator = GamepadNavigator(
+            self, self.gamepad, self.settings, hint_bar=self.gamepad_hint_bar
+        )
+        self.gamepad.connected.connect(self._on_gamepad_connected)
+        self.gamepad.disconnected.connect(self._on_gamepad_disconnected)
+
+    def _apply_gamepad_settings(self) -> None:
+        """Start/stop polling and push the current settings into the gamepad stack.
+
+        With gamepad support switched off nothing is created at all — no focus
+        ring, no overlay, no focus-change hook — so the setting is a complete
+        off switch rather than just muted input.
+        """
+        enabled = bool(self.settings.get("GF_GAMEPAD_ENABLED"))
+
+        if not enabled:
+            if self.gamepad is not None:
+                self.gamepad.stop()
+            if self.gamepad_navigator is not None:
+                self.gamepad_navigator.set_enabled(False)
+            self.settings_widget.set_gamepad_status("Disabled")
+            self.gamepad_hint_bar.hide()
+            return
+
+        if self.gamepad is None:
+            self._create_gamepad()
+
+        self.gamepad.reload_settings()
+        self.gamepad_navigator.reload_settings()
+        self.gamepad_navigator.set_enabled(True)
+
+        if not self.gamepad.start():
+            self.settings_widget.set_gamepad_status("Gamepad support unavailable (SDL/pygame missing)")
+        elif not self.gamepad.is_connected():
+            self.settings_widget.set_gamepad_status("No controller detected")
+        self._update_hint_bar_visibility()
+
+    def _update_hint_bar_visibility(self) -> None:
+        """Show the hint bar only when hints are enabled and a pad is connected."""
+        show_hints = bool(self.settings.get("GF_GAMEPAD_HINTS"))
+        connected = self.gamepad is not None and self.gamepad.is_connected()
+        self.gamepad_hint_bar.setVisible(show_hints and connected)
+
+    def _on_gamepad_connected(self, name: str) -> None:
+        """Reflect a newly connected controller in the settings tab and hint bar."""
+        self.settings_widget.set_gamepad_status(name)
+        self._update_hint_bar_visibility()
+
+    def _on_gamepad_disconnected(self) -> None:
+        """Reflect controller removal in the settings tab and hint bar."""
+        self.settings_widget.set_gamepad_status("No controller detected")
+        self.gamepad_hint_bar.hide()
 
     def close_tab(self, index: int) -> None:
         """Close an external browser tab, preventing closure of the four fixed tabs."""
@@ -323,6 +406,10 @@ class GameyfinWindow(QMainWindow):
         # keeps the centered logo centered.
         self._loading_overlay.setGeometry(self.rect())
 
+        navigator = getattr(self, "gamepad_navigator", None)
+        if navigator is not None and navigator.help_overlay.isVisible():
+            navigator.help_overlay.setGeometry(self.rect())
+
     def _on_load_started(self) -> None:
         """Show the loading overlay on initial page load."""
         if not self._initial_load_complete and self.tab_widget.currentIndex() < FIXED_TAB_COUNT:
@@ -372,6 +459,9 @@ class GameyfinWindow(QMainWindow):
         """
         if self.is_really_quitting:
             # This is a real quit, run cleanup
+            gamepad = getattr(self, "gamepad", None)
+            if gamepad is not None:
+                gamepad.stop()
             self.download_manager.close()
             self.browser.setPage(None)
             self.browser.deleteLater()
@@ -498,7 +588,11 @@ class GameyfinWindow(QMainWindow):
         if sys.platform != "win32" and self.umu_database:
             self.umu_database.refresh_cache()
 
-        # 5. Update Theme
+        # 5. Update Gamepad
+        if hasattr(self, "gamepad"):
+            self._apply_gamepad_settings()
+
+        # 6. Update Theme
         theme = self.settings.get("GF_THEME")
         app = QApplication.instance()
         if theme and theme != "auto":

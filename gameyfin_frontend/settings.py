@@ -52,7 +52,16 @@ class SettingsManager:
             "GF_PROMPT_DOWNLOAD_DIR": 0,
             "GF_LOG_LEVEL": "WARNING",
             "GF_DOWNLOAD_NOTIFICATIONS": 1,
-            "GF_BANDWIDTH_LIMIT": 0
+            "GF_BANDWIDTH_LIMIT": 0,
+            "GF_GAMEPAD_ENABLED": 1,
+            "GF_GAMEPAD_HINTS": 1,
+            # Stick deadzone in percent of full deflection
+            "GF_GAMEPAD_DEADZONE": 25,
+            # Milliseconds between repeats while a direction is held
+            "GF_GAMEPAD_REPEAT_MS": 140,
+            # Right-stick scroll speed and virtual-mouse speed, in pixels
+            "GF_GAMEPAD_SCROLL_SPEED": 60,
+            "GF_GAMEPAD_MOUSE_SPEED": 22,
         }
         
         self.settings = self.defaults.copy()
