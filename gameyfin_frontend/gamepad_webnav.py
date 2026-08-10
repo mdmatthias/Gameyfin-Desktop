@@ -4,8 +4,7 @@ Qt has no concept of focus inside a web page, so directional navigation is done
 by a small JavaScript helper injected into every page of the profile.  It picks
 the nearest focusable element in the requested direction, highlights it and
 scrolls it into view.  :class:`WebNavigator` is the thin Python side that calls
-into it and reports back what happened (so the caller can, for example, open the
-on-screen keyboard when a text field was activated).
+into it.
 """
 
 from __future__ import annotations
@@ -158,59 +157,13 @@ NAV_SCRIPT = """
 
         clear: function () { highlight(null); },
 
-        /* Returns a descriptor so the app knows whether to open the
-           on-screen keyboard instead of just clicking. */
         activate: function () {
             var el = current();
-            if (!el) { return JSON.stringify({ kind: 'none' }); }
-
-            var tag = (el.tagName || '').toLowerCase();
-            var type = (el.getAttribute('type') || '').toLowerCase();
-            var textual = tag === 'textarea' ||
-                el.isContentEditable ||
-                (tag === 'input' && ['text', 'search', 'email', 'url', 'tel', 'number', 'password', ''].indexOf(type) !== -1);
-
-            if (textual) {
-                return JSON.stringify({
-                    kind: 'text',
-                    value: el.isContentEditable ? el.textContent : (el.value || ''),
-                    multiline: tag === 'textarea',
-                    password: type === 'password',
-                    label: el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.name || ''
-                });
-            }
-
+            if (!el) { return false; }
+            /* A real click focuses text inputs the same way a mouse click
+               would, which is what the platform's own on-screen keyboard
+               (e.g. Steam Deck's gamescope overlay) keys off of. */
             el.click();
-            return JSON.stringify({ kind: 'click' });
-        },
-
-        setText: function (value) {
-            var el = current();
-            if (!el) { return false; }
-            if (el.isContentEditable) {
-                el.textContent = value;
-            } else {
-                var setter = Object.getOwnPropertyDescriptor(
-                    el.constructor.prototype, 'value');
-                if (setter && setter.set) { setter.set.call(el, value); }
-                else { el.value = value; }
-            }
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-            el.dispatchEvent(new Event('change', { bubbles: true }));
-            return true;
-        },
-
-        submit: function () {
-            var el = current();
-            if (!el) { return false; }
-            ['keydown', 'keypress', 'keyup'].forEach(function (name) {
-                el.dispatchEvent(new KeyboardEvent(name, {
-                    key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true
-                }));
-            });
-            if (el.form && el.form.requestSubmit) {
-                try { el.form.requestSubmit(); } catch (e) { /* ignore */ }
-            }
             return true;
         },
 
@@ -280,24 +233,6 @@ class WebNavigator:
     def scroll_page(self, factor: float) -> None:
         self._run(f"window.{NAV_OBJECT}.scrollPage({factor:.2f})")
 
-    def set_text(self, value: str) -> None:
-        self._run(f"window.{NAV_OBJECT}.setText({json.dumps(value)})")
-
-    def submit(self) -> None:
-        self._run(f"window.{NAV_OBJECT}.submit()")
-
-    def activate(self, callback: Callable[[dict[str, Any]], None]) -> None:
-        """Activate the focused element; the callback receives its descriptor."""
-
-        def _on_result(raw: Any) -> None:
-            descriptor: dict[str, Any] = {"kind": "none"}
-            if isinstance(raw, str):
-                try:
-                    parsed = json.loads(raw)
-                    if isinstance(parsed, dict):
-                        descriptor = parsed
-                except json.JSONDecodeError:
-                    logger.debug("Unexpected activate() payload: %r", raw)
-            callback(descriptor)
-
-        self._run(f"window.{NAV_OBJECT}.activate()", _on_result)
+    def activate(self) -> None:
+        """Click the focused page element."""
+        self._run(f"window.{NAV_OBJECT}.activate()")

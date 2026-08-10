@@ -33,11 +33,10 @@ from PyQt6.QtWidgets import (
 
 from .gamepad import (
     BTN_A, BTN_B, BTN_BACK, BTN_LB, BTN_LT, BTN_RB, BTN_RT, BTN_START,
-    BTN_X, BTN_Y, GamepadState,
+    BTN_Y, GamepadState,
 )
 from .gamepad_webnav import WebNavigator
 from .widgets.gamepad_hud import GamepadHelpOverlay, GamepadHintBar
-from .widgets.osk import OnScreenKeyboard
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +167,6 @@ class GamepadNavigator(QObject):
         self._scroll_remainder_y = 0.0
         self._mouse_remainder_x = 0.0
         self._mouse_remainder_y = 0.0
-        self._keyboard_open = False
 
         # One ring per top-level window: it is a child widget, so it must live
         # in the window it highlights and die together with it.
@@ -780,7 +778,6 @@ class GamepadNavigator(QObject):
         handler = {
             BTN_A: self._activate,
             BTN_B: self._back,
-            BTN_X: self._open_keyboard,
             BTN_Y: self._refresh,
             BTN_LB: lambda: self._switch_tab(-1),
             BTN_RB: lambda: self._switch_tab(1),
@@ -835,7 +832,9 @@ class GamepadNavigator(QObject):
             return
 
         if isinstance(widget, _TEXT_WIDGETS + (QSpinBox, QDoubleSpinBox)):
-            self._open_keyboard()
+            # Already has real Qt keyboard focus from D-pad navigation, which
+            # is what the platform's own on-screen keyboard (e.g. Steam Deck's
+            # gamescope overlay) keys off of — nothing left to do here.
             return
 
         if isinstance(widget, QAbstractItemView):
@@ -894,27 +893,13 @@ class GamepadNavigator(QObject):
         self._send_key(view, Qt.Key.Key_Return)
 
     def _activate_web_element(self, web_view: Any) -> None:
-        """Click the focused page element, or edit it when it takes text."""
-        if self._keyboard_open:
-            return
-        navigator = WebNavigator(web_view)
+        """Click the focused page element.
 
-        def on_descriptor(descriptor: dict[str, Any]) -> None:
-            if descriptor.get("kind") != "text":
-                return
-            text = self._run_keyboard(
-                initial_text=str(descriptor.get("value") or ""),
-                title="Enter text",
-                multiline=bool(descriptor.get("multiline")),
-                password=bool(descriptor.get("password")),
-                label=str(descriptor.get("label") or ""),
-            )
-            if text is None:
-                return
-            navigator.set_text(text)
-            navigator.submit()
-
-        navigator.activate(on_descriptor)
+        A real click focuses text inputs the same way a mouse click would,
+        which is what the platform's own on-screen keyboard (e.g. Steam
+        Deck's gamescope overlay) keys off of.
+        """
+        WebNavigator(web_view).activate()
 
     # -- B -----------------------------------------------------------------
 
@@ -950,87 +935,6 @@ class GamepadNavigator(QObject):
                 close_tab(index)
         elif index != 0:
             tab_widget.setCurrentIndex(0)
-
-    # -- X -----------------------------------------------------------------
-
-    def _open_keyboard(self) -> None:
-        if self._keyboard_open:
-            return
-        widget = self._focus_widget()
-
-        web_view = self.web_view_for(widget)
-        if web_view is not None:
-            self._activate_web_element(web_view)
-            return
-
-        if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
-            self._edit_spinbox(widget)
-            return
-
-        if not isinstance(widget, _TEXT_WIDGETS):
-            return
-
-        multiline = isinstance(widget, (QPlainTextEdit, QTextEdit))
-        if multiline:
-            initial = widget.toPlainText()
-        else:
-            initial = widget.text()
-
-        password = isinstance(widget, QLineEdit) and widget.echoMode() != QLineEdit.EchoMode.Normal
-
-        text = self._run_keyboard(
-            initial_text=initial,
-            title="Edit text",
-            multiline=multiline,
-            password=password,
-            label=self._label_for(widget),
-        )
-        if text is None:
-            return
-
-        if multiline:
-            widget.setPlainText(text)
-        else:
-            widget.setText(text)
-
-    def _edit_spinbox(self, widget: QSpinBox | QDoubleSpinBox) -> None:
-        text = self._run_keyboard(
-            initial_text=str(widget.value()),
-            title="Enter a number",
-            label=self._label_for(widget),
-        )
-        if text is None:
-            return
-        try:
-            widget.setValue(type(widget.value())(text))
-        except (TypeError, ValueError):
-            logger.debug("Ignoring non-numeric on-screen keyboard input: %r", text)
-
-    @staticmethod
-    def _label_for(widget: QWidget) -> str:
-        placeholder = getattr(widget, "placeholderText", None)
-        if callable(placeholder):
-            text = placeholder()
-            if text:
-                return str(text)
-        return widget.accessibleName() or ""
-
-    def _run_keyboard(self, **kwargs: Any) -> str | None:
-        """Show the on-screen keyboard modally, guarding against re-entry.
-
-        The keyboard runs its own event loop and is navigated by the very same
-        gamepad signals, which is exactly what we want — but a second keyboard
-        must never open on top of the first.
-        """
-        if self._keyboard_open:
-            return None
-        self._keyboard_open = True
-        try:
-            # Parent to the active window so the keyboard stacks above whatever
-            # modal dialog asked for the text.
-            return OnScreenKeyboard.get_text(self._active_window(), **kwargs)
-        finally:
-            self._keyboard_open = False
 
     # -- Y -----------------------------------------------------------------
 

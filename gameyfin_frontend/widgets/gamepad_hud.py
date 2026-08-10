@@ -27,7 +27,6 @@ BINDINGS: tuple[tuple[str, str], ...] = (
     ("D-pad / Left stick", "Move between items"),
     ("A", "Select / activate"),
     ("B", "Back, cancel or close"),
-    ("X", "Edit text (on-screen keyboard)"),
     ("Y", "Refresh / reload"),
     ("LB / RB", "Previous / next tab"),
     ("LT / RT", "Page up / page down"),

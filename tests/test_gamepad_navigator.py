@@ -658,64 +658,6 @@ class TestScrolling:
         assert bar.value() > 0
 
 
-class TestKeyboard:
-    def test_x_opens_the_keyboard_for_a_text_field(self, qtbot, manager, monkeypatch):
-        window = QWidget()
-        window.resize(300, 120)
-        layout = QVBoxLayout(window)
-        edit = QLineEdit("hello")
-        layout.addWidget(edit)
-        navigator = make_navigator(qtbot, window, manager)
-        edit.setFocus()
-
-        captured = {}
-
-        def fake_get_text(parent, **kwargs):
-            captured.update(kwargs)
-            return "typed"
-
-        monkeypatch.setattr(
-            "gameyfin_frontend.gamepad_navigator.OnScreenKeyboard.get_text",
-            staticmethod(fake_get_text),
-        )
-
-        manager.button_pressed.emit("x")
-
-        assert captured["initial_text"] == "hello"
-        assert edit.text() == "typed"
-
-    def test_cancelling_the_keyboard_leaves_the_field_alone(self, qtbot, manager, monkeypatch):
-        window = QWidget()
-        window.resize(300, 120)
-        layout = QVBoxLayout(window)
-        edit = QLineEdit("hello")
-        layout.addWidget(edit)
-        navigator = make_navigator(qtbot, window, manager)
-        edit.setFocus()
-
-        monkeypatch.setattr(
-            "gameyfin_frontend.gamepad_navigator.OnScreenKeyboard.get_text",
-            staticmethod(lambda parent, **kwargs: None),
-        )
-
-        manager.button_pressed.emit("x")
-
-        assert edit.text() == "hello"
-
-    def test_x_on_a_button_does_nothing(self, grid, manager, monkeypatch):
-        navigator, window = grid
-        calls = []
-        monkeypatch.setattr(
-            "gameyfin_frontend.gamepad_navigator.OnScreenKeyboard.get_text",
-            staticmethod(lambda parent, **kwargs: calls.append(True)),
-        )
-        window.top_left.setFocus()
-
-        manager.button_pressed.emit("x")
-
-        assert calls == []
-
-
 class TestHelpAndMouseMode:
     def test_start_toggles_the_help_overlay(self, grid, manager):
         navigator, window = grid
@@ -756,33 +698,6 @@ class TestTextWidgets:
         navigator = make_navigator(qtbot, window, manager)
 
         assert editor in navigator.candidates(window)
-
-    def test_a_multiline_edit_opens_the_keyboard(self, qtbot, manager, monkeypatch):
-        window = QWidget()
-        window.resize(400, 300)
-        layout = QVBoxLayout(window)
-        editor = QPlainTextEdit()
-        editor.setPlainText("KEY=VALUE")
-        layout.addWidget(editor)
-        navigator = make_navigator(qtbot, window, manager)
-        editor.setFocus()
-
-        captured = {}
-
-        def fake_get_text(parent, **kwargs):
-            captured.update(kwargs)
-            return "OTHER=1"
-
-        monkeypatch.setattr(
-            "gameyfin_frontend.gamepad_navigator.OnScreenKeyboard.get_text",
-            staticmethod(fake_get_text),
-        )
-
-        manager.button_pressed.emit("x")
-
-        assert captured["initial_text"] == "KEY=VALUE"
-        assert captured["multiline"] is True
-        assert editor.toPlainText() == "OTHER=1"
 
 
 class TestFocusRing:
