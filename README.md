@@ -89,6 +89,7 @@ While the application can be configured using environment variables (see below),
 | `GF_GAMEPAD_REPEAT_MS`    | Milliseconds between repeats while a direction is held (default: `140`).         |
 | `GF_GAMEPAD_SCROLL_SPEED` | Right-stick scroll speed in pixels (default: `60`).                              |
 | `GF_GAMEPAD_MOUSE_SPEED`  | Pointer speed in mouse mode, in pixels (default: `22`).                          |
+| `GF_BANDWIDTH_LIMIT`      | Max download speed in bytes/sec (default: `0` for unlimited).                    |
 
 ---
 
@@ -164,7 +165,7 @@ The application saves all data (settings, download history, cookies, local stora
 
 
 #### Download Progress
-The download progress bar is based on the total size reported by the Gameyfin server. Since the server does not always send a `Content-Length` header, the size shown is estimated from the download button label in the UI. See [this issue](https://github.com/gameyfin/gameyfin/issues/707#issuecomment-2038166299) for more details.
+The download progress bar is based on the `Content-Length` header from the Gameyfin server, giving accurate progress since Gameyfin 2.4.1-preview. On older servers that don't send this header, the size is estimated from the download button label in the UI. See [this issue](https://github.com/gameyfin/gameyfin/issues/707#issuecomment-2038166299) for more details.
 
 ### AI notice
 Build with the help from AI. If you see something that could be better or looks weird, please let me know!

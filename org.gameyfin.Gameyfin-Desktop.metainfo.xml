@@ -81,6 +81,19 @@
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="2.9.2" date="2026-08-12">
+            <description>
+                <ul>
+                    <li>Gamepad support, you are now able to use Gameyfin-Desktop in Steam big picture mode (Steamdeck/SteamOS/Bazzite).</li>
+                    <li>Gamepad fixes in the Gameyfin webview. You should be able to navigate through your games and press download without needing your mouse/keyboard/touchscreen.
+                        Still experimental, the admin interface is not tested and might have some bugs when navigating with your gamepad.</li>
+                    <li>Edit Downloads tab layout, now looks the same as the Prefixes (Linux) tab.</li>
+                    <li>(Linux) Umu database refresh now runs async, no longer blocks startup speed.</li>
+                    <li>(Linux) Fix install/config dialog not loading saved config.</li>
+                    <li>(Linux) Fix game scripts that have single quote in their install path.</li>
+                </ul>
+            </description>
+        </release>
         <release version="2.9.1-dev" date="2026-08-11">
             <description>
                 <ul>
