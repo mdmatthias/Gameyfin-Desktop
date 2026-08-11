@@ -81,6 +81,16 @@
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="2.9.1-dev" date="2026-08-05">
+            <description>
+                <ul>
+                    <li>Gamepad fixes in the Gameyfin webview. You should be able to navigate through your games and press download without needing your mouse/keyboard/touchscreen.
+                        Still experimental, the admin interface is not tested and might have some bugs when navigating with your gamepad.</li>
+                    <li>(Linux) Umu database refresh now runs async, no longer blocks startup speed.</li>
+                    <li>(Linux) Fix install/config dialog not loading saved config.</li>
+                </ul>
+            </description>
+        </release>
         <release version="2.9.0-dev" date="2026-08-05">
             <description>
                 <ul>
@@ -126,10 +136,18 @@
                 <ul>
                     <li>Internal codebase refactor for better maintainability and reliability.</li>
                     <li>Add loading animation on initial start.</li>
-                    <li>Moved all config data (settings, downloads, shortcuts, cache) to standard XDG directories depending on your OS. Existing data is migrated automatically on first launch, no action needed.</li>
+                    <li>Moved all config data (settings, downloads, shortcuts, cache) to standard XDG directories
+                        depending on your OS. Existing data is migrated automatically on first launch, no action needed.
+                    </li>
                     <li>Log level is now configurable directly from the Settings tab.</li>
-                    <li>(Linux) Added native 32-bit library support in the Flatpak build, fixing compatibility with older 32-bit games.</li>
-                    <li>(Linux) Fixed shortcut scripts so they cd into the game's executable directory before launching. This resolves issues with games that require their working directory to match the .exe location. To apply to existing installs, open the Prefix Manager, click "Configure Prefix" on the affected game, then click OK.</li>
+                    <li>(Linux) Added native 32-bit library support in the Flatpak build, fixing compatibility with
+                        older 32-bit games.
+                    </li>
+                    <li>(Linux) Fixed shortcut scripts so they cd into the game's executable directory before launching.
+                        This resolves issues with games that require their working directory to match the .exe location.
+                        To apply to existing installs, open the Prefix Manager, click "Configure Prefix" on the affected
+                        game, then click OK.
+                    </li>
                     <li>(Linux) Added regedit button to prefix manager.</li>
                 </ul>
             </description>
