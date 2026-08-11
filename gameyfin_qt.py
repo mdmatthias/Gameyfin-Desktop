@@ -63,6 +63,9 @@ if __name__ == "__main__":
         apply_stylesheet(app, theme=theme)
 
     umu_database = UmuDatabase(settings)
+    # Start a background cache refresh so the API call doesn't block app startup.
+    # The disk cache (loaded in __init__) is used immediately for lookups.
+    umu_database.refresh_cache_async()
 
     app.setApplicationName("Gameyfin")
     app.setOrganizationName("Gameyfin")

@@ -267,6 +267,23 @@ class TestUmuSearchDialog:
         assert entry["umu_id"] == "UMU-2"
         assert entry["store"] == "gog"
 
+    def test_single_result_auto_selected(self, qtbot):
+        """When search returns exactly 1 result, it should be auto-selected."""
+        from gameyfin_frontend.dialogs import UmuSearchDialog
+        mock_umu_database = MagicMock(spec=["search_by_partial_title"])
+        mock_umu_database.search_by_partial_title.return_value = [
+            {"umu_id": "UMU-42", "title": "Only Game", "store": "steam"},
+        ]
+        dialog = UmuSearchDialog(mock_umu_database)
+        qtbot.addWidget(dialog)
+        dialog.search_input.setText("Only Game")
+        qtbot.keyClick(dialog.search_input, Qt.Key.Key_Return)
+        assert dialog.list_widget.count() == 1
+        # Row 0 should be auto-selected, OK button enabled
+        assert dialog.list_widget.currentRow() == 0
+        assert dialog.ok_button.isEnabled()
+        assert "auto-selected" in dialog.label.text()
+
 
 class TestSelectShortcutsDialog:
     def test_dialog_initializes(self, qtbot, tmp_path):

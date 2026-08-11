@@ -188,10 +188,10 @@ class InstallConfigDialog(QDialog):
         form fields without requiring a mouse click first.
         """
         super().showEvent(event)
-        if self.gameid_input.isEnabled():
-            self.gameid_input.setFocus()
-        elif self.wayland_checkbox.isEnabled():
+        if self.wayland_checkbox.isEnabled():
             self.wayland_checkbox.setFocus()
+        elif self.gameid_input.isEnabled():
+            self.gameid_input.setFocus()
 
     @pyqtSlot()
     def search_for_game_id(self) -> None:
@@ -485,13 +485,17 @@ class UmuSearchDialog(QDialog):
             self.label.setText(f"No games found matching \"{search_title}\" in any store.")
             return
 
-        self.label.setText(f"{len(results)} result(s) found. Select one:")
         for entry in results:
             title = entry.get('title', 'No Title')
             store = entry.get('store', 'unknown')
             umu_id = entry.get('umu_id', 'no-id')
             display_text = f"{title} ({store}) - {umu_id}"
             self.list_widget.addItem(display_text)
+
+        # Auto-select when there's only one result
+        if len(results) == 1:
+            self.list_widget.setCurrentRow(0)
+            self.label.setText(f"1 result found – auto-selected.")
 
     # -- selection -----------------------------------------------------------
 

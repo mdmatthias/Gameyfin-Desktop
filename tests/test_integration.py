@@ -393,7 +393,7 @@ class TestUmuDatabaseCacheCycle:
         assert len(api_called) == 0  # API was not called
 
     def test_codename_fallback_to_api_when_not_cached(self, mock_settings):
-        """get_game_by_codename should fall back to API when codename is not in cache."""
+        """get_game_by_codename should only use local cache — no API fallback."""
         db = UmuDatabase.__new__(UmuDatabase)
         db.settings = mock_settings
         db._games_by_title = defaultdict(list)
@@ -401,16 +401,14 @@ class TestUmuDatabaseCacheCycle:
         db._games_by_umu_id = defaultdict(list)
         db.cache_file_path = mock_settings.cache_path
 
-        # Mock _request_umu_api
+        # Mock _request_umu_api to detect if it's called
         api_called = []
         def mock_request(params=None):
             api_called.append(params)
             return [{"umu_id": "UMU-NEW", "title": "New Game", "codename": "999"}]
         db._request_umu_api = mock_request
 
-        # Lookup non-cached codename — should call API
+        # Lookup non-cached codename — should return [] without calling API
         results = db.get_game_by_codename("999")
-        assert len(results) == 1
-        assert results[0]["umu_id"] == "UMU-NEW"
-        assert len(api_called) == 1
-        assert api_called[0] == {"codename": "999"}
+        assert results == []
+        assert len(api_called) == 0, "get_game_by_codename must not call the API"

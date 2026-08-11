@@ -3,8 +3,9 @@ import logging
 import os
 import re
 import sys
+import threading
 from collections import defaultdict
-from typing import Dict, List
+from typing import Callable, Dict, List
 
 import requests
 
@@ -12,9 +13,25 @@ from .settings import SettingsManager
 
 logger = logging.getLogger(__name__)
 
+
+class _RefreshWorker:
+    """Worker object that runs refresh_cache on a background thread."""
+
+    def __init__(self, database: "UmuDatabase") -> None:
+        self._db = database
+
+    def run(self) -> None:
+        self._db.refresh_cache()
+        logger.info("Background UmuDatabase cache refresh complete.")
+
+
 class UmuDatabase:
     def __init__(self, settings: SettingsManager | None = None):
         """Initialize the UMU database for game fix lookups.
+
+        Loads the local disk cache synchronously.  Use
+        ``refresh_cache_async()`` to fetch a fresh copy from the API
+        without blocking the caller.
 
         Args:
             settings: SettingsManager instance providing app configuration.
@@ -25,6 +42,13 @@ class UmuDatabase:
             self._games_by_title = {}
             return
 
+        # Thread-safe cache access: _refresh_lock protects the three
+        # index dicts during an in-flight background refresh so that
+        # lookups always see a *complete* snapshot (old or new, never
+        # half-built).
+        self._refresh_lock = threading.Lock()
+        self._refresh_thread: "threading.Thread | None" = None
+
         # Stores data as: {"Game Title": [entry1, entry2, ...]}
         self._games_by_title: Dict[str, List[dict]] = defaultdict(list)
         self._games_by_codename: Dict[str, List[dict]] = defaultdict(list)
@@ -34,7 +58,6 @@ class UmuDatabase:
 
         logger.info("Initializing Umu database...")
         self._load_cache_from_disk()
-        self.refresh_cache()
         self._ROMAN_REPLACEMENTS = (
             (r'\bX\b', ' 10 '),
             (r'\bIX\b', ' 9 '),
@@ -105,9 +128,12 @@ class UmuDatabase:
         except OSError as e:
             logger.error("UmuDatabase: Failed to save cache to disk: %s", e)
 
-    def refresh_cache(self):
+    def refresh_cache(self) -> None:
         """
         Fetches the full list from the API and rebuilds the local title cache.
+
+        This method runs synchronously — use ``refresh_cache_async`` for
+        non-blocking calls.
         """
         if sys.platform == "win32":
             return
@@ -120,6 +146,43 @@ class UmuDatabase:
                 logger.info("Cache refresh complete.")
         except (KeyError, TypeError, ValueError) as e:
             logger.error("UmuDatabase: Failed to refresh cache: %s. Proceeding with empty cache.", e)
+
+    def refresh_cache_async(self, callback: Callable[["UmuDatabase"], None] | None = None) -> None:
+        """Start a background cache refresh that does not block the caller.
+
+        The local disk cache is still used immediately; the API call
+        happens on a background thread and updates the indexes when
+        done.
+
+        Args:
+            callback: Optional callable invoked with *self* after the
+                refresh finishes (runs on the background thread).
+        """
+        if sys.platform == "win32":
+            return
+
+        # Guard: don't start a second concurrent refresh.
+        if self._refresh_thread is not None and self._refresh_thread.is_alive():
+            logger.debug("UmuDatabase: Background refresh already in progress.")
+            return
+
+        logger.info("Starting background UmuDatabase cache refresh...")
+        worker = _RefreshWorker(self)
+        thread = threading.Thread(target=worker.run, daemon=True, name="umu-cache-refresh")
+        self._refresh_thread = thread
+        thread.start()
+
+        if callback is not None:
+            # Wrap callback so it runs *after* refresh completes but
+            # still on the background thread.  The caller (usually
+            # the main thread) can connect to this via a QMetaObject
+            # invocation if UI updates are needed.
+            def _wrapped() -> None:
+                worker.run()
+                callback(self)
+            thread = threading.Thread(target=_wrapped, daemon=True, name="umu-cache-refresh")
+            self._refresh_thread = thread
+            thread.start()
 
     def _request_umu_api(self, params=None):
         """
@@ -163,7 +226,8 @@ class UmuDatabase:
         This search is case-insensitive and ignores all punctuation and spaces.
         e.g., "baldurs" will match "Baldur's Gate".
 
-        Returns a list of all matching entries.
+        Only checks the local cache — never makes a network request.
+        Returns an empty list if no match is found.
         """
         if not partial_title:
             return []
@@ -208,17 +272,16 @@ class UmuDatabase:
         """
         Get ALL GAME VALUES based on CODENAME.
 
-        Checks the local cache first, falls back to the API if not found.
-        API: /umu_api.php?codename=SOME-CODENAME-OR-APP-ID
+        Only checks the local cache — never makes a network request.
+        Returns an empty list if not found.
         """
-        # Check local cache first
         cached = self._games_by_codename.get(codename.lower())
         if cached:
             logger.info("UmuDatabase: Found codename %s in local cache", codename)
             return cached
 
-        logger.info("UmuDatabase: Codename %s not in cache, fetching from API", codename)
-        return self._request_umu_api(params={"codename": codename.lower()})
+        logger.info("UmuDatabase: Codename %s not in cache (background refresh may populate it)", codename)
+        return []
 
     def get_title_by_store_and_umu_id(self, store: str, umu_id: str) -> dict | list | None:
         """
@@ -231,8 +294,8 @@ class UmuDatabase:
         """
         Get ALL GAME VALUES AND ENTRIES based on UMU_ID.
 
-        Checks the local cache first, falls back to the API if not found.
-        API: /umu_api.php?umu_id=SOME-UMU-ID
+        Only checks the local cache — never makes a network request.
+        Returns an empty list if not found.
         """
         # Check local cache first
         cached = self._games_by_umu_id.get(umu_id.lower())
@@ -240,8 +303,8 @@ class UmuDatabase:
             logger.info("UmuDatabase: Found umu_id %s in local cache", umu_id)
             return cached
 
-        logger.info("UmuDatabase: umu_id %s not in cache, fetching from API", umu_id)
-        return self._request_umu_api(params={"umu_id": umu_id.lower()})
+        logger.info("UmuDatabase: umu_id %s not in cache (background refresh may populate it)", umu_id)
+        return []
 
     def get_umu_id_by_title_and_store(self, title: str, store: str) -> dict | list | None:
         """

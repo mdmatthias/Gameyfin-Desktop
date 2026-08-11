@@ -204,16 +204,20 @@ class TestUmuApiMethods:
         fresh_umu_database.list_all_by_store("steam")
         assert params_received.get("store") == "steam"
 
-    def test_get_game_by_codename(self, fresh_umu_database, monkeypatch):
-        params_received = {}
+    def test_get_game_by_codename_cache_only(self, fresh_umu_database, monkeypatch):
+        """get_game_by_codename should only use local cache — no API calls."""
+        # Track that no HTTP request is made
+        request_made = []
 
         def capture_get(url, params=None, **kw):
-            params_received.update(params or {})
+            request_made.append(True)
             return _mock_response([])
 
         monkeypatch.setattr(requests, "get", capture_get)
-        fresh_umu_database.get_game_by_codename("UMU-123")
-        assert params_received.get("codename") == "umu-123"
+        # Codename not in cache — should return [] without calling API
+        result = fresh_umu_database.get_game_by_codename("UMU-123")
+        assert result == []
+        assert len(request_made) == 0, "get_game_by_codename must not call the API"
 
     def test_request_failure_returns_empty(self, fresh_umu_database, monkeypatch):
         monkeypatch.setattr(requests, "get", lambda *a, **kw: (_ for _ in ()).throw(requests.exceptions.ConnectionError()))

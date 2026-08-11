@@ -162,22 +162,29 @@ class PrefixItemWidget(QWidget):
         if not self.settings:
             return
 
+        prefix_service = PrefixService(self.settings)
+        game_name = self.prefix_name.removesuffix("_pfx")
+        initial_config, _ = prefix_service.load_config_from_scripts_dir(game_name)
+
         dialog = InstallConfigDialog(
             umu_database=self.umu_database,
             parent=self,
             wine_prefix_path=self.prefix_path,
+            initial_config=initial_config,
         )
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
             new_config = dialog.get_config()
-            prefix_service = PrefixService(self.settings)
+            game_name = self.prefix_name.removesuffix("_pfx")
             try:
-                prefix_service.save_config(self.prefix_name, new_config)
+                prefix_service.save_config(game_name, new_config)
             except OSError as e:
                 QMessageBox.warning(self, "Save Error", f"Failed to save config: {e}")
                 return
 
-            count = prefix_service.update_scripts(self.prefix_path, new_config, self.prefix_name)
+            count = prefix_service.update_scripts(
+                self.prefix_path, new_config, game_name,
+            )
             if count > 0:
                 QMessageBox.information(self, "Scripts Updated", f"Updated {count} shortcut script(s) with new configuration.")
             else:
