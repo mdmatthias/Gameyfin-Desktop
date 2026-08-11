@@ -167,15 +167,16 @@ The application saves all data (settings, download history, cookies, local stora
 The download progress bar is based on the total size reported by the Gameyfin server. Since the server does not always send a `Content-Length` header, the size shown is estimated from the download button label in the UI. See [this issue](https://github.com/gameyfin/gameyfin/issues/707#issuecomment-2038166299) for more details.
 
 ### AI notice
-Build with the help from Gemini,Claude,Gemma4. If you see something that could be better or looks weird, please let me know!
+Build with the help from AI. If you see something that could be better or looks weird, please let me know!
 
 ### 🖼️ Screenshots
-
-<img src="screenshots/authentik.png" alt="SSO" width="800">
-<img src="screenshots/gameyfin.png" alt="Gameyfin" width="800">
-<img src="screenshots/downloads.png" alt="Download manager" width="800">
-<img src="screenshots/install_linux.png" alt="Linux Pre Install" width="800">
-<img src="screenshots/install.png" alt="Install" width="800">
-<img src="screenshots/settings.png" alt="Settings" width="800">
-<img src="screenshots/shortcuts.png" alt="Settings" width="400">
+<img src="screenshots/authentik.png" alt="Gamepad navigation" width="800">
+<img src="screenshots/gamepad1.png" alt="Gamepad navigation" width="800">
+<img src="screenshots/gamepad2.png" alt="Gamepad navigation" width="800">
+<img src="screenshots/gamepad3.png" alt="Gamepad navigation" width="800">
+<img src="screenshots/gamepad4.png" alt="Gamepad navigation" width="800">
+<img src="screenshots/gamepad5.png" alt="Gamepad navigation" width="800">
+<img src="screenshots/gamepad6.png" alt="Gamepad navigation" width="800">
+<img src="screenshots/gamepad7.png" alt="Gamepad navigation" width="800">
+<img src="screenshots/gamepad8.png" alt="Gamepad navigation" width="800">
 
