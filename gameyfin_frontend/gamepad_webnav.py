@@ -28,24 +28,71 @@ NAV_SCRIPT = """
         '[tabindex]:not([tabindex="-1"])',
         '[role="button"]', '[role="link"]', '[role="menuitem"]',
         '[role="option"]', '[role="tab"]', '[role="checkbox"]',
-        '[contenteditable="true"]'
+        '[contenteditable="true"]',
+        /* The screenshot gallery on a game's detail page is a Swiper.js
+           carousel whose slides are plain, non-interactive-by-markup <div>s
+           with a click handler bound in JS (opening a zoom lightbox) —
+           no href/role/tabindex, so without this they're entirely
+           unreachable and never a candidate to move focus onto or
+           highlight, regardless of any highlight-rendering fix. */
+        '.swiper-slide'
     ].join(',');
 
-    var STYLE_ID = 'gameyfin-gamepad-focus-style';
-    var CLASS_NAME = 'gameyfin-gamepad-focus';
+    var RING_ID = 'gameyfin-gamepad-ring';
 
-    function ensureStyle() {
-        if (document.getElementById(STYLE_ID)) { return; }
-        var style = document.createElement('style');
-        style.id = STYLE_ID;
-        style.textContent = '.' + CLASS_NAME + ' {' +
-            'outline: 3px solid #00bcd4 !important;' +
-            'outline-offset: 2px !important;' +
+    /* The ring used to be a CSS class toggled on the focused element itself
+       (with a `::after` overlay to dodge ancestor `overflow: hidden` clipping
+       — see the git history for that whole saga). That broke against the
+       screenshot gallery's Swiper.js carousel: Swiper periodically rewrites
+       a slide's whole `className` from scratch to manage its own state
+       classes, silently wiping ours within tens of milliseconds of it being
+       set — confirmed by sampling the class shortly after applying it.
+       Tracking position from a single independent overlay, appended
+       directly to <body> and never touching the target element at all,
+       sidesteps that (and, as a bonus, ancestor clipping entirely — a
+       position:fixed element appended to <body> escapes any ancestor's
+       `overflow`, whereas the old ::after approach only worked because a
+       card's clip box happened to hug its bounds exactly). */
+    function ensureRing() {
+        var ring = document.getElementById(RING_ID);
+        if (ring) { return ring; }
+        ring = document.createElement('div');
+        ring.id = RING_ID;
+        ring.style.cssText =
+            'position: fixed;' +
+            'pointer-events: none;' +
+            'z-index: 2147483647;' +
+            'box-sizing: border-box;' +
+            'border: 3px solid #00bcd4;' +
             'border-radius: 4px;' +
-            'scroll-margin: 96px;' +
-            '}';
-        (document.head || document.documentElement).appendChild(style);
+            'display: none;';
+        (document.body || document.documentElement).appendChild(ring);
+        return ring;
     }
+
+    var ringTarget = null;
+
+    /* Re-measures ringTarget and repositions the ring to match. Called right
+       after selecting something, and on an interval, since the target can
+       move on its own afterwards — a smooth scrollIntoView still animating,
+       a carousel transitioning, a window resize — with no signal of its own
+       for us to react to. */
+    function syncRing() {
+        var ring = document.getElementById(RING_ID);
+        if (!ring) { return; }
+        if (!ringTarget || !document.contains(ringTarget) || !isVisible(ringTarget)) {
+            ring.style.display = 'none';
+            return;
+        }
+        var r = ringTarget.getBoundingClientRect();
+        ring.style.display = 'block';
+        ring.style.top = r.top + 'px';
+        ring.style.left = r.left + 'px';
+        ring.style.width = r.width + 'px';
+        ring.style.height = r.height + 'px';
+    }
+
+    setInterval(syncRing, 100);
 
     function isVisible(el) {
         if (el.disabled) { return false; }
@@ -57,11 +104,26 @@ NAV_SCRIPT = """
         return true;
     }
 
+    /* Elements matched only via a custom selector like `.swiper-slide` are
+       plain <div>s with no tabindex — calling .focus() on those is simply
+       ignored by the browser, so document.activeElement would never
+       actually become the element move() just selected. tabindex="-1"
+       makes .focus() work while staying out of the page's own Tab order. */
+    var NATIVE_FOCUSABLE = /^(A|BUTTON|SELECT|TEXTAREA|INPUT)$/;
+
+    function ensureFocusable(el) {
+        if (NATIVE_FOCUSABLE.test(el.tagName)) { return; }
+        if (!el.hasAttribute('tabindex')) { el.setAttribute('tabindex', '-1'); }
+    }
+
     function candidates() {
         var found = [];
         var nodes = document.querySelectorAll(SELECTOR);
         for (var i = 0; i < nodes.length; i++) {
-            if (isVisible(nodes[i])) { found.push(nodes[i]); }
+            if (isVisible(nodes[i])) {
+                ensureFocusable(nodes[i]);
+                found.push(nodes[i]);
+            }
         }
         return found;
     }
@@ -77,7 +139,18 @@ NAV_SCRIPT = """
     }
 
     /* Distance along the travel axis plus a heavy penalty for drifting
-       sideways, which keeps navigation inside the current column/row. */
+       sideways, which keeps navigation inside the current column/row.
+
+       Both branches additionally *require* some overlap on the cross axis
+       with the source element (gap === 0). Without that, once a shelf or
+       grid runs out of rendered cards (see the virtualisation note below)
+       the "closest by score" fallback happily jumps to whatever unrelated
+       element — a header button, a card in a different shelf, the page
+       footer far below a large virtualised library grid — happens to sit
+       nearest on screen, and the user is stuck there since nothing in that
+       new context continues in the same direction either. Requiring
+       cross-axis overlap forces that case to fall through to
+       scrollAndRetry instead of escaping the shelf/grid. */
     function score(fromRect, toRect, direction) {
         var a = centre(fromRect);
         var b = centre(toRect);
@@ -87,26 +160,138 @@ NAV_SCRIPT = """
             along = direction === 'down' ? toRect.top - fromRect.bottom : fromRect.top - toRect.bottom;
             if (along < -Math.min(fromRect.height, toRect.height) / 2) { return null; }
             gap = Math.max(0, Math.max(fromRect.left - toRect.right, toRect.left - fromRect.right));
+            if (gap > 0) { return null; }
             across = Math.abs(a.x - b.x) + gap;
         } else {
             along = direction === 'right' ? toRect.left - fromRect.right : fromRect.left - toRect.right;
             if (along < -Math.min(fromRect.width, toRect.width) / 2) { return null; }
             gap = Math.max(0, Math.max(fromRect.top - toRect.bottom, toRect.top - fromRect.bottom));
+            if (gap > 0) { return null; }
             across = Math.abs(a.y - b.y) + gap;
         }
         return Math.max(0, along) + across * 2.5;
     }
 
-    function highlight(el) {
-        var previous = document.querySelectorAll('.' + CLASS_NAME);
-        for (var i = 0; i < previous.length; i++) {
-            previous[i].classList.remove(CLASS_NAME);
+    /* Gameyfin's homepage rows (e.g. the "GOG" shelf) are virtualised with
+       react-window: only the cards near the current horizontal scroll
+       position exist in the DOM. Moving past the last *rendered* card in a
+       row therefore finds no candidate even though more cards are one
+       scroll away. Walk up from the current element to find the scrollable
+       row container, nudge its scroll position, and retry once react-window
+       has had a chance to mount the newly-visible cells.
+
+       Large vertical grids (e.g. a library with hundreds of games) don't
+       necessarily scroll through an inner `overflow: auto` wrapper at all —
+       the grid's own wrapper is sized to its full content height (its
+       scrollHeight equals its clientHeight) and the *page* scrolls instead,
+       relying on the window/document to reveal more rows as react-window
+       watches scroll position. The ancestor walk below stops at
+       document.body without ever considering the document, so fall back to
+       the page's own scrolling element when nothing inner qualifies. */
+    function scrollableAncestor(el, direction) {
+        var horizontal = (direction === 'left' || direction === 'right');
+        var node = el ? el.parentElement : null;
+        while (node && node !== document.body) {
+            var style = window.getComputedStyle(node);
+            if (horizontal) {
+                if (node.scrollWidth > node.clientWidth + 4 &&
+                    (style.overflowX === 'auto' || style.overflowX === 'scroll')) {
+                    return node;
+                }
+            } else if (node.scrollHeight > node.clientHeight + 4 &&
+                       (style.overflowY === 'auto' || style.overflowY === 'scroll')) {
+                return node;
+            }
+            node = node.parentElement;
         }
-        if (el) {
-            ensureStyle();
-            el.classList.add(CLASS_NAME);
+        if (!horizontal) {
+            var root = document.scrollingElement || document.documentElement;
+            if (root.scrollHeight > root.clientHeight + 4) { return root; }
         }
+        return null;
     }
+
+    /* True when *el* sits inside a position:fixed/sticky ancestor (a header,
+       nav bar, etc). Those elements keep the same on-screen coordinates no
+       matter how far the page scrolls, which makes them a magnet for the
+       lost-focus recovery path below: after several scroll-and-retry rounds
+       its reference point is a large extrapolation rather than a real
+       element's position, and something that never moves increasingly looks
+       like "the closest thing" as that extrapolation drifts. Ordinary
+       navigation (a real focused element to move from) never hits this and
+       can still reach header controls same as before. */
+    function isFixedChrome(el) {
+        var node = el;
+        while (node && node !== document.body) {
+            var position = window.getComputedStyle(node).position;
+            if (position === 'fixed' || position === 'sticky') { return true; }
+            node = node.parentElement;
+        }
+        return false;
+    }
+
+    function bestCandidate(fromRect, direction, exclude, avoidChrome) {
+        var list = candidates();
+        var best = null;
+        var bestScore = Infinity;
+        for (var i = 0; i < list.length; i++) {
+            if (list[i] === exclude) { continue; }
+            if (avoidChrome && isFixedChrome(list[i])) { continue; }
+            var value = score(fromRect, list[i].getBoundingClientRect(), direction);
+            if (value !== null && value < bestScore) {
+                bestScore = value;
+                best = list[i];
+            }
+        }
+        return best;
+    }
+
+    /* Guards against overlapping retry chains: a D-pad held at the gamepad's
+       default repeat rate (140ms) fires faster than one full scroll+re-render
+       round trip can settle, so without this a run of presses stacks up
+       several scrollBy() calls on top of each other and overshoots well past
+       the card that was actually being reached for. */
+    var scrollLocks = new WeakSet();
+
+    function scrollAndRetry(from, direction, attemptsLeft) {
+        if (attemptsLeft <= 0) { return; }
+        var container = scrollableAncestor(from, direction);
+        if (!container || scrollLocks.has(container)) { return; }
+        scrollLocks.add(container);
+
+        var horizontal = (direction === 'left' || direction === 'right');
+        var before = horizontal ? container.scrollLeft : container.scrollTop;
+        var delta = (horizontal ? container.clientWidth : container.clientHeight) * 0.6;
+        if (direction === 'left' || direction === 'up') { delta = -delta; }
+        container.scrollBy(horizontal ? {left: delta} : {top: delta});
+
+        setTimeout(function () {
+            scrollLocks.delete(container);
+            var after = horizontal ? container.scrollLeft : container.scrollTop;
+            if (Math.abs(after - before) < 1) { return; } // already at the scroll limit
+
+            var best = bestCandidate(from.getBoundingClientRect(), direction, from);
+            if (best) { select(best); return; }
+            scrollAndRetry(from, direction, attemptsLeft - 1);
+        }, 90);
+    }
+
+    function highlight(el) {
+        ringTarget = el;
+        if (el) { ensureRing(); }
+        syncRing();
+    }
+
+    /* Remembers where the focused element was on screen, in case react-window
+       recycles its DOM node once it scrolls far enough out of the render
+       window — several held presses down a long library grid is enough to
+       get there. When that happens document.activeElement silently resets
+       and move() has no element left to measure from or walk up from for a
+       scrollable ancestor; lastRect lets it keep heading in the same
+       direction from the same place instead of falling back to "first
+       visible thing", which on this site is liable to be a sticky header
+       control rather than anything in the grid the user was browsing. */
+    var lastRect = null;
 
     function select(el) {
         highlight(el);
@@ -114,6 +299,46 @@ NAV_SCRIPT = """
         if (el.scrollIntoView) {
             el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
         }
+        lastRect = el.getBoundingClientRect();
+    }
+
+    function shiftRect(rect, dx, dy) {
+        return {
+            top: rect.top - dy, bottom: rect.bottom - dy,
+            left: rect.left - dx, right: rect.right - dx,
+            width: rect.width, height: rect.height
+        };
+    }
+
+    /* Used only once the previously focused element has been recycled away:
+       there's no element left to find a scrollable ancestor from, but on
+       this site that case only arises for the page-level vertical scroll
+       (see the scrollableAncestor note above), so scroll the document
+       directly and retry against lastRect, translated by however far the
+       scroll actually moved. */
+    function scrollDocumentAndRetry(fromRect, direction, attemptsLeft) {
+        if (attemptsLeft <= 0) { return; }
+        var root = document.scrollingElement || document.documentElement;
+        if (scrollLocks.has(root)) { return; }
+        scrollLocks.add(root);
+
+        var horizontal = (direction === 'left' || direction === 'right');
+        var before = horizontal ? root.scrollLeft : root.scrollTop;
+        var delta = (horizontal ? root.clientWidth : root.clientHeight) * 0.6;
+        if (direction === 'left' || direction === 'up') { delta = -delta; }
+        root.scrollBy(horizontal ? {left: delta} : {top: delta});
+
+        setTimeout(function () {
+            scrollLocks.delete(root);
+            var after = horizontal ? root.scrollLeft : root.scrollTop;
+            var scrolled = after - before;
+            if (Math.abs(scrolled) < 1) { return; }
+
+            var adjusted = horizontal ? shiftRect(fromRect, scrolled, 0) : shiftRect(fromRect, 0, scrolled);
+            var best = bestCandidate(adjusted, direction, null, true);
+            if (best) { select(best); return; }
+            scrollDocumentAndRetry(adjusted, direction, attemptsLeft - 1);
+        }, 90);
     }
 
     function first() {
@@ -134,22 +359,28 @@ NAV_SCRIPT = """
     window.%(obj)s = {
         move: function (direction) {
             var from = current();
-            if (!from) { return first(); }
-
-            var fromRect = from.getBoundingClientRect();
-            var list = candidates();
-            var best = null;
-            var bestScore = Infinity;
-
-            for (var i = 0; i < list.length; i++) {
-                if (list[i] === from) { continue; }
-                var value = score(fromRect, list[i].getBoundingClientRect(), direction);
-                if (value !== null && value < bestScore) {
-                    bestScore = value;
-                    best = list[i];
+            if (!from) {
+                // The focused element may simply be gone — recycled by
+                // virtualisation after scrolling several screens past it —
+                // rather than navigation never having started. Keep heading
+                // the same direction from where it was instead of jumping to
+                // "first visible thing", which can land on page chrome.
+                if (lastRect) {
+                    var lastBest = bestCandidate(lastRect, direction, null, true);
+                    if (lastBest) { select(lastBest); return true; }
+                    scrollDocumentAndRetry(lastRect, direction, 5);
+                    return false;
                 }
+                return first();
             }
+
+            var best = bestCandidate(from.getBoundingClientRect(), direction, from);
             if (best) { select(best); return true; }
+
+            // Nothing rendered yet in that direction — likely a virtualised
+            // row whose next card hasn't been mounted. Scroll its container
+            // and retry asynchronously.
+            scrollAndRetry(from, direction, 5);
             return false;
         },
 
@@ -163,23 +394,16 @@ NAV_SCRIPT = """
             /* A real click focuses text inputs the same way a mouse click
                would, which is what the platform's own on-screen keyboard
                (e.g. Steam Deck's gamescope overlay) keys off of. */
-            el.click();
-            return true;
-        },
-
-        scrollBy: function (dx, dy) {
-            window.scrollBy(dx, dy);
-            /* Gameyfin renders its grid inside a scrolling container, so also
-               nudge the nearest scrollable ancestor of the focused element. */
-            var el = current();
-            while (el && el !== document.body) {
-                if (el.scrollHeight > el.clientHeight + 4) { el.scrollTop += dy; break; }
-                el = el.parentElement;
+            var target = el;
+            if (el.classList.contains('swiper-slide')) {
+                // The gallery's zoom-lightbox handler is bound to the slide's
+                // <img> specifically, not the slide wrapper — .click() on a
+                // parent dispatches an event *at* the parent, which never
+                // reaches a listener bound only to the child.
+                target = el.querySelector('img') || el;
             }
-        },
-
-        scrollPage: function (factor) {
-            window.scrollBy(0, window.innerHeight * factor * 0.85);
+            target.click();
+            return true;
         }
     };
 })();
@@ -226,12 +450,6 @@ class WebNavigator:
 
     def clear(self) -> None:
         self._run(f"window.{NAV_OBJECT}.clear()")
-
-    def scroll_by(self, dx: float, dy: float) -> None:
-        self._run(f"window.{NAV_OBJECT}.scrollBy({dx:.1f}, {dy:.1f})")
-
-    def scroll_page(self, factor: float) -> None:
-        self._run(f"window.{NAV_OBJECT}.scrollPage({factor:.2f})")
 
     def activate(self) -> None:
         """Click the focused page element."""

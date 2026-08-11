@@ -677,15 +677,6 @@ class TestHelpAndMouseMode:
 
         assert focused(window) is window.top_left
 
-    def test_back_button_toggles_mouse_mode(self, grid, manager):
-        navigator, _ = grid
-
-        manager.button_pressed.emit("back")
-        assert navigator.mouse_mode is True
-
-        manager.button_pressed.emit("back")
-        assert navigator.mouse_mode is False
-
 
 class TestTextWidgets:
     def test_a_multiline_edit_is_focusable(self, qtbot, manager):

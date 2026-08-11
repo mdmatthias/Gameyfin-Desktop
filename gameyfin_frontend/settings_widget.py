@@ -171,13 +171,6 @@ class SettingsWidget(QWidget):
         self.gamepad_scroll_spin.setValue(self._int_setting("GF_GAMEPAD_SCROLL_SPEED", 60))
         self.form_layout.addRow("Scroll Speed:", self.gamepad_scroll_spin)
 
-        self.gamepad_mouse_spin = QSpinBox()
-        self.gamepad_mouse_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.gamepad_mouse_spin.setRange(2, 100)
-        self.gamepad_mouse_spin.setSuffix(" px")
-        self.gamepad_mouse_spin.setValue(self._int_setting("GF_GAMEPAD_MOUSE_SPEED", 22))
-        self.form_layout.addRow("Mouse Mode Speed:", self.gamepad_mouse_spin)
-
         self.layout.addLayout(self.form_layout)
 
         self.save_button = QPushButton("Save and Apply")
@@ -196,7 +189,6 @@ class SettingsWidget(QWidget):
             self.gamepad_deadzone_slider,
             self.gamepad_repeat_spin,
             self.gamepad_scroll_spin,
-            self.gamepad_mouse_spin,
             self.save_button,
         ]
         for first, second in zip(chain, chain[1:]):

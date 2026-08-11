@@ -31,7 +31,6 @@ BINDINGS: tuple[tuple[str, str], ...] = (
     ("LB / RB", "Previous / next tab"),
     ("LT / RT", "Page up / page down"),
     ("Right stick", "Scroll"),
-    ("Back", "Toggle mouse mode"),
     ("Start", "Show this help"),
 )
 

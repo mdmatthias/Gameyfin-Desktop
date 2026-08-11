@@ -167,6 +167,11 @@ class GameyfinWindow(QMainWindow):
         self.tab_widget = QTabWidget()
         self.tab_widget.setTabsClosable(True)
         self.tab_widget.tabCloseRequested.connect(self.close_tab)
+        # The active tab is already shown by its own selected styling; a
+        # gamepad-driven focus ring drawn around the whole tab bar on top of
+        # that is redundant, and LB/RB already switch tabs directly, so the
+        # tab bar itself never needs to be a focus target.
+        self.tab_widget.tabBar().setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         # Add the Gameyfin tab with an empty string for the label
         gameyfin_tab_index = self.tab_widget.addTab(self.browser, "")

@@ -13,7 +13,6 @@ Special cases handled on top of the generic behaviour:
   navigation goes straight to the row buttons and the list selection follows
 * text fields, sliders, spin boxes, combo boxes and tab bars, which want
   left/right for themselves
-* a virtual mouse mode as a catch-all for anything unreachable by focus
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ import logging
 from typing import Any
 
 from PyQt6.QtCore import QEvent, QObject, QPoint, QPointF, QRect, QRectF, Qt, QTimer
-from PyQt6.QtGui import (QColor, QCursor, QKeyEvent, QMouseEvent, QPainter, QPainterPath,
+from PyQt6.QtGui import (QColor, QKeyEvent, QPainter, QPainterPath,
                          QRegion, QWheelEvent)
 from PyQt6.QtWidgets import (
     QAbstractItemView, QAbstractScrollArea, QAbstractSlider, QApplication,
@@ -32,11 +31,11 @@ from PyQt6.QtWidgets import (
 )
 
 from .gamepad import (
-    BTN_A, BTN_B, BTN_BACK, BTN_LB, BTN_LT, BTN_RB, BTN_RT, BTN_START,
+    BTN_A, BTN_B, BTN_LB, BTN_LT, BTN_RB, BTN_RT, BTN_START,
     BTN_Y, GamepadState,
 )
 from .gamepad_webnav import WebNavigator
-from .widgets.gamepad_hud import GamepadHelpOverlay, GamepadHintBar
+from .widgets.gamepad_hud import BINDINGS, GamepadHelpOverlay, GamepadHintBar
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +43,6 @@ logger = logging.getLogger(__name__)
 _ACROSS_PENALTY = 2.5
 
 DEFAULT_SCROLL_SPEED = 60
-DEFAULT_MOUSE_SPEED = 22
 
 _TEXT_WIDGETS = (QLineEdit, QPlainTextEdit, QTextEdit)
 _CLICKABLE = (QPushButton, QToolButton, QCheckBox, QRadioButton)
@@ -159,14 +157,10 @@ class GamepadNavigator(QObject):
         self.enabled = True
         # Ignore input while another application (usually a running game) is focused.
         self.ignore_when_inactive = True
-        self.mouse_mode = False
 
         self._scroll_speed = DEFAULT_SCROLL_SPEED
-        self._mouse_speed = DEFAULT_MOUSE_SPEED
         self._scroll_remainder_x = 0.0
         self._scroll_remainder_y = 0.0
-        self._mouse_remainder_x = 0.0
-        self._mouse_remainder_y = 0.0
 
         # One ring per top-level window: it is a child widget, so it must live
         # in the window it highlights and die together with it.
@@ -203,18 +197,16 @@ class GamepadNavigator(QObject):
             tab_widget.currentChanged.connect(self._on_tab_changed)
 
         self.reload_settings()
-        self._update_hints()
 
     # ------------------------------------------------------------------
     # Configuration
     # ------------------------------------------------------------------
 
     def reload_settings(self) -> None:
-        """Re-read scroll/mouse speeds from the settings manager."""
+        """Re-read scroll speeds from the settings manager."""
         if not self.settings:
             return
         self._scroll_speed = self._int_setting("GF_GAMEPAD_SCROLL_SPEED", DEFAULT_SCROLL_SPEED, 5, 400)
-        self._mouse_speed = self._int_setting("GF_GAMEPAD_MOUSE_SPEED", DEFAULT_MOUSE_SPEED, 2, 100)
 
     def _int_setting(self, key: str, default: int, minimum: int, maximum: int) -> int:
         try:
@@ -227,11 +219,11 @@ class GamepadNavigator(QObject):
         """Enable or disable gamepad-driven interaction (input is simply ignored)."""
         self.enabled = enabled
         if not enabled:
-            self.mouse_mode = False
             self._hide_rings()
             self._ring_timer.stop()
             self.help_overlay.hide()
-        self._update_hints()
+            if self.hint_bar is not None:
+                self.hint_bar.hide()
 
     # ------------------------------------------------------------------
     # Device state
@@ -243,9 +235,13 @@ class GamepadNavigator(QObject):
         self._ring_timer.start()
         self._refresh_ring()
         self._update_hints(device=name)
+        # _on_tab_changed only fires on an actual tab switch, so without this
+        # the very first tab the app opens on (the web view) never gets an
+        # initial focus target — the user has to switch away and back before
+        # gamepad input does anything there.
+        QTimer.singleShot(0, self.focus_first_in_current_tab)
 
     def _on_device_disconnected(self) -> None:
-        self.mouse_mode = False
         self._ring_timer.stop()
         self._hide_rings()
         self.help_overlay.hide()
@@ -595,7 +591,7 @@ class GamepadNavigator(QObject):
         self._ring_sync.start()
 
     def _apply_ring(self) -> None:
-        if not self.enabled or self.mouse_mode or not self.manager.is_connected():
+        if not self.enabled or not self.manager.is_connected():
             self._hide_rings()
             return
 
@@ -618,13 +614,11 @@ class GamepadNavigator(QObject):
         if new is not None:
             self.sync_list_selection(new)
         self._refresh_ring()
-        self._update_hints()
 
     def _on_tab_changed(self, _index: int) -> None:
         if not self.manager.is_connected():
             return
         QTimer.singleShot(0, self.focus_first_in_current_tab)
-        self._update_hints()
 
     def focus_first_in_current_tab(self) -> None:
         """Put focus on something sensible after switching tabs."""
@@ -783,7 +777,6 @@ class GamepadNavigator(QObject):
             BTN_RB: lambda: self._switch_tab(1),
             BTN_LT: lambda: self._page_scroll(-1),
             BTN_RT: lambda: self._page_scroll(1),
-            BTN_BACK: self._toggle_mouse_mode,
             BTN_START: self._toggle_help,
         }.get(button)
 
@@ -793,10 +786,6 @@ class GamepadNavigator(QObject):
     # -- A -----------------------------------------------------------------
 
     def _activate(self) -> None:
-        if self.mouse_mode:
-            self._click_at_cursor()
-            return
-
         widget = self._focus_widget()
 
         # A combo box popup must be confirmed through the combo box's own
@@ -967,7 +956,7 @@ class GamepadNavigator(QObject):
     def _page_scroll(self, direction: int) -> None:
         web_view = self._current_web_view()
         if web_view is not None:
-            WebNavigator(web_view).scroll_page(direction)
+            self._send_wheel_scroll(web_view, 0, web_view.height() * 0.85 * direction)
             return
 
         area = self._scroll_area()
@@ -1000,7 +989,7 @@ class GamepadNavigator(QObject):
     def _scroll_pixels(self, dx: float, dy: float) -> None:
         web_view = self._current_web_view()
         if web_view is not None:
-            WebNavigator(web_view).scroll_by(dx, dy)
+            self._send_wheel_scroll(web_view, dx, dy)
             return
 
         area = self._scroll_area()
@@ -1013,12 +1002,39 @@ class GamepadNavigator(QObject):
             bar = area.horizontalScrollBar()
             bar.setValue(bar.value() + int(dx))
 
+    @staticmethod
+    def _send_wheel_scroll(web_view: Any, dx: float, dy: float) -> None:
+        """Scroll the embedded page with a real wheel event.
+
+        ``window.scrollBy()`` injected through ``page.runJavaScript()`` takes
+        an entirely different path through the page's script engine than
+        actual input does and — unlike a real mouse wheel, confirmed working
+        — doesn't reliably move Chromium's compositor viewport here.
+        Synthesising the same ``QWheelEvent`` a physical wheel produces uses
+        the code path already known to work. Empirically (tested against a
+        bare QWebEngineView), Chromium's handling here is driven by
+        ``angleDelta`` alone — a ``pixelDelta``-only event with a null
+        ``angleDelta`` is ignored outright — and the relationship is linear:
+        2 angle units per pixel, opposite sign (a positive ``dy``, "scroll
+        down", is a negative angle, matching a real wheel rotated toward the
+        user).
+        """
+        target = web_view.focusProxy() or web_view
+        pos = QPointF(target.rect().center())
+        global_pos = QPointF(target.mapToGlobal(target.rect().center()))
+        angle_delta = QPoint(int(dx * -2), int(dy * -2))
+        if angle_delta.isNull():
+            return
+        event = QWheelEvent(
+            pos, global_pos, angle_delta, angle_delta,
+            Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.NoScrollPhase, False,
+        )
+        QApplication.sendEvent(target, event)
+
     def _on_polled(self, state: GamepadState) -> None:
         if not self._active():
             return
-
-        if self.mouse_mode:
-            self._move_cursor(state)
 
         deadzone = self.manager.deadzone
         x = state.right_x if abs(state.right_x) > deadzone else 0.0
@@ -1037,66 +1053,7 @@ class GamepadNavigator(QObject):
         self._scroll_remainder_x -= step_x
         self._scroll_remainder_y -= step_y
 
-        if self.mouse_mode:
-            self._wheel_at_cursor(step_y)
-        else:
-            self._scroll_pixels(step_x, step_y)
-
-    # ------------------------------------------------------------------
-    # Virtual mouse
-    # ------------------------------------------------------------------
-
-    def _toggle_mouse_mode(self) -> None:
-        self.mouse_mode = not self.mouse_mode
-        self._mouse_remainder_x = self._mouse_remainder_y = 0.0
-        self._refresh_ring()
-        self._update_hints()
-
-    def _move_cursor(self, state: GamepadState) -> None:
-        deadzone = self.manager.deadzone
-        x = state.left_x if abs(state.left_x) > deadzone else 0.0
-        y = state.left_y if abs(state.left_y) > deadzone else 0.0
-        if not x and not y:
-            return
-
-        self._mouse_remainder_x += x * self._mouse_speed
-        self._mouse_remainder_y += y * self._mouse_speed
-        step_x = int(self._mouse_remainder_x)
-        step_y = int(self._mouse_remainder_y)
-        if not step_x and not step_y:
-            return
-        self._mouse_remainder_x -= step_x
-        self._mouse_remainder_y -= step_y
-
-        position = QCursor.pos()
-        QCursor.setPos(position.x() + step_x, position.y() + step_y)
-
-    def _click_at_cursor(self) -> None:
-        global_pos = QCursor.pos()
-        target = QApplication.widgetAt(global_pos)
-        if target is None:
-            return
-        local = QPointF(target.mapFromGlobal(global_pos))
-        for event_type in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease):
-            event = QMouseEvent(
-                event_type, local, QPointF(global_pos),
-                Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
-                Qt.KeyboardModifier.NoModifier,
-            )
-            QApplication.sendEvent(target, event)
-
-    def _wheel_at_cursor(self, delta_y: int) -> None:
-        global_pos = QCursor.pos()
-        target = QApplication.widgetAt(global_pos)
-        if target is None:
-            return
-        event = QWheelEvent(
-            QPointF(target.mapFromGlobal(global_pos)), QPointF(global_pos),
-            QPoint(0, -delta_y), QPoint(0, -delta_y),
-            Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
-            Qt.ScrollPhase.NoScrollPhase, False,
-        )
-        QApplication.sendEvent(target, event)
+        self._scroll_pixels(step_x, step_y)
 
     # ------------------------------------------------------------------
     # Help / hints
@@ -1113,16 +1070,6 @@ class GamepadNavigator(QObject):
             return
 
         name = device if device is not None else self.manager.device_name
-        status = name or "No controller"
-        if self.mouse_mode:
-            status = f"{status} — mouse mode"
-        self.hint_bar.set_status(status)
+        self.hint_bar.set_status(name or "No controller")
 
-        window = self._active_window()
-        if window is not self.window:
-            hints = [("A", "Select"), ("B", "Cancel"), ("X", "Keyboard"), ("Start", "Help")]
-        elif self._current_web_view() is not None:
-            hints = [("A", "Open"), ("B", "Back"), ("Y", "Reload"), ("LB/RB", "Tabs"), ("Start", "Help")]
-        else:
-            hints = [("A", "Select"), ("B", "Back"), ("X", "Keyboard"), ("LB/RB", "Tabs"), ("Start", "Help")]
-        self.hint_bar.set_hints(hints)
+        self.hint_bar.set_hints(BINDINGS)
