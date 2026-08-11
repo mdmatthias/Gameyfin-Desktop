@@ -22,6 +22,8 @@ try:
 except ImportError:
     _vdf_lib = None  # type: ignore[assignment]
 
+from gameyfin_frontend.utils import build_flatpak_exec_command
+
 logger = logging.getLogger(__name__)
 
 # Standard Steam base directories (relative to $HOME).
@@ -133,13 +135,9 @@ class SteamIntegrationService:
 
         if target_key is not None:
             # Update existing entry in place; skip writing if nothing changed.
-            safe_exe = exe.replace("'", "'\\''")
             app_id = "org.gameyfin.Gameyfin-Desktop"
-            inner_cmd = f"exec '{safe_exe}'"
-            escaped_inner = inner_cmd.replace("'", "'\\''")
-            flatpak_exec = (
-                f"run --command=sh {app_id} -c '{escaped_inner}'"
-            )
+            full_cmd = build_flatpak_exec_command(exe)
+            flatpak_exec = full_cmd[len("flatpak "):]  # Strip "flatpak " prefix for Steam LaunchOptions
 
             new_entry: dict[str, Any] = {
                 "appid": target_appid,
@@ -181,13 +179,9 @@ class SteamIntegrationService:
 
             key = str(candidate)
 
-            safe_exe = exe.replace("'", "'\\''")
             app_id = "org.gameyfin.Gameyfin-Desktop"
-            inner_cmd = f"exec '{safe_exe}'"
-            escaped_inner = inner_cmd.replace("'", "'\\''")
-            flatpak_exec = (
-                f"run --command=sh {app_id} -c '{escaped_inner}'"
-            )
+            full_cmd = build_flatpak_exec_command(exe)
+            flatpak_exec = full_cmd[len("flatpak "):]  # Strip "flatpak " prefix for Steam LaunchOptions
 
             shortcut_entry: dict[str, Any] = {
                 "appid": candidate,

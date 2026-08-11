@@ -123,6 +123,9 @@ class DownloadManagerWidget(QWidget):
         controller.installation_finished.connect(self.on_installation_finished)
         controller.remove_requested.connect(self.remove_download_item)
 
+        # When the worker renames the extracted folder, update the record path
+        worker._path_updated.connect(lambda new_path: record.__setitem__("path", new_path))
+
         existing_record = self.download_history.find_by_url(self.download_records, record["url"]) if self.download_history else None
         if existing_record:
             existing_controller = self.find_controller_by_record(existing_record)

@@ -19,6 +19,7 @@ from gameyfin_frontend.widgets.loading_overlay import LoadingOverlay
 from gameyfin_frontend.widgets.gamepad_hud import GamepadHintBar
 from gameyfin_frontend.workers import StreamDownloadWorker
 from gameyfin_frontend.umu_database import UmuDatabase
+from gameyfin_frontend.utils import sanitize_name
 
 from .gamepad import GamepadManager
 from .gamepad_navigator import GamepadNavigator
@@ -495,7 +496,7 @@ class GameyfinWindow(QMainWindow):
         """
         url = download.url().toString()
         filename = os.path.basename(download.downloadFileName())
-        zip_basename = os.path.splitext(filename)[0]
+        zip_basename = sanitize_name(os.path.splitext(filename)[0])
 
         default_download_dir = self.settings.get("GF_DEFAULT_DOWNLOAD_DIR")
         prompt_download = self.settings.get("GF_PROMPT_DOWNLOAD_DIR")
@@ -524,29 +525,39 @@ class GameyfinWindow(QMainWindow):
         else:
             target_dir = suggested_dir
 
+        total_size = download.totalBytes() if download.totalBytes() > 0 else 0
+
         download.cancel()
 
         cookies = dict(self._cookies)
 
-        def handle_js_result(result):
-            total_size = parse_size(result)
-            record = {
-                "path": target_dir,
-                "filename": filename,
-                "url": url,
-                "status": "Downloading",
-                "total_bytes": total_size,
-            }
-            bandwidth_limit = self.settings.get("GF_BANDWIDTH_LIMIT") or 0
-            worker = StreamDownloadWorker(url, target_dir, cookies, estimated_total=total_size, bandwidth_limit=bandwidth_limit)
-            self.download_manager.add_download(worker, record)
-            self.tab_widget.setCurrentWidget(self.download_manager)
+        record = {
+            "path": target_dir,
+            "filename": filename,
+            "url": url,
+            "status": "Downloading",
+            "total_bytes": total_size,
+        }
+        bandwidth_limit = self.settings.get("GF_BANDWIDTH_LIMIT") or 0
+        worker = StreamDownloadWorker(url, target_dir, cookies, estimated_total=total_size, bandwidth_limit=bandwidth_limit)
+        self.download_manager.add_download(worker, record)
+        self.tab_widget.setCurrentWidget(self.download_manager)
 
-        js = """(function() {
-            let el = document.querySelector('button .text-xs');
-            return el ? el.innerText : "";
-        })();"""
-        self.browser.page().runJavaScript(js, 0, handle_js_result)
+        # Older Gameyfin servers (pre-v2.4.1) don't send Content-Length, so
+        # download.totalBytes() is unavailable too. Scrape the size shown on the
+        # page as a fallback, without blocking the download from starting.
+        if total_size <= 0:
+            def handle_js_result(result):
+                scraped_size = parse_size(result)
+                if scraped_size > 0:
+                    record["total_bytes"] = scraped_size
+                    worker.estimated_total = scraped_size
+
+            js = """(function() {
+                let el = document.querySelector('button .text-xs');
+                return el ? el.innerText : "";
+            })();"""
+            self.browser.page().runJavaScript(js, 0, handle_js_result)
 
     def apply_settings(self) -> None:
         """Apply settings dynamically without requiring a restart.

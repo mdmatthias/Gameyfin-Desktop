@@ -8,6 +8,7 @@ from stream_unzip import stream_unzip
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QThread
 
 from .config import DOWNLOAD_CHUNK_SIZE, PROGRESS_SIGNAL_INTERVAL
+from .utils import sanitize_name
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,7 @@ class StreamDownloadWorker(QObject):
     bytes_received = pyqtSignal("long long", "long long")
     finished = pyqtSignal()
     error = pyqtSignal(str)
+    _path_updated = pyqtSignal(str)
 
     def __init__(self, url: str, target_dir: str, cookies: dict[str, Any] | None = None, estimated_total: int = 0, bandwidth_limit: int = 0) -> None:
         """Initialize a background worker that streams a URL to a directory while unzipping.
@@ -54,7 +56,7 @@ class StreamDownloadWorker(QObject):
             )
             self._response.raise_for_status()
 
-            total = int(self._response.headers.get('content-length', 0)) or self.estimated_total
+            content_length = int(self._response.headers.get('content-length', 0))
             received = 0
             last_signal_time = 0.0
 
@@ -69,6 +71,10 @@ class StreamDownloadWorker(QObject):
                     chunk_bytes += len(chunk)
                     now = time.monotonic()
                     if now - last_signal_time >= PROGRESS_SIGNAL_INTERVAL:
+                        # Re-read estimated_total on every tick: when the server omits
+                        # Content-Length, a slower fallback size lookup may still be
+                        # in flight and can update this after run() already started.
+                        total = content_length or self.estimated_total
                         self.bytes_received.emit(received, total)
                         if total > 0:
                             self.progress.emit(min(int(received / total * 100), 99))
@@ -116,6 +122,10 @@ class StreamDownloadWorker(QObject):
                             return
                         f.write(chunk)
 
+            new_path = self._rename_extracted_folder()
+            if new_path:
+                self._path_updated.emit(new_path)
+
             self.progress.emit(100)
             self.finished.emit()
 
@@ -139,6 +149,63 @@ class StreamDownloadWorker(QObject):
         if self._response:
             self._response.close()
         self._session.close()
+
+    @staticmethod
+    def _sanitize_folder_name(name: str) -> str:
+        """Remove characters that can break shell scripts from a folder name."""
+        return sanitize_name(name)
+
+    def _rename_extracted_folder(self) -> str | None:
+        """Detect a single extracted root folder with a quote in its name and rename it.
+
+        After extraction the target directory may contain exactly one subfolder
+        (the ZIP's root folder).  If that folder's name contains a single quote
+        it is renamed to the sanitized version and ``self.target_dir`` is updated
+        to point at the new location.
+
+        Returns:
+            The new target directory path if a rename happened, otherwise ``None``.
+        """
+        try:
+            if not os.path.isdir(self.target_dir):
+                return None
+
+            entries = os.listdir(self.target_dir)
+            # Only rename when there is exactly one subfolder (typical ZIP root)
+            folders = [e for e in entries if os.path.isdir(os.path.join(self.target_dir, e))]
+            if len(folders) != 1:
+                return None
+
+            old_folder = folders[0]
+            if "'" not in old_folder:
+                return None
+
+            new_folder = self._sanitize_folder_name(old_folder)
+            if not new_folder:
+                return None
+
+            old_path = os.path.join(self.target_dir, old_folder)
+            new_path = os.path.join(self.target_dir, new_folder)
+
+            # Avoid collisions: if the sanitized name already exists, keep original
+            if os.path.exists(new_path):
+                logger.warning(
+                    "Sanitized folder name '%s' already exists — keeping original '%s'.",
+                    new_folder, old_folder,
+                )
+                return None
+
+            os.rename(old_path, new_path)
+            self.target_dir = new_path
+            logger.info(
+                "Renamed extracted folder to remove quote: '%s' → '%s' (target_dir=%s)",
+                old_folder, new_folder, self.target_dir,
+            )
+            return self.target_dir
+
+        except OSError as exc:
+            logger.error("Failed to rename extracted folder: %s", exc)
+            return None
 
 
 class ProcessMonitorWorker(QThread):

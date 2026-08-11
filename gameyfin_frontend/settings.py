@@ -6,6 +6,7 @@ from typing import Any
 from PyQt6.QtCore import QStandardPaths
 
 from gameyfin_frontend.config import DEFAULT_PROTON
+from gameyfin_frontend.utils import sanitize_name
 
 logger = logging.getLogger(__name__)
 
@@ -138,11 +139,11 @@ class SettingsManager:
         return os.path.join(self.settings_dir, "prefixes")
 
     def get_shortcuts_dirs(self, game_name: str) -> list[str]:
-        return [os.path.join(self.settings_dir, "shortcut_scripts", game_name)]
+        return [os.path.join(self.settings_dir, "shortcut_scripts", sanitize_name(game_name))]
 
     def get_shortcuts_dir(self, game_name: str) -> str:
         """Return the new (primary) shortcut dir for creating new scripts."""
-        return os.path.join(self.settings_dir, "shortcut_scripts", game_name)
+        return os.path.join(self.settings_dir, "shortcut_scripts", sanitize_name(game_name))
 
     def get_downloads_json_path(self) -> str:
         """Return the path to the downloads history JSON file."""

@@ -23,7 +23,7 @@ from gameyfin_frontend.dialogs import LaunchLoadingDialog, SelectShortcutsDialog
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.utils import (
     create_shortcuts, resolve_shortcut_game_info,
-    format_size, parse_size,
+    format_size, parse_size, sanitize_name,
 )
 from gameyfin_frontend.config import COLOR_STATUS_DOWNLOADING, COLOR_STATUS_INSTALLING
 from gameyfin_frontend.workers import StreamDownloadWorker
@@ -104,8 +104,17 @@ class DownloadItemWidget(QWidget):
 
         font_metrics = self.fontMetrics()
         self.icon_label.setFixedWidth(font_metrics.height())
-        self.status_label.setMinimumWidth(font_metrics.horizontalAdvance("Completed (999.99 MB)") + 10)
+        status_width = max(
+            font_metrics.horizontalAdvance("Completed (999.99 GB)"),
+            font_metrics.horizontalAdvance("999.99 GB / 999.99 GB (999.99 MB/s)"),
+        ) + 10
+        self.status_label.setFixedWidth(status_width)
         self.progress_bar.setMinimumWidth(100)
+
+        # Fix the button container's width to the widest button combination (Install,
+        # Open Folder, Remove) so hiding/showing buttons doesn't shift the other columns.
+        self.button_layout.activate()
+        self.button_container.setFixedWidth(self.button_container.sizeHint().width())
 
         # Pack everything into the row layout
         item_layout.addWidget(self.icon_label)
@@ -271,6 +280,10 @@ class DownloadItemWidget(QWidget):
 
     def on_install_clicked(self) -> None:
         """Start the installation process for the downloaded game files."""
+        # Disable immediately: the button stays visible while an install/run is in
+        # progress, and a second click before it finishes would kick off a duplicate
+        # proceed_to_installation (duplicate InstallConfigDialog, duplicate umu-run).
+        self.install_button.setEnabled(False)
         self.proceed_to_installation(self.record["path"])
 
     @pyqtSlot()
@@ -344,6 +357,7 @@ class DownloadItemWidget(QWidget):
         if sys.platform == "win32":
             launcher_to_run = self._handle_launcher_selection(target_dir)
             if launcher_to_run is None:
+                self.install_button.setEnabled(True)
                 return  # User cancelled or error
 
             self._start_windows_installation(launcher_to_run)
@@ -363,12 +377,14 @@ class DownloadItemWidget(QWidget):
             self.status_label.setText("Install cancelled by user.")
             self.status_label.setStyleSheet("")
             self.current_wine_prefix = None
+            self.install_button.setEnabled(True)
             return
 
         self.current_install_config = install_config
 
         launcher_to_run = self._handle_launcher_selection(target_dir)
         if launcher_to_run is None:
+            self.install_button.setEnabled(True)
             return  # User cancelled or no .exe found
 
         self._start_linux_installation(launcher_to_run, target_dir, self.current_install_config)
@@ -383,6 +399,7 @@ class DownloadItemWidget(QWidget):
         if self.run_process is None:
             self.status_label.setText("Launch failed.")
             self.status_label.setStyleSheet("color: red;")
+            self.install_button.setEnabled(True)
             return
         self.run_process.finished.connect(self.on_run_finished)
         self._set_running_status()
@@ -416,6 +433,7 @@ class DownloadItemWidget(QWidget):
             self.status_label.setText("Launch failed. Is 'umu-run' installed?")
             self.status_label.setStyleSheet("color: red;")
             self.current_wine_prefix = None
+            self.install_button.setEnabled(True)
             return
         self.run_process.finished.connect(self.on_run_finished)
         self.run_process.finished.connect(self._loading_dialog.close)  # Close loading dialog when game process ends
@@ -485,6 +503,7 @@ class DownloadItemWidget(QWidget):
 
         self.current_install_config = None
         self.current_wine_prefix = None
+        self.install_button.setEnabled(True)
 
     def create_desktop_shortcuts(
         self,
@@ -527,7 +546,7 @@ class DownloadItemWidget(QWidget):
         if steam_shortcuts and self.settings:
             steam_service = SteamIntegrationService(self.settings)
             for desktop_bn in steam_shortcuts:
-                sh_file = os.path.splitext(desktop_bn)[0] + ".sh"
+                sh_file = sanitize_name(os.path.splitext(desktop_bn)[0]) + ".sh"
                 sh_path = os.path.join(shortcut_scripts_path, sh_file)
                 if os.path.isfile(sh_path):
                     try:

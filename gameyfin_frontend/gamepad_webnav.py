@@ -389,21 +389,25 @@ NAV_SCRIPT = """
         clear: function () { highlight(null); },
 
         activate: function () {
+            /* Returns the on-screen point of the focused element instead of
+               calling .click() itself — a scripted click runs inside the
+               page's script engine and never carries Chromium's transient
+               user-activation flag, so anything gated on a genuine gesture
+               (starting a file download, window.open, the platform's own
+               on-screen keyboard on a text input) silently no-ops. The Python
+               side dispatches a real mouse event at this point instead. */
             var el = current();
-            if (!el) { return false; }
-            /* A real click focuses text inputs the same way a mouse click
-               would, which is what the platform's own on-screen keyboard
-               (e.g. Steam Deck's gamescope overlay) keys off of. */
+            if (!el) { return null; }
             var target = el;
             if (el.classList.contains('swiper-slide')) {
                 // The gallery's zoom-lightbox handler is bound to the slide's
-                // <img> specifically, not the slide wrapper — .click() on a
+                // <img> specifically, not the slide wrapper — a click on a
                 // parent dispatches an event *at* the parent, which never
                 // reaches a listener bound only to the child.
                 target = el.querySelector('img') || el;
             }
-            target.click();
-            return true;
+            var rect = target.getBoundingClientRect();
+            return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
         }
     };
 })();
@@ -451,6 +455,6 @@ class WebNavigator:
     def clear(self) -> None:
         self._run(f"window.{NAV_OBJECT}.clear()")
 
-    def activate(self) -> None:
-        """Click the focused page element."""
-        self._run(f"window.{NAV_OBJECT}.activate()")
+    def activate(self, callback: Callable[[Any], None]) -> None:
+        """Fetch the on-screen point of the focused element, for a real click."""
+        self._run(f"window.{NAV_OBJECT}.activate()", callback)

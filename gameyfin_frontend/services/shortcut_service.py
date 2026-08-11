@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import QDialog, QMessageBox
 
 from gameyfin_frontend.dialogs import SelectShortcutsDialog
 from gameyfin_frontend.services.steam_integration import SteamIntegrationService
-from gameyfin_frontend.utils import create_shortcuts, resolve_shortcut_game_info, get_xdg_user_dir
+from gameyfin_frontend.utils import create_shortcuts, resolve_shortcut_game_info, get_xdg_user_dir, sanitize_name
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +176,7 @@ class ShortcutService:
                      game_name, steam_shortcuts, self.steam_service)
         if steam_shortcuts and self.steam_service:
             for desktop_bn in steam_shortcuts:
-                sh_file = os.path.splitext(desktop_bn)[0] + ".sh"
+                sh_file = sanitize_name(os.path.splitext(desktop_bn)[0]) + ".sh"
                 sh_path = os.path.join(primary_scripts_dir, sh_file)
                 logger.info("Steam shortcut candidate: bn=%s sh_path=%s exists=%s",
                              desktop_bn, sh_path, os.path.isfile(sh_path))

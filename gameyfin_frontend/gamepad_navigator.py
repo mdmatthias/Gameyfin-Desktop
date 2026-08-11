@@ -21,7 +21,7 @@ import logging
 from typing import Any
 
 from PyQt6.QtCore import QEvent, QObject, QPoint, QPointF, QRect, QRectF, Qt, QTimer
-from PyQt6.QtGui import (QColor, QKeyEvent, QPainter, QPainterPath,
+from PyQt6.QtGui import (QColor, QKeyEvent, QMouseEvent, QPainter, QPainterPath,
                          QRegion, QWheelEvent)
 from PyQt6.QtWidgets import (
     QAbstractItemView, QAbstractScrollArea, QAbstractSlider, QApplication,
@@ -882,13 +882,34 @@ class GamepadNavigator(QObject):
         self._send_key(view, Qt.Key.Key_Return)
 
     def _activate_web_element(self, web_view: Any) -> None:
-        """Click the focused page element.
+        """Click the focused page element with a real mouse event.
 
-        A real click focuses text inputs the same way a mouse click would,
-        which is what the platform's own on-screen keyboard (e.g. Steam
-        Deck's gamescope overlay) keys off of.
+        A scripted ``el.click()`` runs inside the page's script engine and
+        never carries Chromium's transient user-activation flag, so anything
+        gated on a genuine gesture — starting a file download, ``window.open``,
+        the platform's on-screen keyboard on a text input — silently no-ops.
+        Fetch the element's on-screen point and dispatch a real QMouseEvent at
+        it instead, the same trick :meth:`_send_wheel_scroll` already uses for
+        wheel input.
         """
-        WebNavigator(web_view).activate()
+        WebNavigator(web_view).activate(lambda point: self._click_web_point(web_view, point))
+
+    def _click_web_point(self, web_view: Any, point: Any) -> None:
+        if not point:
+            return
+        target = web_view.focusProxy() or web_view
+        pos = QPointF(point["x"], point["y"])
+        global_pos = QPointF(target.mapToGlobal(pos.toPoint()))
+        press = QMouseEvent(
+            QEvent.Type.MouseButtonPress, pos, global_pos,
+            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+        )
+        release = QMouseEvent(
+            QEvent.Type.MouseButtonRelease, pos, global_pos,
+            Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+        )
+        QApplication.sendEvent(target, press)
+        QApplication.sendEvent(target, release)
 
     # -- B -----------------------------------------------------------------
 
