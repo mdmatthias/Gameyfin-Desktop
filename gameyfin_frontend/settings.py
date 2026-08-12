@@ -62,7 +62,6 @@ class SettingsManager:
             "GF_GAMEPAD_REPEAT_MS": 140,
             # Right-stick scroll speed and virtual-mouse speed, in pixels
             "GF_GAMEPAD_SCROLL_SPEED": 60,
-            "GF_GAMEPAD_MOUSE_SPEED": 22,
         }
         
         self.settings = self.defaults.copy()

@@ -248,7 +248,6 @@ class SettingsWidget(QWidget):
             self.settings.set("GF_GAMEPAD_DEADZONE", self.gamepad_deadzone_slider.value())
             self.settings.set("GF_GAMEPAD_REPEAT_MS", self.gamepad_repeat_spin.value())
             self.settings.set("GF_GAMEPAD_SCROLL_SPEED", self.gamepad_scroll_spin.value())
-            self.settings.set("GF_GAMEPAD_MOUSE_SPEED", self.gamepad_mouse_spin.value())
 
         # Apply settings immediately
         if hasattr(self.window(), 'apply_settings'):

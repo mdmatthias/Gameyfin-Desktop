@@ -88,7 +88,6 @@ While the application can be configured using environment variables (see below),
 | `GF_GAMEPAD_DEADZONE`     | Stick deadzone in percent of full deflection (default: `25`).                    |
 | `GF_GAMEPAD_REPEAT_MS`    | Milliseconds between repeats while a direction is held (default: `140`).         |
 | `GF_GAMEPAD_SCROLL_SPEED` | Right-stick scroll speed in pixels (default: `60`).                              |
-| `GF_GAMEPAD_MOUSE_SPEED`  | Pointer speed in mouse mode, in pixels (default: `22`).                          |
 | `GF_BANDWIDTH_LIMIT`      | Max download speed in bytes/sec (default: `0` for unlimited).                    |
 
 ---

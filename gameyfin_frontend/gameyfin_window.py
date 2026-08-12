@@ -600,9 +600,9 @@ class GameyfinWindow(QMainWindow):
         # Update tab icon (index 0 is browser)
         self.tab_widget.setTabIcon(0, app_icon)
 
-        # 4. Refresh UMU Database
+        # 4. Refresh UMU Database (background, non-blocking)
         if sys.platform != "win32" and self.umu_database:
-            self.umu_database.refresh_cache()
+            self.umu_database.refresh_cache_async()
 
         # 5. Update Gamepad
         if hasattr(self, "gamepad"):
