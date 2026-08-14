@@ -1,6 +1,7 @@
 import configparser
 import logging
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -23,13 +24,13 @@ _SIZE_UNITS = [
 
 
 def sanitize_name(name: str) -> str:
-    """Remove characters that break shell quoting when used in folder/script names.
+    """Restrict a name to alphanumeric characters, underscores, hyphens, and spaces.
 
-    Single quotes in a game/folder name break the single-quoted shell context
-    used to build Steam launch commands (see build_flatpak_exec_command), so
-    every path component derived from a game title must go through this.
+    Shell scripts and Wine prefixes must not contain characters that could
+    break quoting, cause glob expansion, or confuse path handling.  Only
+    ``[a-zA-Z0-9_\- ]`` is allowed; everything else is stripped.
     """
-    return name.replace("'", "")
+    return re.sub(r'[^a-zA-Z0-9_\- ]', '', name)
 
 
 def shell_dquote(value: str) -> str:
