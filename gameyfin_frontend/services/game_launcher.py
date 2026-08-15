@@ -14,6 +14,33 @@ from gameyfin_frontend.config import DEFAULT_PROTON
 logger = logging.getLogger(__name__)
 
 
+def log_output_as_it_arrives(process: QProcess) -> None:
+    """Stream the process's merged stdout/stderr to the log as it arrives.
+
+    QProcess discards output that nothing reads, so umu-run/game crashes
+    (e.g. Python tracebacks) would otherwise vanish silently, leaving only
+    the exit code in the logs. Logging as chunks arrive (rather than only
+    buffering for a final dump) also gives visibility into long-running
+    steps like Proton/runtime downloads while they're in progress.
+    """
+    output_lines: list[str] = []
+
+    def _on_ready_read() -> None:
+        chunk = bytes(process.readAllStandardOutput()).decode(errors="replace")
+        output_lines.append(chunk)
+        for line in chunk.splitlines():
+            if line.strip():
+                logger.info("[umu-run] %s", line)
+
+    process.readyReadStandardOutput.connect(_on_ready_read)
+
+    def _on_finished(exit_code: int, _exit_status: QProcess.ExitStatus) -> None:
+        if exit_code != 0 and output_lines:
+            logger.error("Process exited with code %s.", exit_code)
+
+    process.finished.connect(_on_finished)
+
+
 class GameLauncher:
     """Launches games via QProcess — Windows direct exec, Linux via UMU."""
 
@@ -29,6 +56,7 @@ class GameLauncher:
         try:
             logger.info("Executing (Windows): %s", launcher_to_run)
             process = QProcess()
+            process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
             process.setProgram(launcher_to_run)
             process.setWorkingDirectory(os.path.dirname(launcher_to_run))
             process.start()
@@ -36,6 +64,7 @@ class GameLauncher:
                 logger.info("Launch failed (QProcess failed to start).")
                 return None
 
+            log_output_as_it_arrives(process)
             return process
         except OSError as e:
             logger.error("Launch failed: %s", e)
@@ -80,6 +109,7 @@ class GameLauncher:
 
             logger.info("Executing: /bin/sh -c \"%s\"", f"{env_prefix} exec umu-run \"{launcher_to_run}\"")
             process = QProcess()
+            process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
             process.setWorkingDirectory(launcher_dir)
             process.start("/bin/sh", ["-c", f"{env_prefix} exec umu-run \"{launcher_to_run}\""])
 
@@ -87,6 +117,7 @@ class GameLauncher:
                 logger.info("Launch failed (QProcess failed to start).")
                 return None
 
+            log_output_as_it_arrives(process)
             return process
         except (ValueError, OSError) as e:
             logger.error("Launch failed: %s", e)

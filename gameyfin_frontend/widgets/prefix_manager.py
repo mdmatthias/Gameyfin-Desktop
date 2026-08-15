@@ -1,18 +1,18 @@
 import glob
 import logging
 import os
-import subprocess
 from typing import Any
 
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QListWidget, QPushButton,
                              QHBoxLayout, QLabel, QMessageBox, QDialog, QComboBox, QListWidgetItem,
                              QAbstractItemView)
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QProcess
 
 from gameyfin_frontend.dialogs import InstallConfigDialog, LaunchLoadingDialog
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.settings import SettingsManager
 from gameyfin_frontend.services import PrefixService, ShortcutService, SteamIntegrationService
+from gameyfin_frontend.services.game_launcher import log_output_as_it_arrives
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,7 @@ class PrefixItemWidget(QWidget):
         self.umu_database = umu_database
         self.settings = settings
         self._loading_dialog = None
+        self._script_process: QProcess | None = None
 
         # Determine scripts_dir based on prefix_name
         game_name = prefix_name.removesuffix("_pfx")
@@ -107,8 +108,15 @@ class PrefixItemWidget(QWidget):
                 self._loading_dialog = LaunchLoadingDialog(script_name, parent=self)
                 self._loading_dialog.show()
 
-                subprocess.Popen([script_path], cwd=os.path.dirname(script_path),
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                process = QProcess(self)
+                process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+                process.setWorkingDirectory(os.path.dirname(script_path))
+                process.start(script_path, [])
+                if not process.waitForStarted():
+                    raise OSError(f"Failed to start {script_path}")
+                log_output_as_it_arrives(process)
+                self._script_process = process
+
                 # Reset to placeholder
                 self.script_combo.setCurrentIndex(0)
             except OSError as e:
