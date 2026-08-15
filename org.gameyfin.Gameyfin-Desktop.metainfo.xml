@@ -81,15 +81,6 @@
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
-        <release version="2.9.4" date="2026-08-15">
-            <description>
-                <ul>
-                    <li>Update dependencies</li>
-                    <li>(Linux) show umu-run output in logs</li>
-                    <li>(Linux) sanitize scripts/prefixes special chars that could prevent games from launching</li>
-                </ul>
-            </description>
-        </release>
         <release version="2.9.3" date="2026-08-12">
             <description>
                 <ul>
