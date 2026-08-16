@@ -185,7 +185,6 @@ class ShortcutService:
                         self.steam_service.add_game_to_steam(
                             name=os.path.splitext(sh_file)[0],
                             exe=sh_path,
-                            start_dir=os.path.dirname(sh_path),
                         )
                     except Exception as exc:  # noqa: BLE001
                         logger.error("Failed to add '%s' to Steam: %s", sh_file, exc)

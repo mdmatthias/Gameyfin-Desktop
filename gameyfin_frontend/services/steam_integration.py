@@ -23,15 +23,10 @@ try:
 except ImportError:
     _vdf_lib = None  # type: ignore[assignment]
 
-from gameyfin_frontend.utils import build_flatpak_exec_command
+from gameyfin_frontend.config import SCRIPT_PERMISSION
+from gameyfin_frontend.utils import build_flatpak_exec_command, sanitize_name
 
 logger = logging.getLogger(__name__)
-
-# Every Gameyfin shortcut uses this as its "Exe" field (see add_game_to_steam
-# below) — kept as one constant since it must match exactly what's written
-# to shortcuts.vdf for the CRC-based AppID in _generate_shortcut_appid to
-# resolve to the same entry Steam itself computes.
-_SHORTCUT_EXE = "/usr/bin/flatpak"
 
 # Standard Steam base directories (relative to $HOME).
 # Each contains a ``userdata/<steamid>/config/`` subdirectory.
@@ -115,9 +110,7 @@ class SteamIntegrationService:
         self,
         name: str,
         exe: str,
-        start_dir: str,
         icon: str = "",
-        launch_options: str = "",
     ) -> bool:
         """Add a non-Steam game entry to Steam via shortcuts.vdf.
 
@@ -125,12 +118,16 @@ class SteamIntegrationService:
         writes the shortcut entry, and saves the file back.  If the file does
         not exist (no Steam user data yet), returns False with a warning.
 
+        Steam launches ``/bin/sh`` with the wrapper script's absolute path
+        as its single (quoted) LaunchOptions argument — both the shell and
+        the wrapper script only ever deal in absolute paths, so the working
+        directory Steam starts in doesn't matter; "StartDir" is fixed to
+        ``/bin``.
+
         Args:
             name: Display name for the game in Steam.
             exe: Absolute path to the launcher script (.sh).
-            start_dir: Working directory for the game.
             icon: Optional absolute path to an icon file.
-            launch_options: Extra command-line options (empty string for none).
 
         Returns:
             True if the shortcut was written successfully.
@@ -144,6 +141,10 @@ class SteamIntegrationService:
             logger.warning(
                 "Steam shortcuts.vdf not found. Open Steam at least once to create your user profile."
             )
+            return False
+
+        wrapper_path = self._write_steam_wrapper_script(exe, name)
+        if not wrapper_path:
             return False
 
         logger.info("Writing Steam shortcut '%s' to %s", name, vdf_path)
@@ -169,17 +170,14 @@ class SteamIntegrationService:
 
         if target_key is not None:
             # Update existing entry in place; skip writing if nothing changed.
-            full_cmd = build_flatpak_exec_command(exe)
-            flatpak_exec = full_cmd[len("flatpak "):]  # Strip "flatpak " prefix for Steam LaunchOptions
-
             new_entry: dict[str, Any] = {
                 "appid": target_appid,
                 "AppName": name,
-                "Exe": _SHORTCUT_EXE,
-                "StartDir": start_dir,
+                "Exe": "/bin/sh",
+                "StartDir": "/bin",
                 "icon": icon,
-                "ShortcutPath": _SHORTCUT_EXE,
-                "LaunchOptions": flatpak_exec,
+                "ShortcutPath": "/bin/sh",
+                "LaunchOptions": f'"{wrapper_path}"',
                 "IsHidden": 1,
                 "AllowDesktopConfig": 1,
                 "AllowOverlay": 1,
@@ -195,7 +193,7 @@ class SteamIntegrationService:
 
             if shortcuts[target_key] == new_entry:
                 logger.info("Shortcut '%s' unchanged in Steam library.", name)
-                self._disable_compat_tool_override(name)
+                self._disable_compat_tool_override(wrapper_path, name)
                 return True
 
             shortcuts[target_key] = new_entry
@@ -213,17 +211,14 @@ class SteamIntegrationService:
 
             key = str(candidate)
 
-            full_cmd = build_flatpak_exec_command(exe)
-            flatpak_exec = full_cmd[len("flatpak "):]  # Strip "flatpak " prefix for Steam LaunchOptions
-
             shortcut_entry: dict[str, Any] = {
                 "appid": candidate,
                 "AppName": name,
-                "Exe": _SHORTCUT_EXE,
-                "StartDir": start_dir,
+                "Exe": "/bin/sh",
+                "StartDir": "/bin",
                 "icon": icon,
-                "ShortcutPath": _SHORTCUT_EXE,
-                "LaunchOptions": flatpak_exec,
+                "ShortcutPath": "/bin/sh",
+                "LaunchOptions": f'"{wrapper_path}"',
                 "IsHidden": 1,
                 "AllowDesktopConfig": 1,
                 "AllowOverlay": 1,
@@ -257,10 +252,53 @@ class SteamIntegrationService:
                     pass
             return False
 
-        self._disable_compat_tool_override(name)
+        self._disable_compat_tool_override(wrapper_path, name)
         return True
 
-    def _disable_compat_tool_override(self, name: str) -> bool:
+    def _write_steam_wrapper_script(self, exe: str, name: str) -> str | None:
+        """Write a small shell wrapper that runs the game via flatpak, and return its path.
+
+        Steam's non-Steam-shortcut launch previously pointed "Exe" directly
+        at ``/usr/bin/flatpak``, with the flatpak invocation passed via
+        "LaunchOptions". Pointing "Exe" at ``/bin/sh`` and "LaunchOptions" at
+        this script instead means Steam launches a plain shell script, with
+        the flatpak invocation as an implementation detail of that script
+        rather than part of Steam's own command line.
+
+        Stored under a dedicated ``steam_shortcut_scripts`` directory
+        (rather than alongside the game's own launcher script) since these
+        are wrappers Steam calls into, not something a user would run
+        directly like the per-desktop-file launcher scripts.
+
+        Args:
+            exe: Absolute path to the game's launcher script.
+            name: Game name, used to name the wrapper script uniquely.
+
+        Returns:
+            Absolute path to the wrapper script, or ``None`` on failure.
+        """
+        scripts_dir = os.path.join(self.settings.get_config_dir(), "steam_shortcut_scripts")
+        try:
+            os.makedirs(scripts_dir, exist_ok=True)
+        except OSError as exc:
+            logger.error("Failed to create %s: %s", scripts_dir, exc)
+            return None
+
+        wrapper_path = os.path.join(scripts_dir, f"{sanitize_name(name)}.sh")
+        flatpak_exec = build_flatpak_exec_command(exe)
+        content = f"#!/bin/sh\n\nexec {flatpak_exec}\n"
+
+        try:
+            with open(wrapper_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            os.chmod(wrapper_path, SCRIPT_PERMISSION)
+        except OSError as exc:
+            logger.error("Failed to write Steam wrapper script %s: %s", wrapper_path, exc)
+            return None
+
+        return wrapper_path
+
+    def _disable_compat_tool_override(self, exe: str, name: str) -> bool:
         """Force Steam to skip Steam Play/Proton wrapping for this shortcut.
 
         Our shortcut already manages its own compatibility layer via an
@@ -278,6 +316,8 @@ class SteamIntegrationService:
         was already written successfully at this point.
 
         Args:
+            exe: The Exe field value written for this shortcut (the wrapper
+                script path from ``_write_steam_wrapper_script``).
             name: AppName of the shortcut just written.
 
         Returns:
@@ -291,7 +331,7 @@ class SteamIntegrationService:
             logger.warning("Steam config.vdf not found — cannot set compat tool override.")
             return False
 
-        appid = str(_generate_shortcut_appid(_SHORTCUT_EXE, name))
+        appid = str(_generate_shortcut_appid(exe, name))
 
         try:
             with open(config_path, "r", encoding="utf-8", errors="replace") as f:

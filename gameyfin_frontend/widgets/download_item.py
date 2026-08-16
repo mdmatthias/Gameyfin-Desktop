@@ -553,7 +553,6 @@ class DownloadItemWidget(QWidget):
                         steam_service.add_game_to_steam(
                             name=game_name,
                             exe=sh_path,
-                            start_dir=os.path.dirname(sh_path),
                         )
                     except Exception as exc:  # noqa: BLE001
                         logger.error("Failed to add '%s' to Steam: %s", sh_file, exc)

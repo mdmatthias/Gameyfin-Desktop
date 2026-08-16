@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from gameyfin_frontend.services.steam_integration import SteamIntegrationService
+from gameyfin_frontend.utils import sanitize_name
 
 
 @pytest.fixture()
-def mock_settings():
+def mock_settings(tmp_path):
     settings = MagicMock()
     settings.get.return_value = 0
+    settings.get_config_dir.return_value = str(tmp_path / "gameyfin_config")
     return settings
 
 
@@ -30,7 +33,6 @@ class TestSteamIntegrationService:
             result = svc.add_game_to_steam(
                 name="TestGame",
                 exe="/tmp/test.sh",
-                start_dir="/tmp",
             )
             assert result is False
 
@@ -49,12 +51,16 @@ class TestSteamIntegrationService:
         with open(vdf_path, "wb") as f:
             _vdf_lib.binary_dump(initial_data, f)
 
+        scripts_dir = tmp_path / "scripts"
+        scripts_dir.mkdir()
+        exe_path = str(scripts_dir / "run.sh")
+        Path(exe_path).write_text("#!/bin/sh\n")
+
         with patch("gameyfin_frontend.services.steam_integration._find_steam_shortcuts_vdf", return_value=vdf_path):
             svc = SteamIntegrationService(mock_settings)
             result = svc.add_game_to_steam(
                 name="run.sh",  # Service is called with script basename by shortcut_service
-                exe="/home/user/scripts/run.sh",
-                start_dir="/home/user/scripts",
+                exe=exe_path,
             )
             assert result is True
 
@@ -62,18 +68,27 @@ class TestSteamIntegrationService:
         with open(vdf_path, "rb") as f:
             data = _vdf_lib.binary_load(f)
 
+        wrapper_path = os.path.join(
+            mock_settings.get_config_dir(), "steam_shortcut_scripts", f"{sanitize_name('run.sh')}.sh"
+        )
+
         shortcuts = data["shortcuts"]
         assert len(shortcuts) == 1
         entry = list(shortcuts.values())[0]
         assert entry["AppName"] == "run.sh"
-        assert entry["Exe"] == "/usr/bin/flatpak"
-        assert entry["StartDir"] == "/home/user/scripts"
-        assert entry["ShortcutPath"] == "/usr/bin/flatpak"
-        assert "run --command=sh org.gameyfin.Gameyfin-Desktop" in entry["LaunchOptions"]
-        assert "/home/user/scripts/run.sh" in entry["LaunchOptions"]
+        assert entry["Exe"] == "/bin/sh"
+        assert entry["StartDir"] == "/bin"
+        assert entry["ShortcutPath"] == "/bin/sh"
+        assert entry["LaunchOptions"] == f'"{wrapper_path}"'
         assert entry["IsHidden"] == 1
         assert entry["AllowOverlay"] == 1
         assert entry["FlatpakAppID"] == ""
+
+        # The wrapper script itself execs flatpak; no LD_PRELOAD handling.
+        wrapper_content = Path(wrapper_path).read_text()
+        assert "run --command=sh org.gameyfin.Gameyfin-Desktop" in wrapper_content
+        assert exe_path in wrapper_content
+        assert os.access(wrapper_path, os.X_OK)
 
     def test_add_game_assigns_unique_neg_id(self, tmp_path, mock_settings):
         try:
@@ -95,9 +110,12 @@ class TestSteamIntegrationService:
         with open(vdf_path, "wb") as f:
             _vdf_lib.binary_dump(existing_data, f)
 
+        exe_path = str(tmp_path / "x.sh")
+        Path(exe_path).write_text("#!/bin/sh\n")
+
         with patch("gameyfin_frontend.services.steam_integration._find_steam_shortcuts_vdf", return_value=vdf_path):
             svc = SteamIntegrationService(mock_settings)
-            svc.add_game_to_steam(name="NewGame", exe="/tmp/x.sh", start_dir="/tmp")
+            svc.add_game_to_steam(name="NewGame", exe=exe_path)
 
         with open(vdf_path, "rb") as f:
             data = _vdf_lib.binary_load(f)
@@ -174,23 +192,32 @@ class TestSteamIntegrationService:
         with open(vdf_path, "wb") as f:
             _vdf_lib.binary_dump(existing_data, f)
 
+        new_dir = tmp_path / "new_dir"
+        new_dir.mkdir()
+        exe_path = str(new_dir / "path.sh")
+        Path(exe_path).write_text("#!/bin/sh\n")
+
         with patch("gameyfin_frontend.services.steam_integration._find_steam_shortcuts_vdf", return_value=vdf_path):
             svc = SteamIntegrationService(mock_settings)
             result = svc.add_game_to_steam(
                 name="Anno.sh",
-                exe="/new/path.sh",
-                start_dir="/new/dir",
+                exe=exe_path,
             )
             assert result is True
 
         with open(vdf_path, "rb") as f:
             data = _vdf_lib.binary_load(f)
 
+        wrapper_path = os.path.join(
+            mock_settings.get_config_dir(), "steam_shortcut_scripts", f"{sanitize_name('Anno.sh')}.sh"
+        )
+
         shortcuts = data["shortcuts"]
         assert len(shortcuts) == 1  # No duplicate entry
         entry = list(shortcuts.values())[0]
         assert entry["appid"] == -1  # Same AppID preserved
-        assert "/new/path.sh" in entry["LaunchOptions"]
+        assert entry["Exe"] == "/bin/sh"
+        assert entry["LaunchOptions"] == f'"{wrapper_path}"'
 
     def test_get_steam_names_returns_set(self, tmp_path, mock_settings):
         try:
