@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 import os
 import time
-import zlib
 from pathlib import Path
 from typing import Any
 
@@ -59,33 +58,6 @@ def _find_steam_shortcuts_vdf() -> str | None:
         except OSError:
             pass
     return None
-
-
-def _find_steam_config_vdf() -> str | None:
-    """Return the absolute path to Steam's shared ``config.vdf`` if found.
-
-    Unlike ``shortcuts.vdf``, this file isn't per-user data — it lives
-    directly under the Steam install directory.
-    """
-    home = os.path.expanduser("~")
-    for rel in _STEAM_BASE_PATHS:
-        vdf_path = os.path.join(home, rel, "config", "config.vdf")
-        if os.path.isfile(vdf_path):
-            return vdf_path
-    return None
-
-
-def _generate_shortcut_appid(exe: str, name: str) -> int:
-    """Compute Steam's canonical 32-bit AppID for a non-Steam shortcut.
-
-    Steam derives a shortcut's real AppID from a CRC32 hash of its Exe +
-    AppName fields (with the top bit set), not from the small placeholder
-    integer Gameyfin writes into ``shortcuts.vdf`` for its own bookkeeping.
-    This mirrors that formula (also used by tools like Heroic Games
-    Launcher and steam-rom-manager) so a compatibility-tool override can be
-    written against the same AppID Steam itself will resolve.
-    """
-    return (zlib.crc32((exe + name).encode("utf-8")) & 0xFFFFFFFF) | 0x80000000
 
 
 class SteamIntegrationService:
@@ -193,7 +165,6 @@ class SteamIntegrationService:
 
             if shortcuts[target_key] == new_entry:
                 logger.info("Shortcut '%s' unchanged in Steam library.", name)
-                self._disable_compat_tool_override(wrapper_path, name)
                 return True
 
             shortcuts[target_key] = new_entry
@@ -252,7 +223,6 @@ class SteamIntegrationService:
                     pass
             return False
 
-        self._disable_compat_tool_override(wrapper_path, name)
         return True
 
     def _write_steam_wrapper_script(self, exe: str, name: str) -> str | None:
@@ -306,84 +276,6 @@ class SteamIntegrationService:
             return None
 
         return wrapper_path
-
-    def _disable_compat_tool_override(self, exe: str, name: str) -> bool:
-        """Force Steam to skip Steam Play/Proton wrapping for this shortcut.
-
-        Our shortcut already manages its own compatibility layer via an
-        embedded umu-run/Proton invocation. If the user has "Enable Steam
-        Play for all other titles" turned on globally (SteamOS/Steam Deck
-        defaults to this), Steam wraps the shortcut in its own Proton on
-        top of ours, which breaks the launch. There's no way to opt a
-        single shortcut out of that from Steam Deck's simplified Gaming
-        Mode settings, so this writes the override directly into
-        ``config.vdf``'s ``CompatToolMapping``, keyed by Steam's own
-        CRC32-derived AppID (see ``_generate_shortcut_appid``).
-
-        This is best-effort: failures are logged and swallowed rather than
-        failing the whole shortcut-creation flow, since the shortcut itself
-        was already written successfully at this point.
-
-        Args:
-            exe: The Exe field value written for this shortcut (the wrapper
-                script path from ``_write_steam_wrapper_script``).
-            name: AppName of the shortcut just written.
-
-        Returns:
-            True if the override was written (or already present).
-        """
-        if _vdf_lib is None:
-            return False
-
-        config_path = _find_steam_config_vdf()
-        if not config_path:
-            logger.warning("Steam config.vdf not found — cannot set compat tool override.")
-            return False
-
-        appid = str(_generate_shortcut_appid(exe, name))
-
-        try:
-            with open(config_path, "r", encoding="utf-8", errors="replace") as f:
-                data = _vdf_lib.load(f)
-        except OSError as exc:
-            logger.error("Failed to read config.vdf: %s", exc)
-            return False
-
-        try:
-            steam_section = (
-                data.setdefault("InstallConfigStore", {})
-                .setdefault("Software", {})
-                .setdefault("Valve", {})
-                .setdefault("Steam", {})
-            )
-            compat_mapping = steam_section.setdefault("CompatToolMapping", {})
-
-            existing = compat_mapping.get(appid)
-            if existing is not None and existing.get("name", "") == "":
-                logger.info("Compat tool override already set for AppID %s.", appid)
-                return True
-
-            compat_mapping[appid] = {"name": "", "config": "", "priority": "250"}
-        except AttributeError as exc:
-            logger.error("Unexpected config.vdf structure — not overriding compat tool: %s", exc)
-            return False
-
-        tmp_path = config_path + ".tmp"
-        try:
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                _vdf_lib.dump(data, f, pretty=True)
-            os.replace(tmp_path, config_path)
-        except OSError as exc:
-            logger.error("Failed to write config.vdf: %s", exc)
-            if os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except OSError:
-                    pass
-            return False
-
-        logger.info("Set 'no compatibility tool' override for AppID %s in config.vdf", appid)
-        return True
 
     def remove_game_from_steam(self, name: str) -> bool:
         """Remove a previously-added non-Steam game by deleting its entry.
