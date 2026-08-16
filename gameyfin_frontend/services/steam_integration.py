@@ -286,7 +286,16 @@ class SteamIntegrationService:
 
         wrapper_path = os.path.join(scripts_dir, f"{sanitize_name(name)}.sh")
         flatpak_exec = build_flatpak_exec_command(exe)
-        content = f"#!/bin/sh\n\nexec {flatpak_exec}\n"
+        content = (
+            "#!/bin/sh\n\n"
+            "# Steam starts this process with LC_ALL=C, which breaks handling\n"
+            "# of non-ASCII characters (e.g. accented letters, en-dashes) in\n"
+            "# game paths before flatpak even runs. Force UTF-8 back on before\n"
+            "# handing off (see lutris/lutris#6837 for the same underlying issue).\n"
+            "export LC_ALL=C.UTF-8\n"
+            "export LANG=C.UTF-8\n\n"
+            f"exec {flatpak_exec}\n"
+        )
 
         try:
             with open(wrapper_path, "w", encoding="utf-8") as f:

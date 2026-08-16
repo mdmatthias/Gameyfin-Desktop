@@ -84,8 +84,10 @@ class TestSteamIntegrationService:
         assert entry["AllowOverlay"] == 1
         assert entry["FlatpakAppID"] == ""
 
-        # The wrapper script itself execs flatpak; no LD_PRELOAD handling.
+        # The wrapper forces UTF-8 back on (Steam launches it with LC_ALL=C)
+        # before exec'ing flatpak.
         wrapper_content = Path(wrapper_path).read_text()
+        assert "export LC_ALL=C.UTF-8" in wrapper_content
         assert "run --command=sh org.gameyfin.Gameyfin-Desktop" in wrapper_content
         assert exe_path in wrapper_content
         assert os.access(wrapper_path, os.X_OK)
