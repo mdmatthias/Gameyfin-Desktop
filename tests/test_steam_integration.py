@@ -73,7 +73,7 @@ class TestSteamIntegrationService:
         assert "/home/user/scripts/run.sh" in entry["LaunchOptions"]
         assert entry["IsHidden"] == 1
         assert entry["AllowOverlay"] == 1
-        assert entry["FlatpakAppID"] == "org.gameyfin.Gameyfin-Desktop"
+        assert entry["FlatpakAppID"] == ""
 
     def test_add_game_assigns_unique_neg_id(self, tmp_path, mock_settings):
         try:

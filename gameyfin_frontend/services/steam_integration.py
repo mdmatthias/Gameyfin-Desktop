@@ -135,7 +135,6 @@ class SteamIntegrationService:
 
         if target_key is not None:
             # Update existing entry in place; skip writing if nothing changed.
-            app_id = "org.gameyfin.Gameyfin-Desktop"
             full_cmd = build_flatpak_exec_command(exe)
             flatpak_exec = full_cmd[len("flatpak "):]  # Strip "flatpak " prefix for Steam LaunchOptions
 
@@ -155,7 +154,7 @@ class SteamIntegrationService:
                 "DevkitGameID": "",
                 "DevkitOverrideAppID": 0,
                 "LastPlayTime": 0,
-                "FlatpakAppID": app_id,
+                "FlatpakAppID": "",
                 "sortas": "",
                 "tags": {},
             }
@@ -179,7 +178,6 @@ class SteamIntegrationService:
 
             key = str(candidate)
 
-            app_id = "org.gameyfin.Gameyfin-Desktop"
             full_cmd = build_flatpak_exec_command(exe)
             flatpak_exec = full_cmd[len("flatpak "):]  # Strip "flatpak " prefix for Steam LaunchOptions
 
@@ -199,7 +197,7 @@ class SteamIntegrationService:
                 "DevkitGameID": "",
                 "DevkitOverrideAppID": 0,
                 "LastPlayTime": 0,
-                "FlatpakAppID": app_id,
+                "FlatpakAppID": "",
                 "sortas": "",
                 "tags": {},
             }
