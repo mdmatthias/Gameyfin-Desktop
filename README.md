@@ -119,10 +119,13 @@ Choose your platform below to get started.
 
 **Option 1: Flatpak (Recommended)**
 1. **Dependencies:** None required! The Flatpak build now includes the `umu-launcher` and all necessary dependencies.
-2. **Install:** Download the latest `Gameyfin-Desktop-vX.X.X.flatpak` from the [Releases](https://github.com/mdmatthias/Gameyfin-Desktop/releases) page.
+2. **Install:** Download the latest `Gameyfin-Desktop-vX.X.X.flatpak` from the [Releases](https://github.com/mdmatthias/Gameyfin-Desktop/releases) page, then:
+   ```bash
+   flatpak install --user Gameyfin-Desktop-vX.X.X.flatpak -y
+   ```
+   No sudo password needed — the app is installed in your user space.
 
-2a. **CLI install:** Run `flatpak install Gameyfin-Desktop-vX.X.X.flatpak`.
-2b. **Discover install:** If updating from a prior version, remove it first (settings persist), then open the `.flatpak` file with Discover to install.
+   *Alternative:* You can also open the `.flatpak` file with Discover, but this installs system-wide and will prompt for your password. To update, uninstall first (settings persist), then reinstall.
 
 3. **Run:** Launch it from your application menu or run:
    ```bash
