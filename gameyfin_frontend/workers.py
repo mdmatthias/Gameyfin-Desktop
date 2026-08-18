@@ -8,6 +8,7 @@ from stream_unzip import stream_unzip
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QThread
 
 from .config import DOWNLOAD_CHUNK_SIZE, PROGRESS_SIGNAL_INTERVAL
+from .services.update_service import check_latest_release, install_flatpak
 from .utils import sanitize_name
 
 logger = logging.getLogger(__name__)
@@ -249,3 +250,124 @@ class ProcessMonitorWorker(QThread):
     def stop(self) -> None:
         """Stops the process monitor thread."""
         self._running = False
+
+
+class UpdateCheckWorker(QThread):
+    """Fetches the latest GitHub release off the GUI thread."""
+
+    finished = pyqtSignal(object, str)  # (release dict or None, error message)
+
+    def run(self) -> None:
+        try:
+            release = check_latest_release()
+            self.finished.emit(release, "")
+        except requests.exceptions.RequestException as e:
+            logger.error("Update check failed: %s", e)
+            self.finished.emit(None, str(e))
+
+
+class UpdateDownloadWorker(QThread):
+    """Downloads a release asset to a local file with progress signals."""
+
+    progress = pyqtSignal(int)
+    bytes_received = pyqtSignal("long long", "long long")
+    finished = pyqtSignal(str)  # local file path
+    error = pyqtSignal(str)
+
+    def __init__(self, url: str, target_path: str, bandwidth_limit: int = 0) -> None:
+        """Initialize a plain file download worker.
+
+        Args:
+            url: URL to download from.
+            target_path: Local file path to write to.
+            bandwidth_limit: Max download speed in bytes/sec. 0 means unlimited.
+        """
+        super().__init__()
+        self.url = url
+        self.target_path = target_path
+        self.bandwidth_limit = bandwidth_limit
+        self._cancelled = False
+        self._response = None
+
+    def run(self) -> None:
+        try:
+            self._response = requests.get(self.url, stream=True, timeout=30)
+            self._response.raise_for_status()
+
+            total = int(self._response.headers.get("content-length", 0))
+            received = 0
+            last_signal_time = 0.0
+            chunk_start = time.monotonic()
+            chunk_bytes = 0
+
+            with open(self.target_path, "wb") as f:
+                for chunk in self._response.iter_content(DOWNLOAD_CHUNK_SIZE):
+                    if self._cancelled:
+                        self._cleanup_partial()
+                        self.error.emit("Download cancelled by user.")
+                        return
+                    f.write(chunk)
+                    received += len(chunk)
+                    chunk_bytes += len(chunk)
+
+                    now = time.monotonic()
+                    if now - last_signal_time >= PROGRESS_SIGNAL_INTERVAL:
+                        self.bytes_received.emit(received, total)
+                        if total > 0:
+                            self.progress.emit(min(int(received / total * 100), 99))
+                        last_signal_time = now
+
+                    if self.bandwidth_limit > 0:
+                        elapsed = time.monotonic() - chunk_start
+                        min_elapsed = chunk_bytes / self.bandwidth_limit
+                        if min_elapsed > elapsed:
+                            time.sleep(min_elapsed - elapsed)
+                        chunk_start = time.monotonic()
+                        chunk_bytes = 0
+
+            self.progress.emit(100)
+            self.finished.emit(self.target_path)
+
+        except requests.exceptions.RequestException as e:
+            logger.error("Network error during update download: %s", e)
+            self._cleanup_partial()
+            if self._cancelled:
+                self.error.emit("Download cancelled by user.")
+            else:
+                self.error.emit(f"Network error: {e}")
+        except OSError as e:
+            logger.error("Error writing update file: %s", e)
+            self._cleanup_partial()
+            self.error.emit(str(e))
+
+    def stop(self) -> None:
+        """Stops the download and removes the partial file."""
+        self._cancelled = True
+        if self._response:
+            self._response.close()
+
+    def _cleanup_partial(self) -> None:
+        try:
+            if os.path.exists(self.target_path):
+                os.remove(self.target_path)
+        except OSError:
+            pass
+
+
+class FlatpakInstallWorker(QThread):
+    """Runs the flatpak install command off the GUI thread."""
+
+    finished = pyqtSignal(bool, str)  # (success, output)
+
+    def __init__(self, flatpak_path: str) -> None:
+        """Initialize the installer.
+
+        Args:
+            flatpak_path: Path to the downloaded .flatpak bundle.
+        """
+        super().__init__()
+        self.flatpak_path = flatpak_path
+
+    def run(self) -> None:
+        success, output = install_flatpak(self.flatpak_path)
+        self.finished.emit(success, output)

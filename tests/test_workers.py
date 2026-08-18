@@ -162,3 +162,119 @@ class TestProcessMonitorWorker:
             worker = ProcessMonitorWorker(pid=0)
             worker.run()
         assert "Invalid PID" in caplog.text
+
+
+class TestUpdateCheckWorker:
+    def test_emits_release_on_success(self):
+        from gameyfin_frontend.workers import UpdateCheckWorker
+
+        release = {"tag_name": "v2.9.4"}
+        results = []
+        worker = UpdateCheckWorker()
+        worker.finished.connect(lambda r, e: results.append((r, e)))
+        with patch("gameyfin_frontend.workers.check_latest_release", return_value=release):
+            worker.run()
+        assert results == [(release, "")]
+
+    def test_emits_error_on_request_failure(self, caplog):
+        import requests
+        from gameyfin_frontend.workers import UpdateCheckWorker
+
+        results = []
+        worker = UpdateCheckWorker()
+        worker.finished.connect(lambda r, e: results.append((r, e)))
+        with patch(
+            "gameyfin_frontend.workers.check_latest_release",
+            side_effect=requests.exceptions.ConnectionError("no network"),
+        ):
+            worker.run()
+        assert results == [(None, "no network")]
+        assert "Update check failed" in caplog.text
+
+
+class TestUpdateDownloadWorker:
+    def test_worker_initializes(self):
+        from gameyfin_frontend.workers import UpdateDownloadWorker
+
+        worker = UpdateDownloadWorker("http://example.com/f.flatpak", "/tmp/f.flatpak")
+        assert worker.url == "http://example.com/f.flatpak"
+        assert worker.target_path == "/tmp/f.flatpak"
+        assert worker.bandwidth_limit == 0
+        assert worker._cancelled is False
+
+    def test_run_downloads_file_with_progress(self, tmp_path):
+        from gameyfin_frontend.workers import UpdateDownloadWorker
+
+        target = str(tmp_path / "bundle.flatpak")
+        payload = b"x" * 200000
+        mock_response = MagicMock()
+        mock_response.iter_content.return_value = iter([payload])
+        mock_response.headers = {"content-length": str(len(payload))}
+        mock_response.raise_for_status = MagicMock()
+
+        progress_values = []
+        worker = UpdateDownloadWorker("http://example.com/f.flatpak", target)
+        worker.progress.connect(progress_values.append)
+        finished_paths = []
+        worker.finished.connect(finished_paths.append)
+
+        with patch("gameyfin_frontend.workers.requests.get", return_value=mock_response):
+            worker.run()
+
+        assert finished_paths == [target]
+        assert progress_values[-1] == 100
+        with open(target, "rb") as f:
+            assert f.read() == payload
+
+    def test_stop_cancels_and_cleans_up(self, tmp_path):
+        from gameyfin_frontend.workers import UpdateDownloadWorker
+
+        target = str(tmp_path / "bundle.flatpak")
+        with open(target, "wb") as f:
+            f.write(b"partial")
+
+        worker = UpdateDownloadWorker("http://example.com/f.flatpak", target)
+        worker._response = MagicMock()
+        worker.stop()
+        assert worker._cancelled is True
+        worker._response.close.assert_called_once()
+        worker._cleanup_partial()
+        assert not os.path.exists(target)
+
+    def test_request_error_emits_error(self, tmp_path, caplog):
+        import requests
+        from gameyfin_frontend.workers import UpdateDownloadWorker
+
+        target = str(tmp_path / "bundle.flatpak")
+        errors = []
+        worker = UpdateDownloadWorker("http://example.com/f.flatpak", target)
+        worker.error.connect(errors.append)
+        with patch(
+            "gameyfin_frontend.workers.requests.get",
+            side_effect=requests.exceptions.ConnectionError("down"),
+        ):
+            worker.run()
+        assert errors == ["Network error: down"]
+        assert "update download" in caplog.text.lower()
+
+
+class TestFlatpakInstallWorker:
+    def test_emits_success(self):
+        from gameyfin_frontend.workers import FlatpakInstallWorker
+
+        results = []
+        worker = FlatpakInstallWorker("/tmp/f.flatpak")
+        worker.finished.connect(lambda ok, out: results.append((ok, out)))
+        with patch("gameyfin_frontend.workers.install_flatpak", return_value=(True, "ok")):
+            worker.run()
+        assert results == [(True, "ok")]
+
+    def test_emits_failure(self):
+        from gameyfin_frontend.workers import FlatpakInstallWorker
+
+        results = []
+        worker = FlatpakInstallWorker("/tmp/f.flatpak")
+        worker.finished.connect(lambda ok, out: results.append((ok, out)))
+        with patch("gameyfin_frontend.workers.install_flatpak", return_value=(False, "boom")):
+            worker.run()
+        assert results == [(False, "boom")]

@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QFormLayout, QL
 from PyQt6.QtCore import Qt
 from qt_material import list_themes
 from .settings import SettingsManager
+from .dialogs import UpdateDialog
 
 
 class SettingsWidget(QWidget):
@@ -173,10 +174,18 @@ class SettingsWidget(QWidget):
 
         self.layout.addLayout(self.form_layout)
 
+        button_row = QHBoxLayout()
         self.save_button = QPushButton("Save and Apply")
         self.save_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.save_button.clicked.connect(self.save_settings)
-        self.layout.addWidget(self.save_button)
+        button_row.addWidget(self.save_button)
+
+        self.update_button = QPushButton("Check for Updates")
+        self.update_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.update_button.clicked.connect(self.check_for_updates)
+        button_row.addWidget(self.update_button)
+
+        self.layout.addLayout(button_row)
 
         self.layout.addStretch()
 
@@ -190,6 +199,7 @@ class SettingsWidget(QWidget):
             self.gamepad_repeat_spin,
             self.gamepad_scroll_spin,
             self.save_button,
+            self.update_button,
         ]
         for first, second in zip(chain, chain[1:]):
             QWidget.setTabOrder(first, second)
@@ -254,6 +264,11 @@ class SettingsWidget(QWidget):
             self.window().apply_settings()
 
         QMessageBox.information(self, "Settings Saved", "Settings have been saved and applied.")
+
+    def check_for_updates(self):
+        """Open the update dialog that checks GitHub and can install the latest release."""
+        dialog = UpdateDialog(self, self.settings)
+        dialog.exec()
 
     def _update_bandwidth_label(self, value: int) -> None:
         """Update the bandwidth label to show human-readable speed."""

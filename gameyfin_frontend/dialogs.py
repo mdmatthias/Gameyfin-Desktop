@@ -7,18 +7,29 @@ from os import getenv
 from os.path import relpath
 from typing import Any
 
-from PyQt6.QtCore import pyqtSlot, QEvent, QTimer, Qt
-from PyQt6.QtGui import QPainter, QColor, QShowEvent
+from PyQt6.QtCore import pyqtSlot, QEvent, QTimer, Qt, QUrl
+from PyQt6.QtGui import QPainter, QColor, QShowEvent, QDesktopServices
 from PyQt6.QtWidgets import (
     QVBoxLayout, QFormLayout, QCheckBox, QLineEdit, QPushButton, QStyle,
     QHBoxLayout, QWidget, QComboBox, QPlainTextEdit, QDialogButtonBox,
-    QLabel, QDialog, QMessageBox, QListWidget, QScrollArea
+    QLabel, QDialog, QMessageBox, QListWidget, QScrollArea, QProgressBar,
 )
 
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.settings import SettingsManager
-from gameyfin_frontend.utils import parse_desktop_file
+from gameyfin_frontend.utils import parse_desktop_file, format_size
 from gameyfin_frontend.config import DEFAULT_PROTON, UMU_RUN_CMD
+from gameyfin_frontend.services.update_service import (
+    can_auto_update,
+    compare_versions,
+    get_current_version,
+    get_download_dir,
+    get_update_asset,
+    is_running_in_flatpak,
+)
+from gameyfin_frontend.workers import (
+    FlatpakInstallWorker, UpdateCheckWorker, UpdateDownloadWorker
+)
 
 logger = logging.getLogger(__name__)
 
@@ -871,3 +882,311 @@ class _SpinnerWidget(QWidget):
             return
         self._angle = (self._angle + 4) % 360
         self.update()
+
+
+class UpdateDialog(QDialog):
+    """Check GitHub for a newer release, then download and install it.
+
+    Flow: checking → up-to-date / update available → downloading (with
+    progress) → installing (Flatpak only) → done.  Non-Flatpak platforms
+    (Windows, source Linux) see a link to the releases page instead of
+    a download button.  The download button only appears for Flatpak
+    installs, which can install the downloaded bundle automatically.
+    """
+
+    def __init__(self, parent: QWidget | None = None, settings: SettingsManager | None = None):
+        """Open the update dialog and immediately start the release check.
+
+        Args:
+            parent: Parent widget.
+            settings: SettingsManager instance (bandwidth limit, config dir).
+        """
+        super().__init__(parent)
+        self.settings = settings
+        self.setWindowTitle("Check for Updates")
+        self.setMinimumWidth(440)
+
+        self._state = "checking"
+        self._check_worker = None
+        self._download_worker = None
+        self._install_worker = None
+        self._release: dict | None = None
+        self._asset: dict | None = None
+        self._downloaded_path: str | None = None
+        self._releases_url: str = ""
+
+        main_layout = QVBoxLayout(self)
+
+        self.status_label = QLabel()
+        self.status_label.setWordWrap(True)
+        main_layout.addWidget(self.status_label)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(False)
+        main_layout.addWidget(self.progress_bar)
+
+        self.detail_label = QLabel("")
+        self.detail_label.setVisible(False)
+        main_layout.addWidget(self.detail_label)
+
+        self.button_box = QDialogButtonBox()
+        self.ok_button = self.button_box.addButton(QDialogButtonBox.StandardButton.Ok)
+        self.cancel_button = self.button_box.addButton(QDialogButtonBox.StandardButton.Cancel)
+        self.button_box.accepted.connect(self._on_accepted)
+        self.button_box.rejected.connect(self._on_rejected)
+        main_layout.addWidget(self.button_box)
+
+        self.releases_button = QPushButton("View release page on GitHub")
+        self.releases_button.setVisible(False)
+        self.releases_button.clicked.connect(self._open_releases_page)
+        main_layout.addWidget(self.releases_button)
+
+        self._set_state("checking")
+        self._start_check()
+
+    # -- state machine -------------------------------------------------------
+
+    def _set_state(self, state: str) -> None:
+        """Update the status label buttons and progress visibility."""
+        self._state = state
+
+        if state == "checking":
+            self.status_label.setText("Checking for updates…")
+            self.ok_button.setText("OK")
+            self.ok_button.setEnabled(False)
+            self.cancel_button.setVisible(True)
+            self.cancel_button.setEnabled(True)
+            self.progress_bar.setVisible(False)
+            self.detail_label.setVisible(False)
+            self.releases_button.setVisible(False)
+        elif state == "up_to_date":
+            self.ok_button.setText("OK")
+            self.ok_button.setEnabled(True)
+            self.ok_button.setDefault(True)
+            self.cancel_button.setVisible(False)
+            self.progress_bar.setVisible(False)
+            self.detail_label.setVisible(False)
+            self.releases_button.setVisible(False)
+        elif state == "update_available":
+            self.ok_button.setText("Update")
+            self.ok_button.setEnabled(True)
+            self.ok_button.setDefault(True)
+            self.cancel_button.setVisible(True)
+            self.cancel_button.setEnabled(True)
+            self.progress_bar.setVisible(False)
+            self.detail_label.setVisible(False)
+            self.releases_button.setVisible(False)
+        elif state == "update_available_external":
+            self.ok_button.setText("OK")
+            self.ok_button.setEnabled(True)
+            self.ok_button.setDefault(True)
+            self.cancel_button.setVisible(False)
+            self.progress_bar.setVisible(False)
+            self.detail_label.setVisible(False)
+            self.releases_button.setVisible(True)
+        elif state == "downloading":
+            self.ok_button.setVisible(False)
+            self.cancel_button.setVisible(True)
+            self.cancel_button.setEnabled(True)
+            self.progress_bar.setRange(0, 100)
+            self.progress_bar.setValue(0)
+            self.progress_bar.setVisible(True)
+            self.detail_label.setText("")
+            self.detail_label.setVisible(True)
+            self.releases_button.setVisible(False)
+        elif state == "installing":
+            self.ok_button.setVisible(False)
+            self.cancel_button.setVisible(True)
+            self.cancel_button.setEnabled(False)
+            self.progress_bar.setRange(0, 0)  # busy indicator
+            self.progress_bar.setVisible(True)
+            self.detail_label.setVisible(False)
+            self.releases_button.setVisible(False)
+        else:  # done / error
+            self.ok_button.setVisible(True)
+            self.ok_button.setText("OK")
+            self.ok_button.setEnabled(True)
+            self.ok_button.setDefault(True)
+            self.cancel_button.setVisible(False)
+            self.progress_bar.setRange(0, 100)
+            self.progress_bar.setVisible(False)
+            self.detail_label.setVisible(False)
+            self.releases_button.setVisible(False)
+
+    # -- check phase ---------------------------------------------------------
+
+    def _start_check(self) -> None:
+        self._check_worker = UpdateCheckWorker()
+        self._check_worker.finished.connect(self._on_check_finished)
+        self._check_worker.start()
+
+    @pyqtSlot(object, str)
+    def _on_check_finished(self, release, error: str) -> None:
+        if error:
+            self.status_label.setText(f"Could not check for updates:\n\n{error}")
+            self._set_state("error")
+            return
+
+        self._release = release
+        latest = release.get("tag_name", "").lstrip("vV")
+        current = get_current_version()
+        if compare_versions(latest, current) <= 0:
+            self.status_label.setText(
+                f"You're up to date.\n\n"
+                f"Current version: {current}\n"
+                f"Latest release: {latest}"
+            )
+            self._set_state("up_to_date")
+            return
+
+        self._asset = get_update_asset(release)
+        if self._asset is None:
+            self.status_label.setText(
+                f"Update {latest} is available, but no download suitable for "
+                "this platform was found.\n\n"
+                "Download it manually from the releases page."
+            )
+            self._set_state("error")
+            return
+
+        if not can_auto_update():
+            tag = release.get("tag_name", latest)
+            self._releases_url = release.get("html_url", "")
+            self.status_label.setText(
+                f"Update {latest} is available (current: {current})."
+            )
+            self._set_state("update_available_external")
+            return
+
+        self.status_label.setText(
+            f"Update available: {latest} (current: {current})\n\n"
+            "Download and install now?"
+        )
+        self._set_state("update_available")
+
+    # -- download phase ------------------------------------------------------
+
+    def _start_download(self) -> None:
+        url = self._asset.get("browser_download_url", "")
+        file_name = self._asset.get("name", "update")
+        config_dir = self.settings.get_config_dir() if self.settings else os.getcwd()
+        download_dir = get_download_dir(config_dir)
+        os.makedirs(download_dir, exist_ok=True)
+        target_path = os.path.join(download_dir, file_name)
+
+        bandwidth_limit = 0
+        if self.settings:
+            try:
+                bandwidth_limit = int(self.settings.get("GF_BANDWIDTH_LIMIT", 0) or 0)
+            except (TypeError, ValueError):
+                bandwidth_limit = 0
+
+        self.status_label.setText(f"Downloading {file_name}…")
+        self._set_state("downloading")
+
+        self._download_worker = UpdateDownloadWorker(url, target_path, bandwidth_limit)
+        self._download_worker.progress.connect(self._on_download_progress)
+        self._download_worker.bytes_received.connect(self._on_download_bytes)
+        self._download_worker.finished.connect(self._on_download_finished)
+        self._download_worker.error.connect(self._on_download_error)
+        self._download_worker.start()
+
+    @pyqtSlot(int)
+    def _on_download_progress(self, value: int) -> None:
+        self.progress_bar.setValue(value)
+
+    @pyqtSlot("long long", "long long")
+    def _on_download_bytes(self, received: int, total: int) -> None:
+        if total > 0:
+            self.detail_label.setText(f"{format_size(received)} / {format_size(total)}")
+        else:
+            self.detail_label.setText(format_size(received))
+
+    @pyqtSlot(str)
+    def _on_download_finished(self, path: str) -> None:
+        self._downloaded_path = path
+        if is_running_in_flatpak():
+            self.status_label.setText("Installing update…")
+            self._set_state("installing")
+            self._install_worker = FlatpakInstallWorker(path)
+            self._install_worker.finished.connect(self._on_install_finished)
+            self._install_worker.start()
+        else:
+            self.status_label.setText(
+                "Update downloaded successfully.\n\n"
+                f"Close the app and run {os.path.basename(path)} to finish updating."
+            )
+            self._set_state("done")
+
+    @pyqtSlot(str)
+    def _on_download_error(self, message: str) -> None:
+        self.status_label.setText(f"Download failed:\n\n{message}")
+        self._set_state("error")
+
+    # -- install phase -------------------------------------------------------
+
+    @pyqtSlot(bool, str)
+    def _on_install_finished(self, success: bool, output: str) -> None:
+        if success:
+            self._remove_downloaded_file()
+            self.status_label.setText(
+                "Update installed successfully.\n\nPlease restart the app."
+            )
+            self._set_state("done")
+        else:
+            self.status_label.setText(
+                "Installation failed:\n\n"
+                f"{output or 'Unknown error'}\n\n"
+                f"The file was saved to {self._downloaded_path} — "
+                "you can install it manually."
+            )
+            self._set_state("error")
+
+    def _remove_downloaded_file(self) -> None:
+        if not self._downloaded_path:
+            return
+        try:
+            os.remove(self._downloaded_path)
+        except OSError:
+            pass
+        self._downloaded_path = None
+
+    @pyqtSlot()
+    def _open_releases_page(self) -> None:
+        if self._releases_url:
+            QDesktopServices.openUrl(QUrl(self._releases_url))
+
+    # -- dialog buttons ------------------------------------------------------
+
+    @pyqtSlot()
+    def _on_accepted(self) -> None:
+        if self._state == "update_available":
+            self._start_download()
+        elif self._state == "update_available_external" and self._releases_url:
+            QDesktopServices.openUrl(QUrl(self._releases_url))
+            self.accept()
+        else:
+            self.accept()
+
+    @pyqtSlot()
+    def _on_rejected(self) -> None:
+        if self._state == "downloading" and self._download_worker:
+            self._download_worker.stop()
+        self._cleanup_workers()
+        self.reject()
+
+    def _cleanup_workers(self) -> None:
+        for worker in (self._check_worker, self._download_worker, self._install_worker):
+            if worker is not None:
+                worker.wait(3000)
+        self._check_worker = None
+        self._download_worker = None
+        self._install_worker = None
+
+    def closeEvent(self, event) -> None:  # noqa: ANN001
+        if self._state == "downloading" and self._download_worker:
+            self._download_worker.stop()
+        self._cleanup_workers()
+        super().closeEvent(event)

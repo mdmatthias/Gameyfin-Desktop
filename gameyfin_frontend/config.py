@@ -1,5 +1,12 @@
 """Centralized constants for the Gameyfin application."""
 
+# Application version — bump on each release
+APP_VERSION = "2.9.8"
+
+# GitHub repository used for update checks
+GITHUB_REPO = "mdmatthias/Gameyfin-Desktop"
+GITHUB_LATEST_RELEASE_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+
 # Proton version used when no user preference is set
 DEFAULT_PROTON = "GE-Proton"
 

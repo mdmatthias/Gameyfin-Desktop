@@ -81,6 +81,17 @@
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="2.9.8" date="2026-08-17">
+             <description>
+                <ul>
+                    <li>Update dependencies</li>
+                    <li>(Linux) show umu-run output in logs</li>
+                    <li>(Linux) sanitize scripts/prefixes special chars that could prevent games from launching</li>
+                    <li>(Linux) set correct encoding for running games with special chars in their installation path</li>
+                    <li>(Linux) check for updates button for Flatpak (release 2.9.9 coming soon to actually test this)</li>
+                </ul>
+            </description>
+        </release>
         <release version="2.9.7-dev" date="2026-08-16">
         </release>
         <release version="2.9.6-dev" date="2026-08-16">
