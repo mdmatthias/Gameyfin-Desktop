@@ -894,12 +894,14 @@ class UpdateDialog(QDialog):
     installs, which can install the downloaded bundle automatically.
     """
 
-    def __init__(self, parent: QWidget | None = None, settings: SettingsManager | None = None):
+    def __init__(self, parent: QWidget | None = None, settings: SettingsManager | None = None, release: dict | None = None):
         """Open the update dialog and immediately start the release check.
 
         Args:
             parent: Parent widget.
             settings: SettingsManager instance (bandwidth limit, config dir).
+            release: A release dict already fetched by the caller. When given,
+                the dialog skips its own check and uses this data directly.
         """
         super().__init__(parent)
         self.settings = settings
@@ -944,7 +946,10 @@ class UpdateDialog(QDialog):
         main_layout.addWidget(self.releases_button)
 
         self._set_state("checking")
-        self._start_check()
+        if release is not None:
+            self._on_check_finished(release, "")
+        else:
+            self._start_check()
 
     # -- state machine -------------------------------------------------------
 

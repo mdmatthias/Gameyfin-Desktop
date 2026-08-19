@@ -5,6 +5,20 @@ from unittest.mock import MagicMock, patch, PropertyMock
 import pytest
 
 
+class FakeSignal:
+    """Minimal stand-in for a pyqtSignal that emits synchronously."""
+
+    def __init__(self):
+        self._handlers = []
+
+    def connect(self, handler):
+        self._handlers.append(handler)
+
+    def emit(self, *args):
+        for handler in list(self._handlers):
+            handler(*args)
+
+
 @pytest.fixture()
 def mock_umu_database():
     """Return a mock UmuDatabase."""
@@ -183,6 +197,14 @@ class TestCustomWebEnginePage:
 
 
 class TestGameyfinWindow:
+    @pytest.fixture(autouse=True)
+    def _no_real_update_check(self, monkeypatch):
+        """Keep async loadFinished from starting a real GitHub update check."""
+        fake_cls, _ = self._make_fake_check_worker()
+        monkeypatch.setattr(
+            "gameyfin_frontend.gameyfin_window.UpdateCheckWorker", fake_cls
+        )
+
     def _make_window(self, qtbot, mock_umu_database, mock_settings):
         """Helper to create a GameyfinWindow with all necessary patches."""
         from PyQt6.QtGui import QIcon
@@ -292,3 +314,85 @@ class TestGameyfinWindow:
         window.tab_widget.addTab(external_view, "External")
         window.redirect_to_main_tab(QUrl("http://localhost/new"))
         assert window.tab_widget.currentIndex() == 0
+
+    def _make_fake_check_worker(self, release=None, error=""):
+        """Build a fake UpdateCheckWorker class with the given outcome."""
+        instances = []
+
+        class FakeCheckWorker:
+            def __init__(self):
+                self.finished = FakeSignal()
+                self._release = release
+                self._error = error
+                instances.append(self)
+
+            def start(self):
+                pass
+
+            def wait(self, timeout=0):
+                return True
+
+        return FakeCheckWorker, instances
+
+    def test_load_finished_starts_update_check(self, qtbot, mock_umu_database, mock_settings):
+        window = self._make_window(qtbot, mock_umu_database, mock_settings)
+        window.show()
+        fake_cls, instances = self._make_fake_check_worker()
+        with patch("gameyfin_frontend.gameyfin_window.UpdateCheckWorker", fake_cls):
+            window._on_load_finished(True)
+        assert len(instances) == 1
+        assert window._initial_load_complete
+
+    def test_load_finished_only_checks_once(self, qtbot, mock_umu_database, mock_settings):
+        window = self._make_window(qtbot, mock_umu_database, mock_settings)
+        window.show()
+        fake_cls, instances = self._make_fake_check_worker()
+        with patch("gameyfin_frontend.gameyfin_window.UpdateCheckWorker", fake_cls):
+            window._on_load_finished(True)
+            window._on_load_finished(True)
+        assert len(instances) == 1
+
+    def test_startup_update_check_opens_dialog_for_new_release(self, qtbot, mock_umu_database, mock_settings):
+        window = self._make_window(qtbot, mock_umu_database, mock_settings)
+        window.show()
+        release = {"tag_name": "v9.9.9", "assets": []}
+        fake_cls, instances = self._make_fake_check_worker(release=release)
+        with patch("gameyfin_frontend.gameyfin_window.UpdateCheckWorker", fake_cls):
+            with patch("gameyfin_frontend.gameyfin_window.UpdateDialog") as mock_dialog_cls:
+                window._on_load_finished(True)
+                instances[0].finished.emit(release, "")
+        mock_dialog_cls.assert_called_once_with(window, window.settings, release=release)
+        mock_dialog_cls.return_value.exec.assert_called_once()
+
+    def test_startup_update_check_silent_when_up_to_date(self, qtbot, mock_umu_database, mock_settings):
+        window = self._make_window(qtbot, mock_umu_database, mock_settings)
+        window.show()
+        release = {"tag_name": "v1.0.0", "assets": []}
+        fake_cls, instances = self._make_fake_check_worker(release=release)
+        with patch("gameyfin_frontend.gameyfin_window.UpdateCheckWorker", fake_cls):
+            with patch("gameyfin_frontend.gameyfin_window.UpdateDialog") as mock_dialog_cls:
+                window._on_load_finished(True)
+                instances[0].finished.emit(release, "")
+        mock_dialog_cls.assert_not_called()
+
+    def test_startup_update_check_silent_on_error(self, qtbot, mock_umu_database, mock_settings):
+        window = self._make_window(qtbot, mock_umu_database, mock_settings)
+        window.show()
+        fake_cls, instances = self._make_fake_check_worker(error="connection refused")
+        with patch("gameyfin_frontend.gameyfin_window.UpdateCheckWorker", fake_cls):
+            with patch("gameyfin_frontend.gameyfin_window.UpdateDialog") as mock_dialog_cls:
+                window._on_load_finished(True)
+                instances[0].finished.emit(None, "connection refused")
+        mock_dialog_cls.assert_not_called()
+
+    def test_startup_update_check_skipped_when_hidden(self, qtbot, mock_umu_database, mock_settings):
+        window = self._make_window(qtbot, mock_umu_database, mock_settings)
+        window.show()
+        window.hide()
+        release = {"tag_name": "v9.9.9", "assets": []}
+        fake_cls, instances = self._make_fake_check_worker(release=release)
+        with patch("gameyfin_frontend.gameyfin_window.UpdateCheckWorker", fake_cls):
+            with patch("gameyfin_frontend.gameyfin_window.UpdateDialog") as mock_dialog_cls:
+                window._on_load_finished(True)
+                instances[0].finished.emit(release, "")
+        mock_dialog_cls.assert_not_called()

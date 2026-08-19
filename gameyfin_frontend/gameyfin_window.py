@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QMainWindow, QFileDialog, QTabWidget, QApplication,
                              QVBoxLayout, QWidget)
 from PyQt6.QtGui import QCloseEvent, QDesktopServices
 from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtCore import QUrl, QStandardPaths, pyqtSignal, Qt
+from PyQt6.QtCore import QUrl, QStandardPaths, pyqtSignal, pyqtSlot, Qt
 from PyQt6.QtWebEngineCore import (QWebEngineScript,
                                    QWebEngineDownloadRequest, QWebEngineProfile, QWebEngineSettings, QWebEnginePage)
 
@@ -17,7 +17,9 @@ from gameyfin_frontend.widgets.download_manager import DownloadManagerWidget
 from gameyfin_frontend.widgets.prefix_manager import PrefixManagerWidget
 from gameyfin_frontend.widgets.loading_overlay import LoadingOverlay
 from gameyfin_frontend.widgets.gamepad_hud import GamepadHintBar
-from gameyfin_frontend.workers import StreamDownloadWorker
+from gameyfin_frontend.dialogs import UpdateDialog
+from gameyfin_frontend.workers import StreamDownloadWorker, UpdateCheckWorker
+from gameyfin_frontend.services.update_service import compare_versions, get_current_version
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.utils import sanitize_name
 
@@ -220,6 +222,7 @@ class GameyfinWindow(QMainWindow):
         self._loading_overlay = LoadingOverlay(self, app_icon)
         self._position_overlay()
         self._initial_load_complete = False
+        self._update_check_worker = None
         self.browser.loadStarted.connect(self._on_load_started)
         self.browser.loadFinished.connect(self._on_load_finished)
 
@@ -426,6 +429,29 @@ class GameyfinWindow(QMainWindow):
         if not self._initial_load_complete:
             self._initial_load_complete = True
             self._loading_overlay.hide_overlay()
+            self._check_for_updates_on_startup()
+
+    def _check_for_updates_on_startup(self) -> None:
+        """Check GitHub for a newer release once the initial load is done.
+
+        Only opens the update dialog when a newer release exists; network
+        errors and up-to-date results are silently ignored.
+        """
+        self._update_check_worker = UpdateCheckWorker()
+        self._update_check_worker.finished.connect(self._on_startup_update_check)
+        self._update_check_worker.start()
+
+    @pyqtSlot(object, str)
+    def _on_startup_update_check(self, release, error: str) -> None:
+        """Open the update dialog when the startup check found a newer release."""
+        self._update_check_worker = None
+        if error or not release or not self.isVisible():
+            return
+        latest = release.get("tag_name", "").lstrip("vV")
+        if compare_versions(latest, get_current_version()) <= 0:
+            return
+        dialog = UpdateDialog(self, self.settings, release=release)
+        dialog.exec()
 
     def resizeEvent(self, event: Any) -> None:  # type: ignore[override]
         """Reposition the overlay on window resize."""
@@ -468,6 +494,9 @@ class GameyfinWindow(QMainWindow):
             gamepad = getattr(self, "gamepad", None)
             if gamepad is not None:
                 gamepad.stop()
+            if self._update_check_worker is not None:
+                self._update_check_worker.wait(3000)
+                self._update_check_worker = None
             self.download_manager.close()
             self.browser.setPage(None)
             self.browser.deleteLater()

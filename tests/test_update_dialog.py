@@ -129,6 +129,40 @@ class TestUpdateDialogCheckPhase:
         assert "no download suitable" in dialog.status_label.text()
 
 
+class TestUpdateDialogPrefetchedRelease:
+    def test_prefetched_release_skips_check(self, qtbot):
+        from gameyfin_frontend.dialogs import UpdateDialog
+
+        release = make_release("v9.9.9")
+        with patch("gameyfin_frontend.dialogs.UpdateCheckWorker") as mock_worker_cls, \
+                patch("gameyfin_frontend.dialogs.can_auto_update", return_value=True):
+            dialog = UpdateDialog(release=release)
+            qtbot.addWidget(dialog)
+        mock_worker_cls.assert_not_called()
+        assert dialog._state == "update_available"
+        assert "Update available: 9.9.9 (current: " in dialog.status_label.text()
+
+    def test_prefetched_release_up_to_date(self, qtbot):
+        from gameyfin_frontend.dialogs import UpdateDialog
+
+        release = make_release("v2.0.0")
+        with patch("gameyfin_frontend.dialogs.UpdateCheckWorker") as mock_worker_cls:
+            dialog = UpdateDialog(release=release)
+            qtbot.addWidget(dialog)
+        mock_worker_cls.assert_not_called()
+        assert dialog._state == "up_to_date"
+
+    def test_prefetched_release_missing_asset_shows_error(self, qtbot):
+        from gameyfin_frontend.dialogs import UpdateDialog
+
+        release = {"tag_name": "v9.9.9", "assets": []}
+        with patch("gameyfin_frontend.dialogs.UpdateCheckWorker") as mock_worker_cls:
+            dialog = UpdateDialog(release=release)
+            qtbot.addWidget(dialog)
+        mock_worker_cls.assert_not_called()
+        assert dialog._state == "error"
+
+
 class TestUpdateDialogDownloadFlow:
     def _fake_download_worker(self, tmp_path, emit_finished=True, emit_error=None):
         """Build a fake UpdateDownloadWorker that records calls and emits outcomes."""

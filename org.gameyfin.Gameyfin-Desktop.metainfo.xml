@@ -81,6 +81,18 @@
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="2.9.9" date="2026-08-19">
+            <description>
+                <ul>
+                    <li>
+                        <strong>Update notification on startup:</strong>
+                        The app now checks for new releases after the initial load
+                        and shows the update dialog automatically when a newer
+                        version is available. Nothing is shown when you are up to date.
+                    </li>
+                </ul>
+            </description>
+        </release>
         <release version="2.9.8" date="2026-08-18">
             <description>
                 <ul>
