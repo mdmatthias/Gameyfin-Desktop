@@ -4,22 +4,26 @@ import sys
 from typing import Any
 
 from PyQt6.QtWidgets import (QMainWindow, QFileDialog, QTabWidget, QApplication, QTabBar,
-                             QVBoxLayout, QWidget)
+                             QStackedWidget, QVBoxLayout, QWidget)
 from PyQt6.QtGui import QCloseEvent, QDesktopServices
 from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtCore import QUrl, QStandardPaths, pyqtSignal, pyqtSlot, Qt
+from PyQt6.QtCore import QUrl, QStandardPaths, QTimer, pyqtSignal, pyqtSlot, Qt
 from PyQt6.QtWebEngineCore import (QWebEngineScript,
                                    QWebEngineDownloadRequest, QWebEngineProfile, QWebEngineSettings, QWebEnginePage)
 
 from qt_material import apply_stylesheet
 
 from gameyfin_frontend.widgets.download_manager import DownloadManagerWidget
+from gameyfin_frontend.widgets.library_browser import LibraryBrowserWidget
 from gameyfin_frontend.widgets.prefix_manager import PrefixManagerWidget
 from gameyfin_frontend.widgets.loading_overlay import LoadingOverlay
 from gameyfin_frontend.widgets.gamepad_hud import GamepadHintBar
 from gameyfin_frontend.dialogs import UpdateDialog
 from gameyfin_frontend.workers import StreamDownloadWorker, UpdateCheckWorker
 from gameyfin_frontend.services.update_service import compare_versions, get_current_version
+from gameyfin_frontend.services.gameyfin_api import GameyfinApiClient
+from gameyfin_frontend.services.image_cache import ImageCache
+from gameyfin_frontend.services.webview_rpc import WebViewRpc
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.utils import sanitize_name
 
@@ -29,7 +33,8 @@ from .gamepad_webnav import build_nav_script
 from .settings_widget import SettingsWidget
 from .settings import SettingsManager
 from .utils import get_effective_icon, parse_size
-from .config import FIXED_TAB_COUNT
+from .config import (FIXED_TAB_COUNT, NATIVE_UI_COOKIE_DEBOUNCE_MS,
+                     NATIVE_UI_PROBE_INTERVAL_MS)
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +169,70 @@ class GameyfinWindow(QMainWindow):
         # --- Settings Setup ---
         self.settings_widget = SettingsWidget(self, self.settings)
 
+        # --- Native library UI (feature-flagged) ---
+        self.api_client: GameyfinApiClient | None = None
+        self.image_cache: ImageCache | None = None
+        self.library_browser: LibraryBrowserWidget | None = None
+        if self._native_ui_requested():
+            self._build_native_ui()
+
+    def _current_page(self) -> QWebEnginePage | None:
+        """Return the main web view's page, or None while it is being torn down."""
+        browser = getattr(self, "browser", None)
+        if browser is None:
+            return None
+        try:
+            return browser.page()
+        except RuntimeError:
+            return None
+
+    def _native_ui_requested(self) -> bool:
+        """Return True when the native library UI is enabled in settings."""
+        value = self.settings.get("GF_NATIVE_UI") or 0
+        if isinstance(value, str):
+            return value.strip().lower() in ("1", "true", "yes", "on")
+        return bool(value)
+
+    def _build_native_ui(self) -> None:
+        """Construct the API client, artwork cache and library browser once.
+
+        The web view stays alive next to the browser in the main stack because
+        login (including SSO) still happens there; it is shown only while the
+        API reports us as unauthenticated.
+        """
+        if self.library_browser is not None:
+            return
+
+        # RPC calls run inside the logged-in page: the browser then attaches the
+        # exact cookies and CSRF token the working web app uses, which a mirrored
+        # cookie jar cannot always reproduce (scoped session cookies, or a token
+        # that only exists in the document).
+        self.webview_rpc = WebViewRpc(self._current_page, parent=self)
+        self.api_client = GameyfinApiClient(
+            self.settings,
+            cookie_provider=lambda: dict(self._cookies),
+            rpc_transport=self.webview_rpc,
+        )
+        self.image_cache = ImageCache(self.api_client, self.settings, self)
+        self.library_browser = LibraryBrowserWidget(
+            self.api_client, self.image_cache, self.settings, self
+        )
+        self.library_browser.download_requested.connect(self._on_native_download_requested)
+        self.library_browser.login_required.connect(self._on_native_login_required)
+        self.library_browser.library_loaded.connect(self._on_native_library_loaded)
+
+        # Gameyfin completes login through client-side routing, so waiting for a
+        # page load is not enough: poll until the API answers as authenticated.
+        self._native_probe_timer = QTimer(self)
+        self._native_probe_timer.setInterval(NATIVE_UI_PROBE_INTERVAL_MS)
+        self._native_probe_timer.timeout.connect(self._probe_native_ui)
+        # New cookies (i.e. a finished login) trigger a probe straight away
+        self._native_cookie_timer = QTimer(self)
+        self._native_cookie_timer.setSingleShot(True)
+        self._native_cookie_timer.setInterval(NATIVE_UI_COOKIE_DEBOUNCE_MS)
+        self._native_cookie_timer.timeout.connect(self._probe_native_ui)
+        self.browser.urlChanged.connect(lambda _: self._probe_native_ui())
+
     def _setup_tabs(self) -> None:
         """Initialize the tab widget and add all tabs."""
         # --- Tab Widget Setup ---
@@ -176,8 +245,15 @@ class GameyfinWindow(QMainWindow):
         # tab bar itself never needs to be a focus target.
         self.tab_widget.tabBar().setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
+        # Tab 0 holds the web view and — when the native UI is enabled — the
+        # library browser, so the fixed tab count stays the same either way.
+        self.main_stack = QStackedWidget()
+        self.main_stack.addWidget(self.browser)
+        if self.library_browser is not None:
+            self.main_stack.addWidget(self.library_browser)
+
         # Add the Gameyfin tab with an empty string for the label
-        gameyfin_tab_index = self.tab_widget.addTab(self.browser, "")
+        gameyfin_tab_index = self.tab_widget.addTab(self.main_stack, "")
 
         # Remove close button from the main tab (index 0)
         self.tab_widget.tabBar().setTabButton(gameyfin_tab_index, QTabBar.ButtonPosition.RightSide, None)
@@ -223,6 +299,9 @@ class GameyfinWindow(QMainWindow):
         self._position_overlay()
         self._initial_load_complete = False
         self._update_check_worker = None
+        # Threads that would not stop in time; kept referenced so they are never
+        # garbage collected while still running (only reachable at shutdown)
+        self._retired_workers: list[Any] = []
         self.browser.loadStarted.connect(self._on_load_started)
         self.browser.loadFinished.connect(self._on_load_finished)
 
@@ -365,8 +444,10 @@ class GameyfinWindow(QMainWindow):
         for i in range(count - 1, FIXED_TAB_COUNT - 1, -1):
             self.close_tab(i)
 
-        # Ensure we are on the main tab
+        # Ensure we are on the main tab, showing the web view so the user can log in again
         self.tab_widget.setCurrentIndex(0)
+        if self.library_browser is not None:
+            self._on_native_login_required()
 
         # Only navigate if the signal didn't come from the main page itself
         if self.sender() != self.browser.page():
@@ -388,6 +469,15 @@ class GameyfinWindow(QMainWindow):
             count = self.tab_widget.count()
             for i in range(count - 1, FIXED_TAB_COUNT - 1, -1):
                 self.close_tab(i)
+
+    def _all_web_views(self) -> list[QWebEngineView]:
+        """Return every web view in the window, including the one in the main stack."""
+        views = [self.browser]
+        for i in range(self.tab_widget.count()):
+            widget = self.tab_widget.widget(i)
+            if isinstance(widget, QWebEngineView):
+                views.append(widget)
+        return views
 
     def update_tab_title(self, view: QWebEngineView, title: str) -> None:
         """Update the tab label to reflect the browser view's new title."""
@@ -431,6 +521,101 @@ class GameyfinWindow(QMainWindow):
             self._loading_overlay.hide_overlay()
             self._check_for_updates_on_startup()
 
+        if success:
+            self._maybe_activate_native_ui()
+
+    # ------------------------------------------------------------------
+    # Native library UI
+    # ------------------------------------------------------------------
+
+    def _native_ui_active(self) -> bool:
+        """Return True when the native library is the widget on show in tab 0."""
+        return (self.library_browser is not None
+                and self.main_stack.currentWidget() is self.library_browser)
+
+    def _probe_native_ui(self) -> None:
+        """Try to load the library; only switch to it once the API accepts us.
+
+        The web view stays in front until a fetch actually succeeds, so a probe
+        that runs before login simply fails and is retried — the previous
+        behaviour of switching first and falling back on 401 left the user on the
+        web view forever, because Gameyfin's login emits no page-load signal.
+        """
+        if self.library_browser is None or not self._native_ui_requested():
+            return
+        if self._native_ui_active():
+            return
+
+        path = self.browser.url().path()
+        if path.startswith("/login") or path.startswith("/setup"):
+            # Still on the login page — keep polling, the redirect may be client-side
+            self._native_probe_timer.start()
+            return
+
+        self.library_browser.refresh()
+
+    def _on_native_library_loaded(self) -> None:
+        """Bring the native library forward now that the session is proven good."""
+        if self.library_browser is None or not self._native_ui_requested():
+            return
+        self._native_probe_timer.stop()
+        self._native_cookie_timer.stop()
+        self.main_stack.setCurrentWidget(self.library_browser)
+
+    def _on_native_login_required(self) -> None:
+        """Show the web view for login and keep probing until it succeeds."""
+        self.show_login_view()
+        if self._native_ui_requested():
+            self._native_probe_timer.start()
+
+    # Kept as the name used by the load-finished hook and the settings toggle
+    def _maybe_activate_native_ui(self) -> None:
+        """Probe for a usable session (see :meth:`_probe_native_ui`)."""
+        self._probe_native_ui()
+
+    def _apply_native_ui_setting(self) -> None:
+        """Show or hide the native library UI to match ``GF_NATIVE_UI``.
+
+        Turning the flag on builds the browser on first use; turning it off just
+        brings the web view back to the front, so no restart is needed either way.
+        """
+        if not self._native_ui_requested():
+            if self.library_browser is not None:
+                self._native_probe_timer.stop()
+                self._native_cookie_timer.stop()
+                self.show_login_view()
+            return
+
+        if self.library_browser is None:
+            self._build_native_ui()
+            self.main_stack.addWidget(self.library_browser)
+
+        self._probe_native_ui()
+        if not self._native_ui_active():
+            self._native_probe_timer.start()
+
+    def show_login_view(self) -> None:
+        """Bring the web view back to the front so the user can (re-)log in."""
+        self.main_stack.setCurrentWidget(self.browser)
+
+    def _on_native_download_requested(self, game: Any, provider_key: str) -> None:
+        """Start a streaming download for a game picked in the native UI."""
+        if self.api_client is None:
+            return
+
+        url = self.api_client.download_url(game.id, provider_key)
+        basename = sanitize_name(game.title)
+        target_dir = self._resolve_download_target(basename)
+        if target_dir is None:
+            return
+
+        self._start_download(
+            url=url,
+            target_dir=target_dir,
+            filename=f"{game.title}.zip",
+            total_bytes=game.file_size,
+        )
+
     def _check_for_updates_on_startup(self) -> None:
         """Check GitHub for a newer release once the initial load is done.
 
@@ -444,7 +629,11 @@ class GameyfinWindow(QMainWindow):
     @pyqtSlot(object, str)
     def _on_startup_update_check(self, release, error: str) -> None:
         """Open the update dialog when the startup check found a newer release."""
-        self._update_check_worker = None
+        # The worker is released separately: dropping the last reference here would
+        # delete a QThread whose run() has not returned yet, which aborts the
+        # process ("QThread: Destroyed while thread is still running").
+        QTimer.singleShot(0, self._release_update_check_worker)
+
         if error or not release or not self.isVisible():
             return
         latest = release.get("tag_name", "").lstrip("vV")
@@ -452,6 +641,27 @@ class GameyfinWindow(QMainWindow):
             return
         dialog = UpdateDialog(self, self.settings, release=release)
         dialog.exec()
+
+    def _release_update_check_worker(self) -> None:
+        """Drop the update-check thread once it has actually stopped.
+
+        ``wait()`` returns as soon as ``run()`` has left (it has already emitted
+        its result by the time this is called), and ``deleteLater()`` lets Qt do
+        the deletion from the event loop rather than from inside a signal.
+        """
+        worker = self._update_check_worker
+        self._update_check_worker = None
+        if worker is None:
+            return
+
+        if not worker.wait(3000):
+            # Refused to stop (e.g. a hung network read): hold on to it rather
+            # than let Python collect a live thread out from under Qt
+            logger.warning("Update check thread did not stop; keeping it alive")
+            self._retired_workers.append(worker)
+            return
+
+        worker.deleteLater()
 
     def resizeEvent(self, event: Any) -> None:  # type: ignore[override]
         """Reposition the overlay on window resize."""
@@ -466,10 +676,10 @@ class GameyfinWindow(QMainWindow):
             self._loading_overlay.show_overlay()
 
     def show_main_tab(self) -> None:
-        """Show the window and switch to the main Gameyfin browser tab."""
+        """Show the window and switch to the main Gameyfin tab."""
         self.show()
         self.activateWindow()
-        self.tab_widget.setCurrentWidget(self.browser)
+        self.tab_widget.setCurrentWidget(self.main_stack)
 
     def show_downloads_tab(self) -> None:
         """Show the window and switch to the Downloads tab."""
@@ -494,10 +704,14 @@ class GameyfinWindow(QMainWindow):
             gamepad = getattr(self, "gamepad", None)
             if gamepad is not None:
                 gamepad.stop()
-            if self._update_check_worker is not None:
-                self._update_check_worker.wait(3000)
-                self._update_check_worker = None
+            self._release_update_check_worker()
             self.download_manager.close()
+            if self.library_browser is not None:
+                self._native_probe_timer.stop()
+                self._native_cookie_timer.stop()
+                self.library_browser.close()
+            if self.image_cache is not None:
+                self.image_cache.shutdown()
             self.browser.setPage(None)
             self.browser.deleteLater()
             event.accept()
@@ -507,15 +721,81 @@ class GameyfinWindow(QMainWindow):
             self.hide()
 
     def _on_cookie_added(self, cookie) -> None:
-        """Store an incoming cookie in the internal cookie dict."""
+        """Store an incoming cookie and re-probe the API if we are not native yet."""
         name = bytes(cookie.name()).decode('utf-8', errors='replace')
         value = bytes(cookie.value()).decode('utf-8', errors='replace')
         self._cookies[name] = value
+
+        # A finished login shows up here first; debounce because several cookies
+        # (session, CSRF, SSO state) land in quick succession.
+        timer = getattr(self, "_native_cookie_timer", None)
+        if timer is not None and not self._native_ui_active():
+            timer.start()
 
     def _on_cookie_removed(self, cookie) -> None:
         """Remove a cookie from the internal cookie dict."""
         name = bytes(cookie.name()).decode('utf-8', errors='replace')
         self._cookies.pop(name, None)
+
+    def _resolve_download_target(self, zip_basename: str) -> str | None:
+        """Return the directory to extract a download into.
+
+        Honours ``GF_DEFAULT_DOWNLOAD_DIR`` and ``GF_PROMPT_DOWNLOAD_DIR``, and
+        always creates a per-game subfolder so removing a download never
+        deletes the parent directory.
+
+        Returns:
+            The target directory, or None when the user cancelled the prompt.
+        """
+        default_download_dir = self.settings.get("GF_DEFAULT_DOWNLOAD_DIR")
+        prompt_download = self.settings.get("GF_PROMPT_DOWNLOAD_DIR")
+
+        if default_download_dir and os.path.exists(default_download_dir):
+            target_base = default_download_dir
+        else:
+            target_base = os.path.expanduser("~/Downloads")
+
+        if not prompt_download:
+            return os.path.join(target_base, zip_basename)
+
+        selected = QFileDialog.getExistingDirectory(
+            self, "Select download location", target_base,
+            options=QFileDialog.Option.DontUseNativeDialog
+        )
+        if not selected:
+            return None
+        if os.path.basename(selected) == zip_basename:
+            return selected
+        return os.path.join(selected, zip_basename)
+
+    def _start_download(self, url: str, target_dir: str, filename: str,
+                        total_bytes: int = 0) -> tuple[StreamDownloadWorker, dict[str, Any]]:
+        """Queue a streaming download in the Downloads tab and switch to it.
+
+        Args:
+            url: The download URL (cookies from the web profile are attached).
+            target_dir: Directory to extract into.
+            filename: Display name for the download row.
+            total_bytes: Known total size, or 0 when unknown.
+
+        Returns:
+            The worker driving the download and its history record.
+        """
+        record = {
+            "path": target_dir,
+            "filename": filename,
+            "url": url,
+            "status": "Downloading",
+            "total_bytes": total_bytes,
+        }
+        bandwidth_limit = self.settings.get("GF_BANDWIDTH_LIMIT") or 0
+        worker = StreamDownloadWorker(
+            url, target_dir, dict(self._cookies),
+            estimated_total=total_bytes, bandwidth_limit=bandwidth_limit
+        )
+        self.download_manager.add_download(worker, record)
+        self.tab_widget.setCurrentWidget(self.download_manager)
+        return worker, record
 
     def on_download_requested(self, download: QWebEngineDownloadRequest) -> None:
         """Handle a download request from the web browser: determine target dir, spawn worker.
@@ -527,50 +807,16 @@ class GameyfinWindow(QMainWindow):
         filename = os.path.basename(download.downloadFileName())
         zip_basename = sanitize_name(os.path.splitext(filename)[0])
 
-        default_download_dir = self.settings.get("GF_DEFAULT_DOWNLOAD_DIR")
-        prompt_download = self.settings.get("GF_PROMPT_DOWNLOAD_DIR")
-
-        if default_download_dir and os.path.exists(default_download_dir):
-            target_base = default_download_dir
-        else:
-            target_base = os.path.expanduser("~/Downloads")
-
-        suggested_dir = os.path.join(target_base, zip_basename)
-
-        if prompt_download:
-            selected = QFileDialog.getExistingDirectory(
-                self, "Select download location", target_base,
-                options=QFileDialog.Option.DontUseNativeDialog
-            )
-            if not selected:
-                download.cancel()
-                return
-            # Always create a game subfolder inside the selected directory
-            # so removing it never deletes the parent folder.
-            if os.path.basename(selected) == zip_basename:
-                target_dir = selected
-            else:
-                target_dir = os.path.join(selected, zip_basename)
-        else:
-            target_dir = suggested_dir
+        target_dir = self._resolve_download_target(zip_basename)
+        if target_dir is None:
+            download.cancel()
+            return
 
         total_size = download.totalBytes() if download.totalBytes() > 0 else 0
 
         download.cancel()
 
-        cookies = dict(self._cookies)
-
-        record = {
-            "path": target_dir,
-            "filename": filename,
-            "url": url,
-            "status": "Downloading",
-            "total_bytes": total_size,
-        }
-        bandwidth_limit = self.settings.get("GF_BANDWIDTH_LIMIT") or 0
-        worker = StreamDownloadWorker(url, target_dir, cookies, estimated_total=total_size, bandwidth_limit=bandwidth_limit)
-        self.download_manager.add_download(worker, record)
-        self.tab_widget.setCurrentWidget(self.download_manager)
+        worker, record = self._start_download(url, target_dir, filename, total_size)
 
         # Older Gameyfin servers (pre-v2.4.1) don't send Content-Length, so
         # download.totalBytes() is unavailable too. Scrape the size shown on the
@@ -609,15 +855,17 @@ class GameyfinWindow(QMainWindow):
                 self.browser.setUrl(new_url)
 
             # Update the main_host in all custom pages
-            for i in range(self.tab_widget.count()):
-                widget = self.tab_widget.widget(i)
-                if isinstance(widget, QWebEngineView):
-                    page = widget.page()
-                    if isinstance(page, CustomWebEnginePage):
-                        if page.restricted_host:
-                            page.set_restricted_host(new_host)
-                        else:
-                            page.set_main_host(new_host)
+            for view in self._all_web_views():
+                page = view.page()
+                if isinstance(page, CustomWebEnginePage):
+                    if page.restricted_host:
+                        page.set_restricted_host(new_host)
+                    else:
+                        page.set_main_host(new_host)
+
+            if self.api_client is not None:
+                # A different server may use a different CSRF scheme
+                self.api_client.reset_csrf()
 
         # 3. Update Icon
         app_icon = get_effective_icon(
@@ -629,15 +877,18 @@ class GameyfinWindow(QMainWindow):
         # Update tab icon (index 0 is browser)
         self.tab_widget.setTabIcon(0, app_icon)
 
-        # 4. Refresh UMU Database (background, non-blocking)
+        # 4. Apply the native library UI flag without a restart
+        self._apply_native_ui_setting()
+
+        # 5. Refresh UMU Database (background, non-blocking)
         if sys.platform != "win32" and self.umu_database:
             self.umu_database.refresh_cache_async()
 
-        # 5. Update Gamepad
+        # 6. Update Gamepad
         if hasattr(self, "gamepad"):
             self._apply_gamepad_settings()
 
-        # 6. Update Theme
+        # 7. Update Theme
         theme = self.settings.get("GF_THEME")
         app = QApplication.instance()
         if theme and theme != "auto":

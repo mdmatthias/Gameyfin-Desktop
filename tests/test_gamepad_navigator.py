@@ -1,7 +1,8 @@
 """Tests for the gamepad → Qt navigation layer."""
 
 import pytest
-from PyQt6.QtCore import Qt, pyqtSignal, QObject
+from PyQt6.QtCore import QEvent, QSize, Qt, pyqtSignal, QObject
+from PyQt6.QtGui import QColor, QIcon, QKeyEvent, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QGridLayout, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QScrollArea,
@@ -286,6 +287,58 @@ class TestActivation:
         assert combo.view().isVisible()
         assert activated == []
 
+    def test_down_on_a_closed_combo_box_moves_focus(self, qtbot, manager):
+        """Gamepad down on a closed combo box moves focus to the next widget
+        instead of opening the popup. The popup is only opened via keyboard
+        (event filter) — the gamepad path navigates between widgets.
+        """
+        window = QWidget()
+        window.resize(300, 200)
+        layout = QVBoxLayout(window)
+        combo_a = QComboBox()
+        combo_a.addItems(["Manage", "Shortcuts", "Config", "Delete"])
+        combo_b = QComboBox()
+        combo_b.addItems(["Alpha", "Beta"])
+        layout.addWidget(combo_a)
+        layout.addWidget(combo_b)
+        navigator = make_navigator(qtbot, window, manager)
+
+        combo_a.setFocus()
+        assert not combo_a.view().isVisible()
+
+        manager.navigate.emit("down")
+
+        # Focus should move to combo_b, popup should NOT open
+        assert focused(window) is combo_b
+        assert not combo_a.view().isVisible()
+
+    def test_keyboard_down_on_closed_combo_box_opens_popup(self, qtbot, manager):
+        """Keyboard down on a closed combo box (no gamepad) opens the popup
+        via the event filter, instead of Qt's default (cycle item + activated).
+        """
+        window = QWidget()
+        window.resize(300, 120)
+        layout = QHBoxLayout(window)
+        combo_a = QComboBox()
+        combo_a.addItems(["Manage", "Shortcuts", "Config", "Delete"])
+        combo_b = QLineEdit()
+        layout.addWidget(combo_a)
+        layout.addWidget(combo_b)
+        navigator = make_navigator(qtbot, window, manager)
+
+        # No gamepad connected in this test
+        manager._connected = False
+
+        combo_a.setFocus()
+        assert not combo_a.view().isVisible()
+
+        # Simulate a keyboard event (as if from a physical keyboard)
+        event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Down, Qt.KeyboardModifier.NoModifier)
+        QApplication.sendEvent(combo_a, event)
+
+        assert combo_a.view().isVisible()
+        assert focused(window) is combo_a
+
 
 class TestValueWidgets:
     def test_left_right_adjusts_a_slider(self, qtbot, manager):
@@ -526,6 +579,95 @@ class TestPlainList:
         manager.navigate.emit("down")
 
         assert focused(window) is below
+
+
+class IconGridWindow(QWidget):
+    """A multi-column cover grid, mirroring the native library browser."""
+
+    def __init__(self, items=12):
+        super().__init__()
+        self.resize(800, 600)
+        layout = QVBoxLayout(self)
+        self.grid = QListWidget()
+        self.grid.setViewMode(QListWidget.ViewMode.IconMode)
+        self.grid.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self.grid.setIconSize(QSize(120, 160))
+        pixmap = QPixmap(120, 160)
+        pixmap.fill(QColor(60, 60, 66))
+        icon = QIcon(pixmap)
+        for i in range(items):
+            item = QListWidgetItem(f"game {i}")
+            item.setIcon(icon)
+            item.setSizeHint(QSize(136, 204))
+            self.grid.addItem(item)
+        layout.addWidget(self.grid)
+
+
+class TestIconGrid:
+    """Left/right must move the cover grid sideways, not just up/down."""
+
+    def test_right_moves_to_the_next_cover(self, qtbot, manager):
+        window = IconGridWindow()
+        navigator = make_navigator(qtbot, window, manager)
+        window.grid.setCurrentRow(0)
+        window.grid.setFocus()
+
+        manager.navigate.emit("right")
+
+        assert window.grid.currentRow() == 1
+        assert focused(window) is window.grid
+
+    def test_left_moves_back_to_the_previous_cover(self, qtbot, manager):
+        window = IconGridWindow()
+        navigator = make_navigator(qtbot, window, manager)
+        window.grid.setCurrentRow(0)
+        window.grid.setFocus()
+
+        manager.navigate.emit("right")
+        manager.navigate.emit("left")
+
+        assert window.grid.currentRow() == 0
+        assert focused(window) is window.grid
+
+    def test_up_down_still_moves_between_rows(self, qtbot, manager):
+        window = IconGridWindow()
+        navigator = make_navigator(qtbot, window, manager)
+        window.grid.setCurrentRow(0)
+        window.grid.setFocus()
+
+        manager.navigate.emit("down")
+
+        assert window.grid.currentRow() > 0
+        assert focused(window) is window.grid
+
+    def test_focus_leaves_the_grid_at_its_right_edge(self, qtbot, manager):
+        """A single-column grid can't move right; focus must escape to a neighbour."""
+        window = QWidget()
+        window.resize(400, 300)
+        layout = QHBoxLayout(window)
+        grid = QListWidget()
+        grid.setViewMode(QListWidget.ViewMode.IconMode)
+        grid.setResizeMode(QListWidget.ResizeMode.Adjust)
+        grid.setIconSize(QSize(120, 160))
+        pixmap = QPixmap(120, 160)
+        pixmap.fill(QColor(60, 60, 66))
+        icon = QIcon(pixmap)
+        for i in range(3):
+            item = QListWidgetItem(f"game {i}")
+            item.setIcon(icon)
+            item.setSizeHint(QSize(136, 204))
+            grid.addItem(item)
+        grid.setFixedWidth(150)  # narrow: only one column fits
+        layout.addWidget(grid)
+        beside = QPushButton("beside")
+        layout.addWidget(beside)
+        navigator = make_navigator(qtbot, window, manager)
+        grid.setCurrentRow(0)
+        grid.setFocus()
+
+        manager.navigate.emit("right")
+
+        assert focused(window) is beside
 
 
 class TestTabs:

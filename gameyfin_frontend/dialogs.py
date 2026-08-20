@@ -308,13 +308,6 @@ class InstallConfigDialog(QDialog):
 
         return config
 
-    def keyPressEvent(self, event) -> None:  # noqa: ANN201
-        """Close the dialog when Escape is pressed."""
-        if event.key() == Qt.Key.Key_Escape:
-            self.reject()
-        else:
-            super().keyPressEvent(event)
-
 
 class SelectLauncherDialog(QDialog):
     """
@@ -369,13 +362,6 @@ class SelectLauncherDialog(QDialog):
 
         relative_path = item.text()
         return self.exe_map.get(relative_path)
-
-    def keyPressEvent(self, event) -> None:  # noqa: ANN201
-        """Close the dialog when Escape is pressed."""
-        if event.key() == Qt.Key.Key_Escape:
-            self.reject()
-        else:
-            super().keyPressEvent(event)
 
 
 class UmuSearchDialog(QDialog):
@@ -541,13 +527,6 @@ class UmuSearchDialog(QDialog):
         """Return the full dictionary of the selected UMU game entry, or None."""
         return self._selected_entry
 
-    def keyPressEvent(self, event) -> None:  # noqa: ANN201
-        """Close the dialog when Escape is pressed."""
-        if event.key() == Qt.Key.Key_Escape:
-            self.reject()
-        else:
-            super().keyPressEvent(event)
-
 
 class SelectShortcutsDialog(QDialog):
     """
@@ -702,13 +681,6 @@ class SelectShortcutsDialog(QDialog):
         """Return list of .desktop file basenames the user wants added to Steam."""
         return [os.path.basename(fp) for cb, fp in self.steam_checkboxes if cb.isChecked()]
 
-    def keyPressEvent(self, event) -> None:  # noqa: ANN201
-        """Close the dialog when Escape is pressed."""
-        if event.key() == Qt.Key.Key_Escape:
-            self.reject()
-        else:
-            super().keyPressEvent(event)
-
 
 class LaunchLoadingDialog(QDialog):
     """A transient dialog shown while a game is launching via UMU.
@@ -815,14 +787,6 @@ class LaunchLoadingDialog(QDialog):
         if self._safety_timer:
             self._safety_timer.stop()
         self.close()
-
-    def keyPressEvent(self, event) -> None:  # noqa: ANN201
-        """Close the dialog when Escape is pressed."""
-        if event.key() == Qt.Key.Key_Escape:
-            self._close_now()
-            self.close()
-        else:
-            super().keyPressEvent(event)
 
     def closeEvent(self, event: Any) -> None:  # noqa: ANN401
         self._close_now()

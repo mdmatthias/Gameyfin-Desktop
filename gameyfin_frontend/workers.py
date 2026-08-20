@@ -371,3 +371,38 @@ class FlatpakInstallWorker(QThread):
     def run(self) -> None:
         success, output = install_flatpak(self.flatpak_path)
         self.finished.emit(success, output)
+
+
+class ApiCallWorker(QThread):
+    """Run a Gameyfin API call off the GUI thread.
+
+    ``result_ready`` carries ``(result, error_message)``; exactly one of the two
+    is meaningful. The signal is deliberately not named ``finished`` so it does
+    not shadow QThread's own signal. Authentication failures additionally emit
+    ``auth_required`` so callers can send the user back to the login view.
+    """
+
+    result_ready = pyqtSignal(object, str)
+    auth_required = pyqtSignal()
+
+    def __init__(self, func: Any, *args: Any, **kwargs: Any) -> None:
+        """Store the callable and arguments to invoke in the worker thread."""
+        super().__init__()
+        self._func = func
+        self._args = args
+        self._kwargs = kwargs
+
+    def run(self) -> None:
+        """Call the wrapped function, emitting its result or the error message."""
+        from .services.gameyfin_api import GameyfinApiError, GameyfinAuthError
+
+        try:
+            result = self._func(*self._args, **self._kwargs)
+        except GameyfinAuthError as e:
+            self.auth_required.emit()
+            self.result_ready.emit(None, str(e))
+            return
+        except GameyfinApiError as e:
+            self.result_ready.emit(None, str(e))
+            return
+        self.result_ready.emit(result, "")

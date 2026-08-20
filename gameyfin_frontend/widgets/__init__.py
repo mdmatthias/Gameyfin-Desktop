@@ -3,6 +3,8 @@ from .download_item import DownloadItemWidget
 from .prefix_manager import PrefixManagerWidget, PrefixItemWidget
 from .loading_overlay import LoadingOverlay
 from .gamepad_hud import GamepadHelpOverlay, GamepadHintBar
+from .library_browser import LibraryBrowserWidget
+from .game_detail import GameDetailWidget
 
 __all__ = [
     "DownloadManagerWidget",
@@ -12,6 +14,8 @@ __all__ = [
     "LoadingOverlay",
     "GamepadHintBar",
     "GamepadHelpOverlay",
+    "LibraryBrowserWidget",
+    "GameDetailWidget",
 ]
 
 

@@ -58,6 +58,15 @@ class SettingsWidget(QWidget):
         self.minimized_check.setChecked(bool(settings.get("GF_START_MINIMIZED")) if settings else False)
         self.form_layout.addRow("Start Minimized:", self.minimized_check)
 
+        self.native_ui_check = QCheckBox()
+        self.native_ui_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.native_ui_check.setToolTip(
+            "Show libraries and games as a native Qt grid served by the Gameyfin API "
+            "instead of the embedded web page. The web view is still used for login."
+        )
+        self.native_ui_check.setChecked(bool(settings.get("GF_NATIVE_UI")) if settings else False)
+        self.form_layout.addRow("Native Library UI:", self.native_ui_check)
+
         self.theme_combo = QComboBox()
         self.theme_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.theme_combo.addItem("auto")
@@ -192,6 +201,7 @@ class SettingsWidget(QWidget):
         # Wire explicit tab order: bandwidth → gamepad section → save button
         self._tab_order_chain: list[tuple[QWidget, QWidget]] = []
         chain = [
+            self.native_ui_check,
             self.bandwidth_slider,
             self.gamepad_enabled_check,
             self.gamepad_hints_check,
@@ -244,6 +254,7 @@ class SettingsWidget(QWidget):
             self.settings.set("GF_UMU_API_URL", self.umu_api_edit.text())
             self.settings.set("GF_UMU_DB_STORES", stores)
             self.settings.set("GF_START_MINIMIZED", 1 if self.minimized_check.isChecked() else 0)
+            self.settings.set("GF_NATIVE_UI", 1 if self.native_ui_check.isChecked() else 0)
             self.settings.set("GF_THEME", self.theme_combo.currentText())
             self.settings.set("GF_ICON_PATH", self.icon_path_edit.text())
             self.settings.set("GF_DEFAULT_DOWNLOAD_DIR", self.download_dir_edit.text())

@@ -54,6 +54,8 @@ class SettingsManager:
             "GF_LOG_LEVEL": "WARNING",
             "GF_DOWNLOAD_NOTIFICATIONS": 1,
             "GF_BANDWIDTH_LIMIT": 0,
+            # Native Qt library UI instead of the embedded web view (experimental)
+            "GF_NATIVE_UI": 0,
             "GF_GAMEPAD_ENABLED": 1,
             "GF_GAMEPAD_HINTS": 1,
             # Stick deadzone in percent of full deflection

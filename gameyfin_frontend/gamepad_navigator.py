@@ -177,6 +177,9 @@ class GamepadNavigator(QObject):
         app = QApplication.instance()
         if app is not None:
             app.focusChanged.connect(self._on_focus_changed)
+            # Intercept arrow keys on closed combo boxes so they open the
+            # popup instead of Qt's default (cycle item + fire activated).
+            app.installEventFilter(self)
 
         # The ring has to keep up with scrolling and relayouts, which emit no
         # focus signal of their own.
@@ -224,6 +227,31 @@ class GamepadNavigator(QObject):
             self.help_overlay.hide()
             if self.hint_bar is not None:
                 self.hint_bar.hide()
+
+    # ------------------------------------------------------------------
+    # Event filter
+    # ------------------------------------------------------------------
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        """Intercept arrow keys on closed combo boxes.
+
+        Without a gamepad: open the popup instead of Qt's default
+        (cycle item + fire activated).
+
+        With a gamepad connected: consume the event silently. The Steam
+        Controller sends keyboard events alongside gamepad events; without
+        this the keyboard event would cycle the combo box item while the
+        gamepad event moves focus — double-navigation.
+        """
+        if event.type() == QEvent.Type.KeyPress:
+            key_event = event  # type: QKeyEvent
+            if isinstance(obj, QComboBox) and not obj.view().isVisible():
+                if key_event.key() in (Qt.Key.Key_Down, Qt.Key.Key_Up):
+                    if self.manager is not None and self.manager.is_connected():
+                        return True  # swallow — gamepad handles navigation
+                    obj.showPopup()
+                    return True
+        return super().eventFilter(obj, event)
 
     # ------------------------------------------------------------------
     # Device state
@@ -736,13 +764,20 @@ class GamepadNavigator(QObject):
             self._send_key(widget, key)
             return True
 
-        if isinstance(widget, QAbstractItemView) and not horizontal:
-            before = widget.currentIndex().row()
-            key = Qt.Key.Key_Down if direction == "down" else Qt.Key.Key_Up
+        if isinstance(widget, QAbstractItemView):
+            key = {
+                "down": Qt.Key.Key_Down,
+                "up": Qt.Key.Key_Up,
+                "right": Qt.Key.Key_Right,
+                "left": Qt.Key.Key_Left,
+            }[direction]
+            before = widget.currentIndex()
             self._send_key(widget, key)
             # Only claim the input if the selection actually moved, otherwise
-            # focus should leave the list at its top/bottom edge.
-            return widget.currentIndex().row() != before
+            # focus should leave the list at its edge. A cover grid (IconMode)
+            # moves sideways as well as vertically; a single-column list ignores
+            # left/right, so focus still leaves it there.
+            return widget.currentIndex() != before
 
         return False
 

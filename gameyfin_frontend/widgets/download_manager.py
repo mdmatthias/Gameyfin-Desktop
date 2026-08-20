@@ -78,32 +78,6 @@ class DownloadManagerWidget(QWidget):
                         buttons.append(child)
         return buttons
 
-    def keyPressEvent(self, event: QKeyEvent) -> None:
-        """Handle Tab / Shift+Tab by cycling focus through visible download buttons only."""
-        if event.key() == Qt.Key.Key_Tab or event.key() == Qt.Key.Key_Backtab:
-            buttons = self._all_visible_buttons()
-            if not buttons:
-                super().keyPressEvent(event)
-                return
-
-            current = QApplication.focusWidget()
-            try:
-                idx = buttons.index(current)
-            except ValueError:
-                idx = -1
-
-            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-                # Shift+Tab → previous button (wrap around)
-                new_idx = (idx - 1) % len(buttons)
-            else:
-                # Tab → next button (wrap around)
-                new_idx = (idx + 1) % len(buttons)
-
-            buttons[new_idx].setFocus(Qt.FocusReason.TabFocusReason)
-            return
-
-        super().keyPressEvent(event)
-
     def add_download_to_list(self, controller: DownloadItemWidget) -> None:
         """Adds a download item widget to the list at the last row."""
         item = QListWidgetItem(self.list_widget)

@@ -16,6 +16,9 @@ __all__ = [
     "ShortcutService",
     "MigrationService",
     "SteamIntegrationService",
+    "GameyfinApiClient",
+    "ImageCache",
+    "WebViewRpc",
 ]
 
 
@@ -44,4 +47,13 @@ def __getattr__(name):
     if name == "SteamIntegrationService":
         from .steam_integration import SteamIntegrationService
         return SteamIntegrationService
+    if name == "GameyfinApiClient":
+        from .gameyfin_api import GameyfinApiClient
+        return GameyfinApiClient
+    if name == "ImageCache":
+        from .image_cache import ImageCache
+        return ImageCache
+    if name == "WebViewRpc":
+        from .webview_rpc import WebViewRpc
+        return WebViewRpc
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

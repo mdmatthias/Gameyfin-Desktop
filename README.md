@@ -89,6 +89,7 @@ While the application can be configured using environment variables (see below),
 | `GF_GAMEPAD_REPEAT_MS`    | Milliseconds between repeats while a direction is held (default: `140`).         |
 | `GF_GAMEPAD_SCROLL_SPEED` | Right-stick scroll speed in pixels (default: `60`).                              |
 | `GF_BANDWIDTH_LIMIT`      | Max download speed in bytes/sec (default: `0` for unlimited).                    |
+| `GF_NATIVE_UI`            | Set to `1` to browse libraries and games in a native Qt grid served by the Gameyfin API instead of the embedded web page (experimental). |
 
 ---
 

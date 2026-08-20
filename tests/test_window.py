@@ -1,5 +1,6 @@
 """Tests for the main window (GameyfinWindow and CustomWebEnginePage)."""
 
+import os
 from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
@@ -315,8 +316,11 @@ class TestGameyfinWindow:
         window.redirect_to_main_tab(QUrl("http://localhost/new"))
         assert window.tab_widget.currentIndex() == 0
 
-    def _make_fake_check_worker(self, release=None, error=""):
-        """Build a fake UpdateCheckWorker class with the given outcome."""
+    def _make_fake_check_worker(self, release=None, error="", stops=True):
+        """Build a fake UpdateCheckWorker class with the given outcome.
+
+        ``stops`` mimics whether the thread comes to a halt when waited on.
+        """
         instances = []
 
         class FakeCheckWorker:
@@ -324,13 +328,19 @@ class TestGameyfinWindow:
                 self.finished = FakeSignal()
                 self._release = release
                 self._error = error
+                self.waited = False
+                self.deleted = False
                 instances.append(self)
 
             def start(self):
                 pass
 
             def wait(self, timeout=0):
-                return True
+                self.waited = True
+                return stops
+
+            def deleteLater(self):
+                self.deleted = True
 
         return FakeCheckWorker, instances
 
@@ -385,6 +395,61 @@ class TestGameyfinWindow:
                 instances[0].finished.emit(None, "connection refused")
         mock_dialog_cls.assert_not_called()
 
+    def test_result_handler_does_not_drop_the_running_worker(self, qtbot, mock_umu_database, mock_settings):
+        """Clearing the reference inline would delete a still-running QThread."""
+        window = self._make_window(qtbot, mock_umu_database, mock_settings)
+        fake_cls, instances = self._make_fake_check_worker()
+        with patch("gameyfin_frontend.gameyfin_window.UpdateCheckWorker", fake_cls):
+            window._check_for_updates_on_startup()
+        worker = instances[0]
+
+        with patch("gameyfin_frontend.gameyfin_window.UpdateDialog"):
+            window._on_startup_update_check(None, "")
+
+        # Released by the scheduled call instead, which waits first
+        assert window._update_check_worker is worker
+        assert not worker.deleted
+
+    def test_release_waits_before_dropping_the_worker(self, qtbot, mock_umu_database, mock_settings):
+        window = self._make_window(qtbot, mock_umu_database, mock_settings)
+        fake_cls, instances = self._make_fake_check_worker()
+        with patch("gameyfin_frontend.gameyfin_window.UpdateCheckWorker", fake_cls):
+            window._check_for_updates_on_startup()
+        worker = instances[0]
+
+        window._release_update_check_worker()
+
+        assert window._update_check_worker is None
+        assert worker.waited
+        assert worker.deleted
+
+    def test_worker_that_will_not_stop_is_kept_alive(self, qtbot, mock_umu_database, mock_settings):
+        window = self._make_window(qtbot, mock_umu_database, mock_settings)
+        fake_cls, instances = self._make_fake_check_worker(stops=False)
+        with patch("gameyfin_frontend.gameyfin_window.UpdateCheckWorker", fake_cls):
+            window._check_for_updates_on_startup()
+        worker = instances[0]
+
+        window._release_update_check_worker()
+
+        # Never deleted, but still referenced so it cannot be collected mid-run
+        assert not worker.deleted
+        assert worker in window._retired_workers
+
+    def test_close_event_releases_the_check_worker(self, qtbot, mock_umu_database, mock_settings):
+        from PyQt6.QtGui import QCloseEvent
+        window = self._make_window(qtbot, mock_umu_database, mock_settings)
+        fake_cls, instances = self._make_fake_check_worker()
+        with patch("gameyfin_frontend.gameyfin_window.UpdateCheckWorker", fake_cls):
+            window._check_for_updates_on_startup()
+
+        window.is_really_quitting = True
+        window.closeEvent(QCloseEvent())
+
+        assert window._update_check_worker is None
+        assert instances[0].waited
+        assert instances[0].deleted
+
     def test_startup_update_check_skipped_when_hidden(self, qtbot, mock_umu_database, mock_settings):
         window = self._make_window(qtbot, mock_umu_database, mock_settings)
         window.show()
@@ -396,3 +461,218 @@ class TestGameyfinWindow:
                 window._on_load_finished(True)
                 instances[0].finished.emit(release, "")
         mock_dialog_cls.assert_not_called()
+
+
+class TestNativeLibraryUI:
+    """Wiring of the GF_NATIVE_UI feature flag into the main window."""
+
+    @pytest.fixture(autouse=True)
+    def _no_network(self, monkeypatch):
+        """Keep the startup update check off the network in these tests."""
+        class FakeCheckWorker:
+            def __init__(self, *args, **kwargs):
+                self.finished = FakeSignal()
+
+            def start(self):
+                pass
+
+            def wait(self, *args):
+                return True
+
+            def deleteLater(self):
+                pass
+
+        monkeypatch.setattr(
+            "gameyfin_frontend.gameyfin_window.UpdateCheckWorker", FakeCheckWorker
+        )
+
+    @pytest.fixture()
+    def native_settings(self, tmp_path):
+        """Settings mock with the native library UI enabled."""
+        settings = MagicMock()
+        values = {
+            "GF_WINDOW_WIDTH": 1280,
+            "GF_WINDOW_HEIGHT": 720,
+            "GF_NATIVE_UI": 1,
+            "GF_URL": "http://localhost:8080",
+            "GF_DEFAULT_DOWNLOAD_DIR": str(tmp_path),
+            "GF_PROMPT_DOWNLOAD_DIR": 0,
+            "GF_BANDWIDTH_LIMIT": 0,
+            "GF_GAMEPAD_ENABLED": 0,
+            "GF_ICON_PATH": "",
+            "GF_THEME": "auto",
+        }
+        settings.get.side_effect = lambda key, default=None: values.get(key, default)
+        settings.get_config_dir.return_value = str(tmp_path)
+        settings.get_downloads_json_path.return_value = str(tmp_path / "downloads.json")
+        return settings
+
+    def _make_native_window(self, qtbot, mock_umu_database, settings):
+        """Build a window with the native UI on, without touching the network."""
+        from PyQt6.QtGui import QIcon
+
+        mock_page = MagicMock()
+        mock_page.restricted_host = "localhost"
+        mock_page.main_host = "localhost"
+
+        with patch("gameyfin_frontend.gameyfin_window.QStandardPaths.writableLocation", return_value=str(settings.get_config_dir())), \
+             patch("gameyfin_frontend.gameyfin_window.get_effective_icon", return_value=QIcon()), \
+             patch("gameyfin_frontend.gameyfin_window.CustomWebEnginePage", return_value=mock_page), \
+             patch("PyQt6.QtWebEngineWidgets.QWebEngineView.setPage"), \
+             patch("PyQt6.QtWebEngineWidgets.QWebEngineView.setUrl"), \
+             patch("gameyfin_frontend.widgets.library_browser.LibraryBrowserWidget.refresh"):
+            from gameyfin_frontend.gameyfin_window import GameyfinWindow
+            window = GameyfinWindow(mock_umu_database, settings)
+            qtbot.addWidget(window)
+            return window
+
+    def test_flag_off_builds_no_native_widgets(self, qtbot, mock_umu_database, mock_settings):
+        window = TestGameyfinWindow()._make_window(qtbot, mock_umu_database, mock_settings)
+
+        assert window.library_browser is None
+        assert window.api_client is None
+        assert window.main_stack.count() == 1
+
+    def test_flag_on_adds_library_browser_to_main_stack(self, qtbot, mock_umu_database, native_settings):
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+
+        assert window.library_browser is not None
+        assert window.api_client is not None
+        assert window.main_stack.count() == 2
+        # The four fixed tabs are unchanged — the stack lives inside tab 0
+        assert window.tab_widget.count() == 4
+        assert window.tab_widget.widget(0) is window.main_stack
+
+    def test_api_client_uses_live_web_view_cookies(self, qtbot, mock_umu_database, native_settings):
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+        window._cookies["JSESSIONID"] = "session-value"
+
+        assert window.api_client.cookie_provider()["JSESSIONID"] == "session-value"
+
+    def test_rpc_transport_targets_the_main_page(self, qtbot, mock_umu_database, native_settings):
+        """Calls must run in the logged-in page, not against a mirrored cookie jar."""
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+
+        assert window.api_client.rpc_transport is window.webview_rpc
+        assert window.webview_rpc.page_provider() is window.browser.page()
+
+    def test_login_page_is_not_probed_but_keeps_polling(self, qtbot, mock_umu_database, native_settings):
+        from PyQt6.QtCore import QUrl
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+
+        with patch.object(type(window.browser), "url", return_value=QUrl("http://localhost:8080/login")), \
+             patch.object(window.library_browser, "refresh") as mock_refresh:
+            window._probe_native_ui()
+
+        assert window.main_stack.currentWidget() is window.browser
+        mock_refresh.assert_not_called()
+        assert window._native_probe_timer.isActive()
+
+    def test_probe_fetches_but_stays_on_web_view_until_it_succeeds(self, qtbot, mock_umu_database, native_settings):
+        from PyQt6.QtCore import QUrl
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+
+        with patch.object(type(window.browser), "url", return_value=QUrl("http://localhost:8080/")), \
+             patch.object(window.library_browser, "refresh") as mock_refresh:
+            window._probe_native_ui()
+
+        mock_refresh.assert_called_once()
+        # Nothing has loaded yet, so the web view must still be the visible widget
+        assert window.main_stack.currentWidget() is window.browser
+
+    def test_successful_load_switches_to_the_native_library(self, qtbot, mock_umu_database, native_settings):
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+
+        window.library_browser.library_loaded.emit()
+
+        assert window.main_stack.currentWidget() is window.library_browser
+        assert not window._native_probe_timer.isActive()
+
+    def test_auth_failure_returns_to_web_view_and_retries(self, qtbot, mock_umu_database, native_settings):
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+        window.main_stack.setCurrentWidget(window.library_browser)
+
+        window.library_browser.login_required.emit()
+
+        assert window.main_stack.currentWidget() is window.browser
+        assert window._native_probe_timer.isActive()
+
+    def test_new_cookie_schedules_a_probe(self, qtbot, mock_umu_database, native_settings):
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+        cookie = MagicMock()
+        cookie.name.return_value = b"JSESSIONID"
+        cookie.value.return_value = b"fresh"
+
+        window._on_cookie_added(cookie)
+
+        assert window._cookies["JSESSIONID"] == "fresh"
+        assert window._native_cookie_timer.isActive()
+
+    def test_no_probe_is_scheduled_once_the_library_is_showing(self, qtbot, mock_umu_database, native_settings):
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+        window.main_stack.setCurrentWidget(window.library_browser)
+        cookie = MagicMock()
+        cookie.name.return_value = b"other"
+        cookie.value.return_value = b"v"
+
+        window._on_cookie_added(cookie)
+
+        assert not window._native_cookie_timer.isActive()
+
+    def test_probe_retries_until_the_api_accepts_the_session(self, qtbot, mock_umu_database, native_settings):
+        """A 401 probe leaves the web view up; the next probe can still succeed."""
+        from PyQt6.QtCore import QUrl
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+
+        with patch.object(type(window.browser), "url", return_value=QUrl("http://localhost:8080/")):
+            with patch.object(window.library_browser, "refresh"):
+                window._probe_native_ui()
+                window.library_browser.login_required.emit()
+            assert window.main_stack.currentWidget() is window.browser
+
+            with patch.object(window.library_browser, "refresh") as mock_refresh:
+                window._probe_native_ui()
+                mock_refresh.assert_called_once()
+                window.library_browser.library_loaded.emit()
+
+        assert window.main_stack.currentWidget() is window.library_browser
+
+    def test_show_login_view_returns_to_the_web_view(self, qtbot, mock_umu_database, native_settings):
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+        window.main_stack.setCurrentWidget(window.library_browser)
+
+        window.show_login_view()
+
+        assert window.main_stack.currentWidget() is window.browser
+
+    def test_native_download_uses_api_url_and_reported_size(self, qtbot, mock_umu_database, native_settings):
+        from gameyfin_frontend.services.gameyfin_api import Game
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+        game = Game(id=7, title="Some Game: Deluxe", library_id=1, file_size=4096)
+
+        with patch.object(window, "_start_download") as mock_start:
+            window._on_native_download_requested(game, "fs")
+
+        kwargs = mock_start.call_args.kwargs
+        assert kwargs["url"] == "http://localhost:8080/download/7?provider=fs"
+        assert kwargs["total_bytes"] == 4096
+        assert kwargs["filename"] == "Some Game: Deluxe.zip"
+        # The extraction folder name is sanitized, the display name is not
+        assert ":" not in os.path.basename(kwargs["target_dir"])
+
+    def test_download_target_defaults_to_a_per_game_subfolder(self, qtbot, mock_umu_database, native_settings):
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+
+        target = window._resolve_download_target("MyGame")
+
+        assert os.path.basename(target) == "MyGame"
+        assert target.startswith(str(native_settings.get_config_dir()))
+
+    def test_download_target_returns_none_when_prompt_cancelled(self, qtbot, mock_umu_database, native_settings):
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+        native_settings.get.side_effect = lambda key, default=None: {
+            "GF_PROMPT_DOWNLOAD_DIR": 1, "GF_DEFAULT_DOWNLOAD_DIR": ""
+        }.get(key, default)
+
+        with patch("gameyfin_frontend.gameyfin_window.QFileDialog.getExistingDirectory", return_value=""):
+            assert window._resolve_download_target("MyGame") is None
