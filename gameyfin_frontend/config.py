@@ -59,6 +59,10 @@ VAADIN_CSRF_HEADER = "X-CSRF-Token"
 COVER_TILE_WIDTH = 180
 COVER_TILE_HEIGHT = 270
 
+# Games shown per page in the native library grid. The server returns every
+# game in one call, so this is a purely client-side slice of the result set.
+LIBRARY_PAGE_SIZE = 100
+
 # Header banner height in the native detail view
 HEADER_BANNER_HEIGHT = 220
 

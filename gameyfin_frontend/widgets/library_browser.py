@@ -6,14 +6,15 @@ renders what a game library actually needs. Enabled by ``GF_NATIVE_UI``.
 """
 
 import logging
+import math
 
 from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QIcon, QKeyEvent, QPixmap
+from PyQt6.QtGui import QColor, QFont, QFontMetrics, QIcon, QKeyEvent, QPixmap
 from PyQt6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit,
                              QListWidget, QListWidgetItem, QPushButton,
                              QStackedWidget, QVBoxLayout, QWidget)
 
-from ..config import COVER_TILE_HEIGHT, COVER_TILE_WIDTH
+from ..config import COVER_TILE_HEIGHT, COVER_TILE_WIDTH, LIBRARY_PAGE_SIZE
 from ..services.gameyfin_api import (DownloadProvider, Game, GameyfinApiClient,
                                      GameyfinApiError, GameyfinAuthError, Library)
 from ..services.image_cache import ImageCache
@@ -54,6 +55,12 @@ class LibraryBrowserWidget(QWidget):
         # image id -> grid item still waiting for its cover
         self._pending_covers: dict[int, QListWidgetItem] = {}
 
+        # Client-side paging. The server returns every game in one call, so the
+        # grid slices the filtered result set into pages of this size.
+        self._page_size = self._initial_page_size()
+        self._page = 0
+        self._page_count = 0  # pages rendered last time; avoids rebuilding the dropdown
+
         self.image_cache.ready.connect(self._on_cover_ready)
 
         self._build_ui()
@@ -80,20 +87,43 @@ class LibraryBrowserWidget(QWidget):
         self.library_combo = QComboBox()
         self.library_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.library_combo.addItem("All libraries", ALL_LIBRARIES)
-        self.library_combo.currentIndexChanged.connect(lambda _: self._apply_filter())
+        self.library_combo.currentIndexChanged.connect(lambda _: self._change_filter())
         top_bar.addWidget(self.library_combo)
 
         self.search_edit = QLineEdit()
         self.search_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.search_edit.setPlaceholderText("Search games…")
         self.search_edit.setClearButtonEnabled(True)
-        self.search_edit.textChanged.connect(lambda _: self._apply_filter())
+        self.search_edit.textChanged.connect(lambda _: self._change_filter())
         top_bar.addWidget(self.search_edit, 1)
 
         self.refresh_button = QPushButton("Refresh")
         self.refresh_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.refresh_button.clicked.connect(self.refresh)
         top_bar.addWidget(self.refresh_button)
+
+        self.prev_button = QPushButton("‹ Prev")
+        self.prev_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.prev_button.setToolTip("Previous page")
+        self.prev_button.clicked.connect(self._previous_page)
+        top_bar.addWidget(self.prev_button)
+
+        self.page_label = QLabel("1/1")
+        self.page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.page_label.setStyleSheet("font-size: 11px; color: palette(mid);")
+        # Reserve room for a two-digit page number so the neighbouring
+        # buttons don't shift when going e.g. from page 9 to 10.
+        indicator_font = QFont()
+        indicator_font.setPixelSize(11)
+        widest = QFontMetrics(indicator_font).horizontalAdvance("99/99")
+        self.page_label.setMinimumWidth(widest + 8)
+        top_bar.addWidget(self.page_label)
+
+        self.next_button = QPushButton("Next ›")
+        self.next_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.next_button.setToolTip("Next page")
+        self.next_button.clicked.connect(self._next_page)
+        top_bar.addWidget(self.next_button)
         grid_layout.addLayout(top_bar)
 
         self.status_label = QLabel("Not loaded yet.")
@@ -129,6 +159,32 @@ class LibraryBrowserWidget(QWidget):
         pixmap = QPixmap(COVER_TILE_WIDTH, COVER_TILE_HEIGHT)
         pixmap.fill(QColor(60, 60, 66))
         return QIcon(pixmap)
+
+    # ------------------------------------------------------------------
+    # Paging
+    # ------------------------------------------------------------------
+
+    def _initial_page_size(self) -> int:
+        """Read the configured page size, falling back to the default."""
+        try:
+            value = int(self.settings.get("GF_LIBRARY_PAGE_SIZE", LIBRARY_PAGE_SIZE))
+        except (TypeError, ValueError):
+            value = LIBRARY_PAGE_SIZE
+        return max(1, value)
+
+    @property
+    def page_size(self) -> int:
+        """Games shown per page in the grid."""
+        return self._page_size
+
+    def set_page_size(self, size: int) -> None:
+        """Change the page size and re-render the grid from page one."""
+        size = max(1, int(size))
+        if size == self._page_size:
+            return
+        self._page_size = size
+        self._page = 0
+        self._apply_filter()
 
     # ------------------------------------------------------------------
     # Loading
@@ -244,13 +300,37 @@ class LibraryBrowserWidget(QWidget):
             games = [g for g in games if needle in g.title.lower()]
         return sorted(games, key=lambda g: g.title.lower())
 
+    def _change_filter(self) -> None:
+        """A library or search change: jump back to the first page and re-render."""
+        self._page = 0
+        self._apply_filter()
+
+    def _previous_page(self) -> None:
+        """Step back one page."""
+        if self._page > 0:
+            self._page -= 1
+            self._apply_filter()
+
+    def _next_page(self) -> None:
+        """Step forward one page."""
+        if self._page < self._page_count - 1:
+            self._page += 1
+            self._apply_filter()
+
     def _apply_filter(self) -> None:
-        """Rebuild the grid for the current filters."""
+        """Rebuild the grid for the current filters and page."""
         games = self.visible_games()
+        total_pages = max(1, math.ceil(len(games) / self._page_size))
+        # Keep the current page within range after the result set changed size.
+        self._page = min(max(self._page, 0), total_pages - 1)
+
+        start = self._page * self._page_size
+        page_games = games[start:start + self._page_size]
+
         self._pending_covers.clear()
         self.grid.clear()
 
-        for game in games:
+        for game in page_games:
             item = QListWidgetItem(game.title)
             item.setIcon(self._placeholder_icon)
             item.setData(GAME_ID_ROLE, game.id)
@@ -261,11 +341,27 @@ class LibraryBrowserWidget(QWidget):
             item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
             self.grid.addItem(item)
 
-        total = len(self.games)
-        self.status_label.setText(
-            f"{len(games)} of {total} games" if total else "This server reports no games."
-        )
+        self._update_status(len(games), start, len(page_games))
+        self._update_paging_controls(total_pages)
         self._load_visible_covers()
+
+    def _update_status(self, filtered: int, start: int, shown: int) -> None:
+        """Set the status line to describe what the current page holds."""
+        if not self.games:
+            self.status_label.setText("This server reports no games.")
+        elif filtered == 0:
+            self.status_label.setText("No games match your search.")
+        else:
+            self.status_label.setText(
+                f"Showing {start + 1}–{start + shown} of {filtered} games"
+            )
+
+    def _update_paging_controls(self, total_pages: int) -> None:
+        """Sync the prev/next buttons and page indicator with the current page."""
+        self._page_count = total_pages
+        self.page_label.setText(f"{self._page + 1}/{total_pages}")
+        self.prev_button.setEnabled(self._page > 0)
+        self.next_button.setEnabled(self._page < total_pages - 1)
 
     @staticmethod
     def _tooltip_for(game: Game) -> str:

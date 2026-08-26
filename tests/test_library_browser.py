@@ -163,7 +163,7 @@ class TestLibraryBrowser:
         assert [browser.grid.item(i).text() for i in range(2)] == ["Alpha", "Beta"]
         # "All libraries" plus the two server libraries
         assert browser.library_combo.count() == 3
-        assert "2 of 2 games" in browser.status_label.text()
+        assert "Showing 1–2 of 2 games" in browser.status_label.text()
 
     def test_refresh_reports_errors(self, qtbot, browser, mock_api):
         mock_api.get_libraries.side_effect = GameyfinApiError("server down")
@@ -257,6 +257,124 @@ class TestLibraryBrowser:
         qtbot.waitUntil(lambda: browser.grid.count() == 2, timeout=5000)
 
         assert browser.grid.item(0).data(GAME_ID_ROLE) == 1
+
+
+class TestLibraryBrowserPaging:
+    @pytest.fixture()
+    def many_games(self):
+        """23 games so a page size of 10 spans two pages."""
+        return [Game(id=i, title=f"Game {i:02d}", library_id=1, file_size=1024)
+                for i in range(1, 24)]
+
+    @pytest.fixture()
+    def paging_browser(self, qtbot, mock_cache, fresh_settings, many_games):
+        client = MagicMock()
+        client.get_libraries.return_value = [Library(id=1, name="First")]
+        client.get_games.return_value = many_games
+        client.get_download_providers.return_value = []
+        widget = LibraryBrowserWidget(client, mock_cache, fresh_settings)
+        qtbot.addWidget(widget)
+        widget.set_page_size(10)
+        return widget
+
+    def test_first_page_renders_only_a_page_of_tiles(self, qtbot, paging_browser):
+        paging_browser.refresh()
+        qtbot.waitUntil(lambda: paging_browser.grid.count() > 0, timeout=5000)
+
+        assert paging_browser.grid.count() == 10
+        assert "Showing 1–10 of 23 games" in paging_browser.status_label.text()
+        assert paging_browser.page_label.text() == "1/3"  # 23 games / 10 per page
+
+    def test_next_and_previous_page_step_through(self, qtbot, paging_browser):
+        paging_browser.refresh()
+        qtbot.waitUntil(lambda: paging_browser.grid.count() > 0, timeout=5000)
+
+        assert not paging_browser.prev_button.isEnabled()
+        assert paging_browser.next_button.isEnabled()
+        assert paging_browser.page_label.text() == "1/3"
+
+        paging_browser.next_button.click()
+        assert paging_browser.grid.count() == 10
+        assert "Showing 11–20 of 23 games" in paging_browser.status_label.text()
+        assert paging_browser.page_label.text() == "2/3"
+        assert paging_browser.prev_button.isEnabled()
+
+        paging_browser.next_button.click()
+        assert paging_browser.grid.count() == 3
+        assert "Showing 21–23 of 23 games" in paging_browser.status_label.text()
+        assert paging_browser.page_label.text() == "3/3"
+        assert not paging_browser.next_button.isEnabled()
+
+        paging_browser.prev_button.click()
+        assert "Showing 11–20 of 23 games" in paging_browser.status_label.text()
+        assert paging_browser.page_label.text() == "2/3"
+
+    def test_filter_change_resets_to_first_page(self, qtbot, paging_browser):
+        paging_browser.refresh()
+        qtbot.waitUntil(lambda: paging_browser.grid.count() > 0, timeout=5000)
+
+        paging_browser.next_button.click()
+        assert paging_browser._page == 1
+
+        # A search narrows the result set and snaps back to page one
+        paging_browser.search_edit.setText("Game 01")
+        assert paging_browser._page == 0
+        assert paging_browser.grid.count() == 1
+
+    def test_set_page_size_repages_from_the_start(self, qtbot, paging_browser):
+        paging_browser.refresh()
+        qtbot.waitUntil(lambda: paging_browser.grid.count() > 0, timeout=5000)
+
+        paging_browser.next_button.click()
+        assert paging_browser._page == 1
+
+        paging_browser.set_page_size(5)
+
+        assert paging_browser.page_size == 5
+        assert paging_browser._page == 0
+        assert paging_browser.grid.count() == 5
+        assert paging_browser.page_label.text() == "1/5"  # 23 / 5 -> 5 pages
+
+    def test_set_page_size_ignores_noop_change(self, qtbot, paging_browser):
+        paging_browser.refresh()
+        qtbot.waitUntil(lambda: paging_browser.grid.count() > 0, timeout=5000)
+
+        before = paging_browser.status_label.text()
+        paging_browser.set_page_size(10)  # same as current
+
+        assert paging_browser.status_label.text() == before
+        assert paging_browser._page == 0
+
+    def test_set_page_size_clamps_below_one(self, qtbot, paging_browser):
+        paging_browser.set_page_size(0)
+
+        assert paging_browser.page_size == 1
+
+    def test_empty_library_reports_no_games(self, qtbot, fresh_settings, mock_cache):
+        client = MagicMock()
+        client.get_libraries.return_value = []
+        client.get_games.return_value = []
+        client.get_download_providers.return_value = []
+        widget = LibraryBrowserWidget(client, mock_cache, fresh_settings)
+        qtbot.addWidget(widget)
+
+        widget.refresh()
+        qtbot.waitUntil(lambda: widget.status_label.text() != "", timeout=5000)
+
+        assert widget.grid.count() == 0
+        assert widget.page_label.text() == "1/1"
+        assert not widget.next_button.isEnabled()
+        assert not widget.prev_button.isEnabled()
+
+    def test_page_label_reserves_width_for_two_digit_pages(self, paging_browser):
+        """The indicator keeps a stable width so the buttons don't jump 9 -> 10."""
+        from PyQt6.QtGui import QFont, QFontMetrics
+
+        font = QFont()
+        font.setPixelSize(11)
+        needed = QFontMetrics(font).horizontalAdvance("99/99")
+
+        assert paging_browser.page_label.minimumWidth() >= needed
 
 
 class TestGameDetail:

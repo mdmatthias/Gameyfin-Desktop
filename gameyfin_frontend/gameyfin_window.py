@@ -33,8 +33,8 @@ from .gamepad_webnav import build_nav_script
 from .settings_widget import SettingsWidget
 from .settings import SettingsManager
 from .utils import get_effective_icon, parse_size
-from .config import (FIXED_TAB_COUNT, NATIVE_UI_COOKIE_DEBOUNCE_MS,
-                     NATIVE_UI_PROBE_INTERVAL_MS)
+from .config import (FIXED_TAB_COUNT, LIBRARY_PAGE_SIZE,
+                     NATIVE_UI_COOKIE_DEBOUNCE_MS, NATIVE_UI_PROBE_INTERVAL_MS)
 
 logger = logging.getLogger(__name__)
 
@@ -879,6 +879,12 @@ class GameyfinWindow(QMainWindow):
 
         # 4. Apply the native library UI flag without a restart
         self._apply_native_ui_setting()
+
+        # 4b. Push the configured page size to the native grid (if present)
+        if self.library_browser is not None:
+            self.library_browser.set_page_size(
+                self.settings.get("GF_LIBRARY_PAGE_SIZE", LIBRARY_PAGE_SIZE)
+            )
 
         # 5. Refresh UMU Database (background, non-blocking)
         if sys.platform != "win32" and self.umu_database:
