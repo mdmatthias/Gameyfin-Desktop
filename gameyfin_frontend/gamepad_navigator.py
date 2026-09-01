@@ -482,7 +482,16 @@ class GamepadNavigator(QObject):
 
     @staticmethod
     def _score(source: QRect, target: QRect, direction: str) -> float | None:
-        """Cost of moving from *source* to *target*; None when out of direction."""
+        """Cost of moving from *source* to *target*; None when out of direction.
+
+        The off-axis term is the *gap* between the two rectangles along the
+        across-axis: 0 when they overlap (same column/row) and the distance
+        between them otherwise. A centre-distance term would additionally
+        penalise a target that sits in the same column but has a different
+        width — e.g. a slider that is narrower than the checkbox above it
+        because a value label shares its row — and that penalty can outweigh
+        the small vertical gap, making the closer widget unreachable.
+        """
         if direction in ("up", "down"):
             if direction == "down":
                 along = target.top() - source.bottom()
@@ -490,8 +499,7 @@ class GamepadNavigator(QObject):
                 along = source.top() - target.bottom()
             if along < -min(source.height(), target.height()) / 2:
                 return None
-            gap = max(0, max(source.left() - target.right(), target.left() - source.right()))
-            across = abs(source.center().x() - target.center().x()) + gap
+            across = max(0, max(source.left() - target.right(), target.left() - source.right()))
         else:
             if direction == "right":
                 along = target.left() - source.right()
@@ -499,8 +507,7 @@ class GamepadNavigator(QObject):
                 along = source.left() - target.right()
             if along < -min(source.width(), target.width()) / 2:
                 return None
-            gap = max(0, max(source.top() - target.bottom(), target.top() - source.bottom()))
-            across = abs(source.center().y() - target.center().y()) + gap
+            across = max(0, max(source.top() - target.bottom(), target.top() - source.bottom()))
         return max(0, along) + across * _ACROSS_PENALTY
 
     def find_neighbour(self, root: QWidget, current: QWidget | None, direction: str) -> QWidget | None:
@@ -773,11 +780,22 @@ class GamepadNavigator(QObject):
             }[direction]
             before = widget.currentIndex()
             self._send_key(widget, key)
-            # Only claim the input if the selection actually moved, otherwise
-            # focus should leave the list at its edge. A cover grid (IconMode)
-            # moves sideways as well as vertically; a single-column list ignores
-            # left/right, so focus still leaves it there.
-            return widget.currentIndex() != before
+            after = widget.currentIndex()
+            # Only claim the input if the selection actually moved in the
+            # requested direction.  For IconMode, left/right may still
+            # change the row (Qt wraps to the next / previous item) but the
+            # visual position hasn't shifted in that direction — focus
+            # should be allowed to leave the grid at its edge.
+            if after != before:
+                if isinstance(widget, QListWidget) and widget.viewMode() == QListWidget.ViewMode.IconMode:
+                    old_rect = widget.visualRect(before)
+                    new_rect = widget.visualRect(after)
+                    if direction == "right" and new_rect.center().x() <= old_rect.center().x():
+                        return False
+                    if direction == "left" and new_rect.center().x() >= old_rect.center().x():
+                        return False
+                return True
+            return False
 
         return False
 

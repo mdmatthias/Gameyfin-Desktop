@@ -6,7 +6,7 @@ from PyQt6.QtGui import QColor, QIcon, QKeyEvent, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QGridLayout, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QScrollArea,
-    QScrollBar, QSlider, QTabWidget, QVBoxLayout, QWidget,
+    QScrollBar, QSlider, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from gameyfin_frontend.gamepad import GamepadState
@@ -175,6 +175,40 @@ class TestSpatialNavigation:
         navigator, window = grid
 
         assert navigator.find_neighbour(window, None, "down") is window.top_left
+
+    def test_down_reaches_narrower_same_column_widget(self, qtbot, manager):
+        """A closer widget in the same column beats a farther centre-aligned one.
+
+        Regression test for the settings deadzone slider: it is narrower than
+        the checkbox above it because a value label shares its row, so its
+        centre x differs. The old centre-distance score penalised that offset
+        enough to make the closer slider lose to the spinbox two rows down.
+        """
+        window = QWidget()
+        window.resize(700, 400)
+        vbox = QVBoxLayout(window)
+
+        checkbox = QCheckBox("Enable feature")
+        vbox.addWidget(checkbox)
+
+        # Slider row: the value label eats the right edge, so the slider is
+        # narrower than the checkbox and its centre is shifted left.
+        hbox = QHBoxLayout()
+        slider = QSlider(Qt.Orientation.Horizontal)
+        slider.setRange(5, 60)
+        value_label = QLabel("100%")
+        value_label.setMinimumWidth(60)
+        hbox.addWidget(slider)
+        hbox.addWidget(value_label)
+        vbox.addLayout(hbox)
+
+        spin = QSpinBox()
+        vbox.addWidget(spin)
+
+        navigator = make_navigator(qtbot, window, manager)
+
+        assert navigator.find_neighbour(window, checkbox, "down") is slider
+        assert navigator.find_neighbour(window, slider, "down") is spin
 
     def test_disabled_navigator_ignores_input(self, grid, manager):
         navigator, window = grid

@@ -3,7 +3,7 @@ import sys
 import json
 import subprocess
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QFormLayout, QLineEdit,
-                             QPushButton, QLabel, QSlider, QSpinBox, QMessageBox, QCheckBox, QHBoxLayout, QFileDialog, QComboBox)
+                             QPushButton, QLabel, QSlider, QSpinBox, QMessageBox, QCheckBox, QHBoxLayout, QFileDialog, QComboBox, QGroupBox, QScrollArea)
 from PyQt6.QtCore import Qt
 from qt_material import list_themes
 from .settings import SettingsManager
@@ -14,186 +14,27 @@ class SettingsWidget(QWidget):
     def __init__(self, parent=None, settings: SettingsManager | None = None):
         super().__init__(parent)
         self.settings = settings
-        self.layout = QVBoxLayout(self)
 
-        self.form_layout = QFormLayout()
+        self.main_layout = QVBoxLayout(self)
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_content = QWidget()
+        self.scroll_area.setWidget(self.scroll_content)
+        self.main_layout.addWidget(self.scroll_area)
 
-        self.url_edit = QLineEdit()
-        self.url_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.url_edit.setText(settings.get("GF_URL") if settings else "")
-        self.form_layout.addRow("Gameyfin URL:", self.url_edit)
+        content_layout = QVBoxLayout(self.scroll_content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.width_spin = QSpinBox()
-        self.width_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.width_spin.setRange(800, 3840)
-        self.width_spin.setValue(settings.get("GF_WINDOW_WIDTH") if settings else 1420)
-        self.form_layout.addRow("Window Width:", self.width_spin)
-
-        self.height_spin = QSpinBox()
-        self.height_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.height_spin.setRange(600, 2160)
-        self.height_spin.setValue(settings.get("GF_WINDOW_HEIGHT") if settings else 940)
-        self.form_layout.addRow("Window Height:", self.height_spin)
-
-        self.proton_edit = QLineEdit()
-        self.proton_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.proton_edit.setText(settings.get("PROTONPATH") if settings else "")
-
-        self.umu_api_edit = QLineEdit()
-        self.umu_api_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.umu_api_edit.setText(settings.get("GF_UMU_API_URL") if settings else "")
-
-        self.stores_edit = QLineEdit()
-        stores = settings.get("GF_UMU_DB_STORES") if settings else []
-        self.stores_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.stores_edit.setText(json.dumps(stores))
-
+        content_layout.addWidget(self._build_general_section())
+        content_layout.addWidget(self._build_library_section())
+        # The UMU widgets are always created (save_settings reads them
+        # on every platform) but the section is only shown on Linux.
+        self.umu_box = self._build_umu_section()
         if sys.platform == "linux":
-            self.form_layout.addRow("Proton Path:", self.proton_edit)
-            self.form_layout.addRow("UMU API URL:", self.umu_api_edit)
-            self.form_layout.addRow("UMU Stores (JSON):", self.stores_edit)
-
-        self.minimized_check = QCheckBox()
-        self.minimized_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.minimized_check.setChecked(bool(settings.get("GF_START_MINIMIZED")) if settings else False)
-        self.form_layout.addRow("Start Minimized:", self.minimized_check)
-
-        self.native_ui_check = QCheckBox()
-        self.native_ui_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.native_ui_check.setToolTip(
-            "Show libraries and games as a native Qt grid served by the Gameyfin API "
-            "instead of the embedded web page. The web view is still used for login."
-        )
-        self.native_ui_check.setChecked(bool(settings.get("GF_NATIVE_UI")) if settings else False)
-        self.form_layout.addRow("Native Library UI:", self.native_ui_check)
-
-        self.page_size_spin = QSpinBox()
-        self.page_size_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.page_size_spin.setRange(10, 200)
-        self.page_size_spin.setSingleStep(10)
-        self.page_size_spin.setToolTip(
-            "Games shown per page in the native library grid. The server returns "
-            "every game at once, so this only changes how many tiles are rendered "
-            "at a time."
-        )
-        self.page_size_spin.setValue(self._int_setting("GF_LIBRARY_PAGE_SIZE", 100))
-        self.form_layout.addRow("Games per Page:", self.page_size_spin)
-
-        self.theme_combo = QComboBox()
-        self.theme_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.theme_combo.addItem("auto")
-        self.theme_combo.addItems(list_themes())
-        current_theme = settings.get("GF_THEME") if settings else "auto"
-        if current_theme:
-            self.theme_combo.setCurrentText(current_theme)
-        self.form_layout.addRow("Theme:", self.theme_combo)
-
-        self.log_level_combo = QComboBox()
-        self.log_level_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.log_level_combo.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
-        current_log = (settings.get("GF_LOG_LEVEL", "WARNING") if settings else "WARNING").upper()
-        if current_log:
-            self.log_level_combo.setCurrentText(current_log)
-        self.form_layout.addRow("Log Level:", self.log_level_combo)
-
-        self.icon_path_edit = QLineEdit()
-        self.icon_path_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.icon_path_edit.setPlaceholderText("(default)")
-        self.icon_path_edit.setText(settings.get("GF_ICON_PATH") if settings else "")
-        self.icon_browse_btn = QPushButton("Browse...")
-        self.icon_browse_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.icon_browse_btn.clicked.connect(self.browse_icon)
-        icon_layout = QHBoxLayout()
-        icon_layout.addWidget(self.icon_path_edit)
-        icon_layout.addWidget(self.icon_browse_btn)
-        self.form_layout.addRow("Custom Tray Icon:", icon_layout)
-
-        # Extraction Settings
-        self.download_dir_edit = QLineEdit()
-        self.download_dir_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.download_dir_edit.setPlaceholderText("(defaults to ~/Downloads/<game-name>)")
-        self.download_dir_edit.setText(settings.get("GF_DEFAULT_DOWNLOAD_DIR") if settings else "")
-        self.download_dir_btn = QPushButton("Browse...")
-        self.download_dir_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.download_dir_btn.clicked.connect(lambda: self.browse_directory(self.download_dir_edit, "Select Download Directory"))
-        download_dir_layout = QHBoxLayout()
-        download_dir_layout.addWidget(self.download_dir_edit)
-        download_dir_layout.addWidget(self.download_dir_btn)
-        self.form_layout.addRow("Default Download Dir:", download_dir_layout)
-
-        self.prompt_download_check = QCheckBox()
-        self.prompt_download_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.prompt_download_check.setChecked(bool(settings.get("GF_PROMPT_DOWNLOAD_DIR")) if settings else False)
-        self.form_layout.addRow("Prompt for Download Dir:", self.prompt_download_check)
-
-        self.notifications_check = QCheckBox()
-        self.notifications_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.notifications_check.setChecked(bool(settings.get("GF_DOWNLOAD_NOTIFICATIONS")) if settings else True)
-        self.form_layout.addRow("Download Notifications:", self.notifications_check)
-
-        # Bandwidth Throttling — QSlider with 0.1 MB/s steps (range 0–1000 → 0.0–100.0 MB/s)
-        bandwidth_hbox = QHBoxLayout()
-        self.bandwidth_slider = QSlider(Qt.Orientation.Horizontal)
-        self.bandwidth_slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.bandwidth_slider.setRange(0, 1000)
-        self.bandwidth_slider.setSingleStep(1)
-        limit_bytes = settings.get("GF_BANDWIDTH_LIMIT") if settings else 0
-        tenths_mbps = int(round((limit_bytes / (1024 * 1024)) * 10)) if isinstance(limit_bytes, (int, float)) and limit_bytes > 0 else 0
-        self.bandwidth_slider.setValue(min(tenths_mbps, 1000))
-        self.bandwidth_label = QLabel("Unlimited")
-        self.bandwidth_label.setMinimumWidth(80)
-        self._update_bandwidth_label(self.bandwidth_slider.value())
-        self.bandwidth_slider.valueChanged.connect(self._update_bandwidth_label)
-        self.bandwidth_slider.valueChanged.connect(self._on_bandwidth_changed)
-        bandwidth_hbox.addWidget(self.bandwidth_slider)
-        bandwidth_hbox.addWidget(self.bandwidth_label)
-        self.form_layout.addRow("Download Speed Limit:", bandwidth_hbox)
-
-        # --- Gamepad ---
-        self.gamepad_enabled_check = QCheckBox()
-        self.gamepad_enabled_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.gamepad_enabled_check.setChecked(bool(settings.get("GF_GAMEPAD_ENABLED")) if settings else True)
-        self.form_layout.addRow("Gamepad Support:", self.gamepad_enabled_check)
-
-        self.gamepad_status_label = QLabel("No controller detected")
-        self.gamepad_status_label.setStyleSheet("font-size: 11px; color: palette(mid);")
-        self.form_layout.addRow("Controller:", self.gamepad_status_label)
-
-        self.gamepad_hints_check = QCheckBox()
-        self.gamepad_hints_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.gamepad_hints_check.setChecked(bool(settings.get("GF_GAMEPAD_HINTS")) if settings else True)
-        self.form_layout.addRow("Show Button Hints:", self.gamepad_hints_check)
-
-        deadzone_hbox = QHBoxLayout()
-        self.gamepad_deadzone_slider = QSlider(Qt.Orientation.Horizontal)
-        self.gamepad_deadzone_slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.gamepad_deadzone_slider.setRange(5, 60)
-        self.gamepad_deadzone_slider.setValue(self._int_setting("GF_GAMEPAD_DEADZONE", 25))
-        self.gamepad_deadzone_label = QLabel()
-        self.gamepad_deadzone_label.setMinimumWidth(50)
-        self._update_deadzone_label(self.gamepad_deadzone_slider.value())
-        self.gamepad_deadzone_slider.valueChanged.connect(self._update_deadzone_label)
-        deadzone_hbox.addWidget(self.gamepad_deadzone_slider)
-        deadzone_hbox.addWidget(self.gamepad_deadzone_label)
-        self.form_layout.addRow("Stick Deadzone:", deadzone_hbox)
-
-        self.gamepad_repeat_spin = QSpinBox()
-        self.gamepad_repeat_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.gamepad_repeat_spin.setRange(40, 600)
-        self.gamepad_repeat_spin.setSingleStep(10)
-        self.gamepad_repeat_spin.setSuffix(" ms")
-        self.gamepad_repeat_spin.setValue(self._int_setting("GF_GAMEPAD_REPEAT_MS", 140))
-        self.form_layout.addRow("Navigation Repeat:", self.gamepad_repeat_spin)
-
-        self.gamepad_scroll_spin = QSpinBox()
-        self.gamepad_scroll_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.gamepad_scroll_spin.setRange(5, 400)
-        self.gamepad_scroll_spin.setSingleStep(5)
-        self.gamepad_scroll_spin.setSuffix(" px")
-        self.gamepad_scroll_spin.setValue(self._int_setting("GF_GAMEPAD_SCROLL_SPEED", 60))
-        self.form_layout.addRow("Scroll Speed:", self.gamepad_scroll_spin)
-
-        self.layout.addLayout(self.form_layout)
+            content_layout.addWidget(self.umu_box)
+        content_layout.addWidget(self._build_downloads_section())
+        content_layout.addWidget(self._build_gamepad_section())
+        content_layout.addStretch()
 
         button_row = QHBoxLayout()
         self.save_button = QPushButton("Save and Apply")
@@ -206,9 +47,7 @@ class SettingsWidget(QWidget):
         self.update_button.clicked.connect(self.check_for_updates)
         button_row.addWidget(self.update_button)
 
-        self.layout.addLayout(button_row)
-
-        self.layout.addStretch()
+        self.main_layout.addLayout(button_row)
 
         # Wire explicit tab order: bandwidth → gamepad section → save button
         self._tab_order_chain: list[tuple[QWidget, QWidget]] = []
@@ -226,6 +65,214 @@ class SettingsWidget(QWidget):
         for first, second in zip(chain, chain[1:]):
             QWidget.setTabOrder(first, second)
             self._tab_order_chain.append((first, second))
+
+    # ------------------------------------------------------------------
+    # Section builders
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _section(title: str) -> tuple[QGroupBox, QFormLayout]:
+        """Create a titled section box with a form layout inside it."""
+        box = QGroupBox(title)
+        form = QFormLayout(box)
+        return box, form
+
+    def _build_general_section(self) -> QGroupBox:
+        box, form = self._section("General")
+
+        self.url_edit = QLineEdit()
+        self.url_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.url_edit.setText(self.settings.get("GF_URL") if self.settings else "")
+        form.addRow("Gameyfin URL:", self.url_edit)
+
+        self.width_spin = QSpinBox()
+        self.width_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.width_spin.setRange(800, 3840)
+        self.width_spin.setValue(self.settings.get("GF_WINDOW_WIDTH") if self.settings else 1420)
+        form.addRow("Window Width:", self.width_spin)
+
+        self.height_spin = QSpinBox()
+        self.height_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.height_spin.setRange(600, 2160)
+        self.height_spin.setValue(self.settings.get("GF_WINDOW_HEIGHT") if self.settings else 940)
+        form.addRow("Window Height:", self.height_spin)
+
+        self.minimized_check = QCheckBox()
+        self.minimized_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.minimized_check.setChecked(bool(self.settings.get("GF_START_MINIMIZED")) if self.settings else False)
+        form.addRow("Start Minimized:", self.minimized_check)
+
+        self.theme_combo = QComboBox()
+        self.theme_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.theme_combo.addItem("auto")
+        self.theme_combo.addItems(list_themes())
+        current_theme = self.settings.get("GF_THEME") if self.settings else "auto"
+        if current_theme:
+            self.theme_combo.setCurrentText(current_theme)
+        form.addRow("Theme:", self.theme_combo)
+
+        self.log_level_combo = QComboBox()
+        self.log_level_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.log_level_combo.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+        current_log = (self.settings.get("GF_LOG_LEVEL", "WARNING") if self.settings else "WARNING").upper()
+        if current_log:
+            self.log_level_combo.setCurrentText(current_log)
+        form.addRow("Log Level:", self.log_level_combo)
+
+        self.icon_path_edit = QLineEdit()
+        self.icon_path_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.icon_path_edit.setPlaceholderText("(default)")
+        self.icon_path_edit.setText(self.settings.get("GF_ICON_PATH") if self.settings else "")
+        self.icon_browse_btn = QPushButton("Browse...")
+        self.icon_browse_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.icon_browse_btn.clicked.connect(self.browse_icon)
+        icon_layout = QHBoxLayout()
+        icon_layout.addWidget(self.icon_path_edit)
+        icon_layout.addWidget(self.icon_browse_btn)
+        form.addRow("Custom Tray Icon:", icon_layout)
+
+        return box
+
+    def _build_library_section(self) -> QGroupBox:
+        box, form = self._section("Library")
+
+        self.native_ui_check = QCheckBox()
+        self.native_ui_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.native_ui_check.setToolTip(
+            "Show libraries and games as a native Qt grid served by the Gameyfin API "
+            "instead of the embedded web page. The web view is still used for login."
+        )
+        self.native_ui_check.setChecked(bool(self.settings.get("GF_NATIVE_UI")) if self.settings else False)
+        form.addRow("Native Library UI:", self.native_ui_check)
+
+        self.page_size_spin = QSpinBox()
+        self.page_size_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.page_size_spin.setRange(10, 200)
+        self.page_size_spin.setSingleStep(10)
+        self.page_size_spin.setToolTip(
+            "Games shown per page in the native library grid. The server returns "
+            "every game at once, so this only changes how many tiles are rendered "
+            "at a time."
+        )
+        self.page_size_spin.setValue(self._int_setting("GF_LIBRARY_PAGE_SIZE", 100))
+        form.addRow("Games per Page:", self.page_size_spin)
+
+        return box
+
+    def _build_umu_section(self) -> QGroupBox:
+        box, form = self._section("UMU")
+
+        self.proton_edit = QLineEdit()
+        self.proton_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.proton_edit.setText(self.settings.get("PROTONPATH") if self.settings else "")
+
+        self.umu_api_edit = QLineEdit()
+        self.umu_api_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.umu_api_edit.setText(self.settings.get("GF_UMU_API_URL") if self.settings else "")
+
+        self.stores_edit = QLineEdit()
+        stores = self.settings.get("GF_UMU_DB_STORES") if self.settings else []
+        self.stores_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.stores_edit.setText(json.dumps(stores))
+
+        form.addRow("Proton Path:", self.proton_edit)
+        form.addRow("UMU API URL:", self.umu_api_edit)
+        form.addRow("UMU Stores (JSON):", self.stores_edit)
+
+        return box
+
+    def _build_downloads_section(self) -> QGroupBox:
+        box, form = self._section("Downloads")
+
+        self.download_dir_edit = QLineEdit()
+        self.download_dir_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.download_dir_edit.setPlaceholderText("(defaults to ~/Downloads/<game-name>)")
+        self.download_dir_edit.setText(self.settings.get("GF_DEFAULT_DOWNLOAD_DIR") if self.settings else "")
+        self.download_dir_btn = QPushButton("Browse...")
+        self.download_dir_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.download_dir_btn.clicked.connect(lambda: self.browse_directory(self.download_dir_edit, "Select Download Directory"))
+        download_dir_layout = QHBoxLayout()
+        download_dir_layout.addWidget(self.download_dir_edit)
+        download_dir_layout.addWidget(self.download_dir_btn)
+        form.addRow("Default Download Dir:", download_dir_layout)
+
+        self.prompt_download_check = QCheckBox()
+        self.prompt_download_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.prompt_download_check.setChecked(bool(self.settings.get("GF_PROMPT_DOWNLOAD_DIR")) if self.settings else False)
+        form.addRow("Prompt for Download Dir:", self.prompt_download_check)
+
+        self.notifications_check = QCheckBox()
+        self.notifications_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.notifications_check.setChecked(bool(self.settings.get("GF_DOWNLOAD_NOTIFICATIONS")) if self.settings else True)
+        form.addRow("Download Notifications:", self.notifications_check)
+
+        # Bandwidth Throttling — QSlider with 0.1 MB/s steps (range 0–1000 → 0.0–100.0 MB/s)
+        bandwidth_hbox = QHBoxLayout()
+        self.bandwidth_slider = QSlider(Qt.Orientation.Horizontal)
+        self.bandwidth_slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.bandwidth_slider.setRange(0, 1000)
+        self.bandwidth_slider.setSingleStep(1)
+        limit_bytes = self.settings.get("GF_BANDWIDTH_LIMIT") if self.settings else 0
+        tenths_mbps = int(round((limit_bytes / (1024 * 1024)) * 10)) if isinstance(limit_bytes, (int, float)) and limit_bytes > 0 else 0
+        self.bandwidth_slider.setValue(min(tenths_mbps, 1000))
+        self.bandwidth_label = QLabel("Unlimited")
+        self.bandwidth_label.setMinimumWidth(80)
+        self._update_bandwidth_label(self.bandwidth_slider.value())
+        self.bandwidth_slider.valueChanged.connect(self._update_bandwidth_label)
+        self.bandwidth_slider.valueChanged.connect(self._on_bandwidth_changed)
+        bandwidth_hbox.addWidget(self.bandwidth_slider)
+        bandwidth_hbox.addWidget(self.bandwidth_label)
+        form.addRow("Download Speed Limit:", bandwidth_hbox)
+
+        return box
+
+    def _build_gamepad_section(self) -> QGroupBox:
+        box, form = self._section("Gamepad")
+
+        self.gamepad_enabled_check = QCheckBox()
+        self.gamepad_enabled_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.gamepad_enabled_check.setChecked(bool(self.settings.get("GF_GAMEPAD_ENABLED")) if self.settings else True)
+        form.addRow("Gamepad Support:", self.gamepad_enabled_check)
+
+        self.gamepad_status_label = QLabel("No controller detected")
+        self.gamepad_status_label.setStyleSheet("font-size: 11px; color: palette(mid);")
+        form.addRow("Controller:", self.gamepad_status_label)
+
+        self.gamepad_hints_check = QCheckBox()
+        self.gamepad_hints_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.gamepad_hints_check.setChecked(bool(self.settings.get("GF_GAMEPAD_HINTS")) if self.settings else True)
+        form.addRow("Show Button Hints:", self.gamepad_hints_check)
+
+        deadzone_hbox = QHBoxLayout()
+        self.gamepad_deadzone_slider = QSlider(Qt.Orientation.Horizontal)
+        self.gamepad_deadzone_slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.gamepad_deadzone_slider.setRange(5, 60)
+        self.gamepad_deadzone_slider.setValue(self._int_setting("GF_GAMEPAD_DEADZONE", 25))
+        self.gamepad_deadzone_label = QLabel()
+        self.gamepad_deadzone_label.setMinimumWidth(50)
+        self._update_deadzone_label(self.gamepad_deadzone_slider.value())
+        self.gamepad_deadzone_slider.valueChanged.connect(self._update_deadzone_label)
+        deadzone_hbox.addWidget(self.gamepad_deadzone_slider)
+        deadzone_hbox.addWidget(self.gamepad_deadzone_label)
+        form.addRow("Stick Deadzone:", deadzone_hbox)
+
+        self.gamepad_repeat_spin = QSpinBox()
+        self.gamepad_repeat_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.gamepad_repeat_spin.setRange(40, 600)
+        self.gamepad_repeat_spin.setSingleStep(10)
+        self.gamepad_repeat_spin.setSuffix(" ms")
+        self.gamepad_repeat_spin.setValue(self._int_setting("GF_GAMEPAD_REPEAT_MS", 140))
+        form.addRow("Navigation Repeat:", self.gamepad_repeat_spin)
+
+        self.gamepad_scroll_spin = QSpinBox()
+        self.gamepad_scroll_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.gamepad_scroll_spin.setRange(5, 400)
+        self.gamepad_scroll_spin.setSingleStep(5)
+        self.gamepad_scroll_spin.setSuffix(" px")
+        self.gamepad_scroll_spin.setValue(self._int_setting("GF_GAMEPAD_SCROLL_SPEED", 60))
+        form.addRow("Scroll Speed:", self.gamepad_scroll_spin)
+
+        return box
 
     def _int_setting(self, key: str, default: int) -> int:
         """Read a numeric setting, falling back to *default* on junk values."""
