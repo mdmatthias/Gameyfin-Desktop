@@ -10,8 +10,8 @@ shared :class:`ImageCache`.
 import logging
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QPixmap
-from PyQt6.QtWidgets import (QComboBox, QFrame, QHBoxLayout, QLabel,
+from PyQt6.QtGui import QKeyEvent, QMouseEvent, QPixmap
+from PyQt6.QtWidgets import (QComboBox, QDialog, QFrame, QHBoxLayout, QLabel,
                              QPushButton, QScrollArea, QSizePolicy,
                              QVBoxLayout, QWidget)
 
@@ -23,6 +23,72 @@ from ..settings import SettingsManager
 from ..utils import format_size
 
 logger = logging.getLogger(__name__)
+
+
+# ------------------------------------------------------------------
+# Clickable label
+# ------------------------------------------------------------------
+
+class ClickableLabel(QLabel):
+    """A QLabel that emits *clicked* on mouse press or space/return."""
+
+    clicked = pyqtSignal()
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # type: ignore[override]
+        if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return):
+            self.clicked.emit()
+        super().keyPressEvent(event)
+
+
+# ------------------------------------------------------------------
+# Screenshot viewer dialog
+# ------------------------------------------------------------------
+
+class ScreenshotViewerDialog(QDialog):
+    """Show a screenshot at full size with close button."""
+
+    def __init__(self, image_data: bytes, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setModal(True)
+        self.setWindowTitle("Screenshot")
+        self.setMinimumSize(600, 400)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+
+        self.image_label = QLabel()
+        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_label.setWordWrap(False)
+        layout.addWidget(self.image_label)
+
+        close_button = QPushButton("Close")
+        close_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        close_button.clicked.connect(self.close)
+        layout.addWidget(close_button, 0, Qt.AlignmentFlag.AlignCenter)
+
+        # Display the image
+        pixmap = QPixmap()
+        if pixmap.loadFromData(image_data):
+            self.image_label.setPixmap(pixmap.scaled(
+                self.size() * 0.9,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            ))
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        pixmap = self.image_label.pixmap()
+        if pixmap is not None:
+            self.image_label.setPixmap(pixmap.scaled(
+                self.size() * 0.9,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            ))
 
 
 class GameDetailWidget(QWidget):
@@ -42,6 +108,10 @@ class GameDetailWidget(QWidget):
         self._pending_images: dict[int, tuple[QLabel, int, int]] = {}
         # Kept so the header banner can be rescaled when the view is resized
         self._header_data: bytes | None = None
+        # Screenshot image data keyed by image id for the viewer dialog
+        self._screenshot_images: dict[int, bytes] = {}
+        # Reusable viewer dialog
+        self._viewer_dialog: ScreenshotViewerDialog | None = None
 
         self.image_cache.ready.connect(self._on_image_ready)
 
@@ -147,6 +217,7 @@ class GameDetailWidget(QWidget):
 
         self.summary_label = QLabel()
         self.summary_label.setWordWrap(True)
+        self.summary_label.setTextFormat(Qt.TextFormat.RichText)
         self.summary_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.summary_label)
 
@@ -159,7 +230,9 @@ class GameDetailWidget(QWidget):
         self.screenshot_scroll.setWidgetResizable(True)
         self.screenshot_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.screenshot_scroll.setFixedHeight(SCREENSHOT_THUMB_HEIGHT + 24)
-        self.screenshot_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.screenshot_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.screenshot_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.screenshot_scroll.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.screenshot_scroll.hide()
         screenshot_holder = QWidget()
         self.screenshot_layout = QHBoxLayout(screenshot_holder)
@@ -253,10 +326,12 @@ class GameDetailWidget(QWidget):
         self.screenshot_scroll.setVisible(bool(screenshots))
 
         for image in screenshots:
-            label = QLabel()
+            label = ClickableLabel()
             label.setFixedHeight(SCREENSHOT_THUMB_HEIGHT)
             label.setMinimumWidth(int(SCREENSHOT_THUMB_HEIGHT * 16 / 9))
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            label.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            label.clicked.connect(lambda img=image: self._open_screenshot(img))
             self.screenshot_layout.addWidget(label)
             self._load_image(image, label, 0, SCREENSHOT_THUMB_HEIGHT)
 
@@ -272,6 +347,10 @@ class GameDetailWidget(QWidget):
         if data is not None:
             if label is self.header_label:
                 self._apply_header(data)
+            elif isinstance(label, ClickableLabel):
+                # Store raw bytes for the screenshot viewer
+                self._screenshot_images[image.id] = data
+                self._apply_pixmap(label, data, width, height)
             else:
                 self._apply_pixmap(label, data, width, height)
             return
@@ -341,3 +420,37 @@ class GameDetailWidget(QWidget):
             logger.warning("Download requested but no provider is available")
             return
         self.download_requested.emit(self.game, provider_key)
+
+    def _open_screenshot(self, image: GameImage) -> None:
+        """Show *image* in a full-size viewer dialog."""
+        data = self._screenshot_images.get(image.id)
+        if data is None:
+            # Try to fetch it now; the viewer will open when the image arrives
+            self.image_cache.request(image)
+            self.image_cache.ready.connect(
+                lambda img_id, img_data: self._show_screenshot(img_id, img_data),
+            )
+            return
+        self._show_screenshot(image.id, data)
+
+    def _show_screenshot(self, image_id: int, data: bytes) -> None:
+        """Display the screenshot in the reusable dialog."""
+        if self._viewer_dialog is None:
+            self._viewer_dialog = ScreenshotViewerDialog(data, self)
+            self._viewer_dialog.finished.connect(self._on_viewer_closed)
+        else:
+            self._viewer_dialog.image_label.clear()
+            pixmap = QPixmap()
+            if pixmap.loadFromData(data):
+                self._viewer_dialog.image_label.setPixmap(pixmap.scaled(
+                    self._viewer_dialog.size() * 0.9,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                ))
+        self._viewer_dialog.show()
+        self._viewer_dialog.raise_()
+        self._viewer_dialog.activateWindow()
+
+    def _on_viewer_closed(self) -> None:
+        """Recycle the dialog for the next screenshot."""
+        self._viewer_dialog = None

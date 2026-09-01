@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView, QAbstractScrollArea, QAbstractSlider, QApplication,
     QCheckBox, QComboBox, QDialog, QLineEdit, QListWidget, QPlainTextEdit,
     QPushButton, QRadioButton, QScrollArea, QScrollBar, QSpinBox, QDoubleSpinBox,
-    QTabBar, QTextEdit, QToolButton, QWidget,
+    QTabBar, QTextEdit, QToolButton, QWidget, QStackedWidget,
 )
 
 from .gamepad import (
@@ -391,7 +391,25 @@ class GamepadNavigator(QObject):
         view_class = web_view_class()
         if view_class is not None and isinstance(current, view_class):
             return current
+        # Tab 0 may wrap the browser + native library in a QStackedWidget;
+        # check its current child.
+        if isinstance(current, QStackedWidget):
+            child = current.currentWidget()
+            if view_class is not None and isinstance(child, view_class):
+                return child
         return None
+
+    @staticmethod
+    def _is_inside_web_view(widget: QWidget | None, web_view: Any) -> bool:
+        """True when *widget* is the web view or lives inside it."""
+        if widget is None:
+            return False
+        node: QWidget | None = widget
+        while node is not None:
+            if node is web_view:
+                return True
+            node = node.parentWidget()
+        return False
 
     # ------------------------------------------------------------------
     # Focus candidates
@@ -731,7 +749,13 @@ class GamepadNavigator(QObject):
 
         web_view = self._current_web_view()
         focused = self._focus_widget()
-        if web_view is not None and self.web_view_for(focused) is web_view:
+        if web_view is not None and self._is_inside_web_view(focused, web_view):
+            WebNavigator(web_view).move(direction)
+            return
+
+        # Web view is current but nothing inside it is focused — route
+        # navigation into the page so the user can browse the embedded UI.
+        if web_view is not None and focused is None:
             WebNavigator(web_view).move(direction)
             return
 

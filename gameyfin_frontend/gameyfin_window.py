@@ -251,8 +251,6 @@ class GameyfinWindow(QMainWindow):
         self.main_stack.addWidget(self.browser)
         if self.library_browser is not None:
             self.main_stack.addWidget(self.library_browser)
-
-        # Add the Gameyfin tab with an empty string for the label
         gameyfin_tab_index = self.tab_widget.addTab(self.main_stack, "")
 
         # Remove close button from the main tab (index 0)
@@ -588,7 +586,6 @@ class GameyfinWindow(QMainWindow):
 
         if self.library_browser is None:
             self._build_native_ui()
-            self.main_stack.addWidget(self.library_browser)
 
         self._probe_native_ui()
         if not self._native_ui_active():

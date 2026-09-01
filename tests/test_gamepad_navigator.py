@@ -946,3 +946,108 @@ class TestFocusRing:
         qtbot.wait(50)
 
         assert not navigator.focus_ring.isVisible()
+
+
+class TestStackedWidgetTab:
+    """Navigator must handle a QStackedWidget in the main tab."""
+
+    def test_current_web_view_unwraps_stacked_widget(self, qtbot, manager):
+        """_current_web_view returns the web view inside a QStackedWidget."""
+        from PyQt6.QtWidgets import QStackedWidget, QMainWindow
+        from PyQt6.QtWebEngineWidgets import QWebEngineView
+
+        window = QMainWindow()
+        window.resize(800, 600)
+        tab_widget = QTabWidget()
+
+        stack = QStackedWidget()
+        browser = QWebEngineView()
+        stack.addWidget(browser)
+        stack.addWidget(QWidget())  # placeholder for native UI
+
+        tab_widget.addTab(stack, "Main")
+        tab_widget.setCurrentIndex(0)
+        window.setCentralWidget(tab_widget)
+        window.show()
+
+        # Wire the window so navigator can find tab_widget
+        navigator = make_navigator(qtbot, window, manager)
+        window.tab_widget = tab_widget
+
+        web_view = navigator._current_web_view()
+        assert web_view is browser
+
+    def test_focus_first_in_current_tab_handles_stacked_widget(
+        self, qtbot, manager, monkeypatch
+    ):
+        """focus_first_in_current_tab calls WebNavigator when tab is a stack."""
+        from PyQt6.QtWidgets import QStackedWidget, QMainWindow
+        from PyQt6.QtWebEngineWidgets import QWebEngineView
+
+        window = QMainWindow()
+        window.resize(800, 600)
+        tab_widget = QTabWidget()
+
+        stack = QStackedWidget()
+        browser = QWebEngineView()
+        stack.addWidget(browser)
+        tab_widget.addTab(stack, "Main")
+        tab_widget.setCurrentIndex(0)
+        window.setCentralWidget(tab_widget)
+        window.tab_widget = tab_widget
+        window.show()
+
+        navigator = make_navigator(qtbot, window, manager)
+
+        called = False
+
+        def fake_focus_first(self):
+            nonlocal called
+            called = True
+
+        monkeypatch.setattr(
+            "gameyfin_frontend.gamepad_webnav.WebNavigator.focus_first",
+            fake_focus_first,
+        )
+
+        navigator.focus_first_in_current_tab()
+        qtbot.wait(50)
+
+        assert called
+
+    def test_navigate_routes_to_web_view_inside_stack_when_no_focus(
+        self, qtbot, manager, monkeypatch
+    ):
+        """Navigation goes to the web view when it is current but nothing is focused."""
+        from PyQt6.QtWidgets import QStackedWidget, QMainWindow
+        from PyQt6.QtWebEngineWidgets import QWebEngineView
+
+        window = QMainWindow()
+        window.resize(800, 600)
+        tab_widget = QTabWidget()
+
+        stack = QStackedWidget()
+        browser = QWebEngineView()
+        stack.addWidget(browser)
+        tab_widget.addTab(stack, "Main")
+        tab_widget.setCurrentIndex(0)
+        window.setCentralWidget(tab_widget)
+        window.tab_widget = tab_widget
+        window.show()
+
+        navigator = make_navigator(qtbot, window, manager)
+
+        moved = []
+
+        def fake_move(self, direction):
+            moved.append(direction)
+
+        monkeypatch.setattr(
+            "gameyfin_frontend.gamepad_webnav.WebNavigator.move",
+            fake_move,
+        )
+
+        manager.navigate.emit("down")
+        qtbot.wait(50)
+
+        assert moved == ["down"]
