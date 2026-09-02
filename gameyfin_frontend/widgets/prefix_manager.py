@@ -3,9 +3,9 @@ import logging
 import os
 from typing import Any
 
-from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QListWidget, QPushButton,
-                             QHBoxLayout, QLabel, QMessageBox, QDialog, QComboBox, QListWidgetItem,
-                             QAbstractItemView)
+from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QListWidget, QListWidgetItem, QPushButton,
+                             QHBoxLayout, QLabel, QMessageBox, QDialog, QComboBox,
+                             QAbstractItemView, QScrollArea)
 from PyQt6.QtCore import Qt, QProcess
 
 from gameyfin_frontend.dialogs import InstallConfigDialog, LaunchLoadingDialog
@@ -280,12 +280,21 @@ class PrefixManagerWidget(QWidget):
 
         layout.addLayout(header_layout)
 
-        # List
-        self.list_widget = QListWidget()
+        # List (scrollable)
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_content = QWidget()
+        self.list_widget = QListWidget(self.scroll_content)
         self.list_widget.setAlternatingRowColors(True)
         self.list_widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        layout.addWidget(self.list_widget)
+
+        self.scroll_area.setWidget(self.scroll_content)
+        scroll_layout = QVBoxLayout(self.scroll_content)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.addWidget(self.list_widget)
+
+        layout.addWidget(self.scroll_area)
 
         # Wire explicit tab order for keyboard/gamepad navigation
         self._tab_order_chain: list[tuple[QWidget, QWidget]] = []
