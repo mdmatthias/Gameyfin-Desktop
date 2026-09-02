@@ -3,11 +3,12 @@ import logging
 import os
 import shutil
 import sys
+import tempfile
 import time
 from typing import Any
 
 from PyQt6.QtCore import pyqtSlot, QProcess, QUrl, QThread, pyqtSignal, Qt
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtGui import QIcon, QDesktopServices, QPixmap
 from PyQt6.QtWidgets import (
     QDialog,
     QWidget,
@@ -25,7 +26,7 @@ from gameyfin_frontend.utils import (
     create_shortcuts, resolve_shortcut_game_info,
     format_size, parse_size, sanitize_name,
 )
-from gameyfin_frontend.config import COLOR_STATUS_DOWNLOADING, COLOR_STATUS_INSTALLING
+from gameyfin_frontend.config import COLOR_STATUS_DOWNLOADING, COLOR_STATUS_INSTALLING, DEFAULT_PROTON
 from gameyfin_frontend.workers import StreamDownloadWorker
 from gameyfin_frontend.services import LauncherResolver, GameInstaller, GameLauncher, SteamIntegrationService
 from gameyfin_frontend.services.shortcut_service import ShortcutService
@@ -87,10 +88,53 @@ class DownloadItemWidget(QWidget):
         self.cancel_button = QPushButton("Cancel")
         self.open_folder_button = QPushButton("Open Folder")
         self.remove_button = QPushButton("Remove")
+
+        # Combined Install button: main QPushButton triggers simple install,
+        # clicking the arrow toggles between simple and advanced install modes.
         self.install_button = QPushButton("Install")
+        self.install_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._advanced_mode = False
+
+        self._install_arrow = QPushButton()
+        self._install_arrow.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        # Use inline SVG icons so they pick up theme colors instead of system colors
+        svg_down = (
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" '
+            'stroke="currentColor" stroke-width="2" fill="none">'
+            '<polyline points="6 9 12 15 18 9"/></svg>'
+        )
+        svg_up = (
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" '
+            'stroke="currentColor" stroke-width="2" fill="none">'
+            '<polyline points="6 15 12 9 18 15"/></svg>'
+        )
+        # Write SVG to temp file and load with QPixmap (QIcon doesn't support SVG from bytes)
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.svg', delete=False) as f:
+            f.write(svg_down)
+            svg_path = f.name
+        self._arrow_down_icon = QIcon(QPixmap(svg_path))
+        os.unlink(svg_path)
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.svg', delete=False) as f:
+            f.write(svg_up)
+            svg_path = f.name
+        self._arrow_up_icon = QIcon(QPixmap(svg_path))
+        os.unlink(svg_path)
+        self._install_arrow.setIcon(self._arrow_down_icon)
+        # Match the arrow button's height to the install button's height
+        self._install_arrow.setFixedWidth(36)
+        self._install_arrow.clicked.connect(self._toggle_install_mode)
+
+        # Container to hold install button + arrow side-by-side
+        self._install_group = QWidget()
+        self._install_group_layout = QHBoxLayout(self._install_group)
+        self._install_group_layout.setContentsMargins(0, 0, 0, 0)
+        self._install_group_layout.setSpacing(0)
+        self._install_group_layout.addWidget(self.install_button)
+        self._install_group_layout.addWidget(self._install_arrow)
 
         # Ensure all buttons can receive keyboard/gamepad focus
-        for btn in (self.cancel_button, self.install_button, self.open_folder_button, self.remove_button):
+        for btn in (self.cancel_button, self.install_button,
+                    self.open_folder_button, self.remove_button):
             btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         self.button_container = QWidget()
@@ -98,7 +142,7 @@ class DownloadItemWidget(QWidget):
         self.button_layout.setContentsMargins(0, 0, 0, 0)
         self.button_layout.setSpacing(4)
         self.button_layout.addWidget(self.cancel_button)
-        self.button_layout.addWidget(self.install_button)
+        self.button_layout.addWidget(self._install_group)
         self.button_layout.addWidget(self.open_folder_button)
         self.button_layout.addWidget(self.remove_button)
 
@@ -110,6 +154,11 @@ class DownloadItemWidget(QWidget):
         ) + 10
         self.status_label.setFixedWidth(status_width)
         self.progress_bar.setMinimumWidth(100)
+
+        # Fix install button width to longest label so it doesn't resize on toggle
+        self.install_button.setFixedWidth(
+            font_metrics.horizontalAdvance("Advanced Install") + 24
+        )
 
         # Fix the button container's width to the widest button combination (Install,
         # Open Folder, Remove) so hiding/showing buttons doesn't shift the other columns.
@@ -169,14 +218,14 @@ class DownloadItemWidget(QWidget):
     def _show_completed_buttons(self):
         """Show the buttons visible after download completion (Install, Open Folder, Remove)."""
         self.cancel_button.hide()
-        self.install_button.show()
+        self._install_group.show()
         self.open_folder_button.show()
         self.remove_button.show()
 
     def _show_failed_buttons(self):
         """Show only the Remove button after download failure or cancellation."""
         self.cancel_button.hide()
-        self.install_button.hide()
+        self._install_group.hide()
         self.open_folder_button.hide()
         self.remove_button.show()
 
@@ -229,7 +278,7 @@ class DownloadItemWidget(QWidget):
                 self.status_label.setText("Directory not found")
                 self.status_label.setStyleSheet("color: red; font-weight: bold;")
                 self.open_folder_button.setEnabled(False)
-                self.install_button.setEnabled(False)
+                self._set_install_enabled(False)
                 icon = self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning)
                 self.icon_label.setPixmap(icon.pixmap(self.icon_label.sizeHint()))
 
@@ -279,12 +328,28 @@ class DownloadItemWidget(QWidget):
         QDesktopServices.openUrl(QUrl.fromLocalFile(self.record.get("path", "")))
 
     def on_install_clicked(self) -> None:
-        """Start the installation process for the downloaded game files."""
-        # Disable immediately: the button stays visible while an install/run is in
-        # progress, and a second click before it finishes would kick off a duplicate
-        # proceed_to_installation (duplicate InstallConfigDialog, duplicate umu-run).
-        self.install_button.setEnabled(False)
-        self.proceed_to_installation(self.record["path"])
+        """Start the installation process (simple or advanced based on toggle state)."""
+        self._set_install_enabled(False)
+        if self._advanced_mode:
+            self.proceed_to_installation(self.record["path"])
+        else:
+            self._simple_install(self.record["path"])
+
+    def _set_install_enabled(self, enabled: bool) -> None:
+        """Enable or disable both the install button and its arrow."""
+        self.install_button.setEnabled(enabled)
+        self._install_arrow.setEnabled(enabled)
+
+    @pyqtSlot()
+    def _toggle_install_mode(self) -> None:
+        """Toggle between simple and advanced install modes."""
+        self._advanced_mode = not self._advanced_mode
+        if self._advanced_mode:
+            self.install_button.setText("Advanced Install")
+            self._install_arrow.setIcon(self._arrow_up_icon)
+        else:
+            self.install_button.setText("Install")
+            self._install_arrow.setIcon(self._arrow_down_icon)
 
     @pyqtSlot()
     def _on_worker_deleted(self) -> None:
@@ -347,6 +412,42 @@ class DownloadItemWidget(QWidget):
         self.record["status"] = "Failed"
         self.finished.emit(self.record)
 
+    def _simple_install(self, target_dir: str) -> None:
+        """Auto-detect UMU values and start installation without prompting the user.
+
+        This is the "simple install" path — it skips the config dialog but uses
+        the same auto-detected Proton path, UMU game ID, store, and prefix.
+        """
+        if sys.platform == "win32":
+            # Windows path is already direct — just call proceed_to_installation
+            self.proceed_to_installation(target_dir)
+            return
+
+        # --- Linux Logic ---
+        umu_id, store = self._game_installer.detect_umu_game_id(target_dir)
+        wine_prefix_path = self._game_installer.build_wine_prefix(target_dir)
+        self.current_wine_prefix = wine_prefix_path
+
+        # Build config from auto-detected values (no dialog)
+        install_config = {
+            "PROTON_ENABLE_WAYLAND": "0",
+            "MANGOHUD": "0",
+            "PROTON_USE_WOW64": "0",
+            "GAMEID": umu_id,
+            "PROTONPATH": self.settings.get("PROTONPATH", DEFAULT_PROTON) if self.settings else DEFAULT_PROTON,
+        }
+        if store and store != "none":
+            install_config["STORE"] = store
+
+        self.current_install_config = install_config
+
+        launcher_to_run = self._handle_launcher_selection(target_dir)
+        if launcher_to_run is None:
+            self._set_install_enabled(True)
+            return  # User cancelled or no .exe found
+
+        self._start_linux_installation(launcher_to_run, target_dir, self.current_install_config)
+
     def proceed_to_installation(self, target_dir: str) -> None:
         """Orchestrate the installation: detect UMU game ID, show config dialog, then launch.
 
@@ -357,7 +458,7 @@ class DownloadItemWidget(QWidget):
         if sys.platform == "win32":
             launcher_to_run = self._handle_launcher_selection(target_dir)
             if launcher_to_run is None:
-                self.install_button.setEnabled(True)
+                self._set_install_enabled(True)
                 return  # User cancelled or error
 
             self._start_windows_installation(launcher_to_run)
@@ -377,14 +478,14 @@ class DownloadItemWidget(QWidget):
             self.status_label.setText("Install cancelled by user.")
             self.status_label.setStyleSheet("")
             self.current_wine_prefix = None
-            self.install_button.setEnabled(True)
+            self._set_install_enabled(True)
             return
 
         self.current_install_config = install_config
 
         launcher_to_run = self._handle_launcher_selection(target_dir)
         if launcher_to_run is None:
-            self.install_button.setEnabled(True)
+            self._set_install_enabled(True)
             return  # User cancelled or no .exe found
 
         self._start_linux_installation(launcher_to_run, target_dir, self.current_install_config)
@@ -399,7 +500,7 @@ class DownloadItemWidget(QWidget):
         if self.run_process is None:
             self.status_label.setText("Launch failed.")
             self.status_label.setStyleSheet("color: red;")
-            self.install_button.setEnabled(True)
+            self._set_install_enabled(True)
             return
         self.run_process.finished.connect(self.on_run_finished)
         self._set_running_status()
@@ -433,7 +534,7 @@ class DownloadItemWidget(QWidget):
             self.status_label.setText("Launch failed. Is 'umu-run' installed?")
             self.status_label.setStyleSheet("color: red;")
             self.current_wine_prefix = None
-            self.install_button.setEnabled(True)
+            self._set_install_enabled(True)
             return
         self.run_process.finished.connect(self.on_run_finished)
         self.run_process.finished.connect(self._loading_dialog.close)  # Close loading dialog when game process ends
@@ -503,7 +604,7 @@ class DownloadItemWidget(QWidget):
 
         self.current_install_config = None
         self.current_wine_prefix = None
-        self.install_button.setEnabled(True)
+        self._set_install_enabled(True)
 
     def create_desktop_shortcuts(
         self,

@@ -25,7 +25,7 @@ class TestDownloadItemWidget:
         widget = DownloadItemWidget(umu_database=mock_umu_database, record=record)
         qtbot.addWidget(widget)
         # Use isHidden() instead of isVisible() since parent window may not exist in tests
-        assert not widget.install_button.isHidden()
+        assert not widget._install_group.isHidden()
         assert not widget.open_folder_button.isHidden()
         assert not widget.remove_button.isHidden()
         assert widget.cancel_button.isHidden()
@@ -37,7 +37,7 @@ class TestDownloadItemWidget:
         qtbot.addWidget(widget)
         assert not widget.remove_button.isHidden()
         assert widget.cancel_button.isHidden()
-        assert widget.install_button.isHidden()
+        assert widget._install_group.isHidden()
         assert widget.open_folder_button.isHidden()
 
     def test_widget_shows_remove_only_for_cancelled(self, qtbot, mock_umu_database):
@@ -47,7 +47,7 @@ class TestDownloadItemWidget:
         qtbot.addWidget(widget)
         assert not widget.remove_button.isHidden()
         assert widget.cancel_button.isHidden()
-        assert widget.install_button.isHidden()
+        assert widget._install_group.isHidden()
 
     def test_download_item_in_list(self, qtbot, mock_umu_database):
         from gameyfin_frontend.widgets.download_item import DownloadItemWidget
