@@ -225,7 +225,7 @@ class DownloadItemWidget(QWidget):
         self.thread.destroyed.connect(self._on_thread_deleted)
 
         self.cancel_button.show()
-        self.install_button.hide()
+        self._install_group.hide()
         self.open_folder_button.hide()
         self.remove_button.hide()
         self.progress_bar.show()
