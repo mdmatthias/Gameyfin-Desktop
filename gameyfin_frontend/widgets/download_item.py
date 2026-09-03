@@ -124,11 +124,14 @@ class DownloadItemWidget(QWidget):
         self._install_arrow.setFixedWidth(36)
         self._install_arrow.clicked.connect(self._toggle_install_mode)
 
-        # Container to hold install button + arrow side-by-side
+        # Container to hold install button + arrow side-by-side. Themed
+        # QPushButtons (e.g. qt-material) each draw their own rounded border,
+        # so touching them with zero spacing produces a doubled/broken-looking
+        # seam - give them the same gap as the rest of the button row.
         self._install_group = QWidget()
         self._install_group_layout = QHBoxLayout(self._install_group)
         self._install_group_layout.setContentsMargins(0, 0, 0, 0)
-        self._install_group_layout.setSpacing(0)
+        self._install_group_layout.setSpacing(4)
         self._install_group_layout.addWidget(self.install_button)
         self._install_group_layout.addWidget(self._install_arrow)
 
@@ -136,6 +139,19 @@ class DownloadItemWidget(QWidget):
         for btn in (self.cancel_button, self.install_button,
                     self.open_folder_button, self.remove_button):
             btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        # Pin all buttons to the same height so the row looks consistent even
+        # though Cancel/Install-group/Open Folder/Remove are never shown at
+        # the same time. Ask each button for its own natural sizeHint (which
+        # already accounts for the active theme's border/padding, e.g.
+        # qt-material's 2px border) rather than guessing from font metrics -
+        # a guessed height shorter than what the theme needs clips the
+        # button's own border off at the bottom.
+        segment_buttons = (self.cancel_button, self.install_button, self._install_arrow,
+                            self.open_folder_button, self.remove_button)
+        button_height = max(btn.sizeHint().height() for btn in segment_buttons)
+        for btn in segment_buttons:
+            btn.setFixedHeight(button_height)
 
         self.button_container = QWidget()
         self.button_layout = QHBoxLayout(self.button_container)
@@ -155,10 +171,17 @@ class DownloadItemWidget(QWidget):
         self.status_label.setFixedWidth(status_width)
         self.progress_bar.setMinimumWidth(100)
 
-        # Fix install button width to longest label so it doesn't resize on toggle
-        self.install_button.setFixedWidth(
-            font_metrics.horizontalAdvance("Advanced Install") + 24
-        )
+        # Fix install button width to the longest label so it doesn't resize on
+        # toggle. Measure via the button's own sizeHint (toggling its text)
+        # rather than raw font metrics - themes like qt-material render button
+        # text bold and uppercased, which is wider than plain font metrics on
+        # the mixed-case string would suggest, and previously left "Advanced
+        # Install" clipped.
+        self.install_button.setText("Advanced Install")
+        advanced_install_width = self.install_button.sizeHint().width()
+        self.install_button.setText("Install")
+        install_width = self.install_button.sizeHint().width()
+        self.install_button.setFixedWidth(max(advanced_install_width, install_width))
 
         # Fix the button container's width to the widest button combination (Install,
         # Open Folder, Remove) so hiding/showing buttons doesn't shift the other columns.

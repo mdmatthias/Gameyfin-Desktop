@@ -50,6 +50,13 @@ class DownloadManagerWidget(QWidget):
         self.list_widget.setAlternatingRowColors(True)
         self.list_widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        # Themes like qt-material style QListView::item with a 4px padding.
+        # setItemWidget() insets our per-row DownloadItemWidget by that padding
+        # on every side instead of just leaving space around it, so the widget
+        # ends up shorter than the row height we gave it via setSizeHint() and
+        # its bottom border gets clipped off. Zero the padding for this list so
+        # each item widget gets the exact rect we sized it for.
+        self.list_widget.setStyleSheet("QListView::item { padding: 0px; }")
 
         self.scroll_area.setWidget(self.scroll_content)
         self.main_layout.addWidget(self.scroll_area)
