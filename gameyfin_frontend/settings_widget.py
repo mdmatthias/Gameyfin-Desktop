@@ -3,7 +3,7 @@ import sys
 import json
 import subprocess
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QFormLayout, QLineEdit,
-                             QPushButton, QLabel, QSlider, QSpinBox, QMessageBox, QCheckBox, QHBoxLayout, QFileDialog, QComboBox, QGroupBox, QScrollArea)
+                             QPushButton, QLabel, QSlider, QSpinBox, QMessageBox, QCheckBox, QHBoxLayout, QFileDialog, QComboBox, QGroupBox, QScrollArea, QGridLayout, QSizePolicy)
 from PyQt6.QtCore import Qt
 from qt_material import list_themes
 from .settings import SettingsManager
@@ -21,19 +21,32 @@ class SettingsWidget(QWidget):
         self.scroll_area.setWidget(self.scroll_content)
         self.main_layout.addWidget(self.scroll_area)
 
-        content_layout = QVBoxLayout(self.scroll_content)
+        content_layout = QGridLayout(self.scroll_content)
         content_layout.setContentsMargins(0, 0, 0, 0)
 
-        content_layout.addWidget(self._build_general_section())
-        content_layout.addWidget(self._build_library_section())
+        # (section, row, column) — left stack: General, Library, Downloads;
+        # right stack: Gamepad, UMU.
+        sections = [
+            (self._build_general_section(), 0, 0),
+            (self._build_gamepad_section(), 0, 1),
+            (self._build_library_section(), 1, 0),
+        ]
         # The UMU widgets are always created (save_settings reads them
         # on every platform) but the section is only shown on Linux.
         self.umu_box = self._build_umu_section()
         if sys.platform == "linux":
-            content_layout.addWidget(self.umu_box)
-        content_layout.addWidget(self._build_downloads_section())
-        content_layout.addWidget(self._build_gamepad_section())
-        content_layout.addStretch()
+            sections.append((self.umu_box, 1, 1))
+        sections.append((self._build_downloads_section(), 2, 0))
+
+        # Both grid columns stretch equally, so each box fills exactly half
+        # the content width; boxes stretch to fill their cell, so sections
+        # next to each other share the same height.
+        for box, row, column in sections:
+            box.setSizePolicy(QSizePolicy.Policy.Expanding, box.sizePolicy().verticalPolicy())
+            content_layout.addWidget(box, row, column)
+        content_layout.setColumnStretch(0, 1)
+        content_layout.setColumnStretch(1, 1)
+        content_layout.setRowStretch(max(row for _, row, _ in sections) + 1, 1)
 
         button_row = QHBoxLayout()
         self.save_button = QPushButton("Save and Apply")
