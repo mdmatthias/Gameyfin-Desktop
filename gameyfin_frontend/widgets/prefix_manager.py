@@ -66,6 +66,12 @@ class PrefixItemWidget(QWidget):
 
         layout.addWidget(self.manage_combo)
 
+        # Match the downloads page's button height - QComboBox renders
+        # noticeably shorter than QPushButton under themes like qt-material.
+        control_height = QPushButton().sizeHint().height()
+        self.script_combo.setFixedHeight(control_height)
+        self.manage_combo.setFixedHeight(control_height)
+
         self.populate_scripts()
 
     def populate_scripts(self) -> None:
@@ -288,6 +294,9 @@ class PrefixManagerWidget(QWidget):
         self.list_widget.setAlternatingRowColors(True)
         self.list_widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        # qt-material's QListView::item padding otherwise insets each row's
+        # itemWidget below the size we gave it via setSizeHint(), clipping it.
+        self.list_widget.setStyleSheet("QListView::item { padding: 0px; }")
 
         self.scroll_area.setWidget(self.scroll_content)
         scroll_layout = QVBoxLayout(self.scroll_content)
@@ -299,6 +308,10 @@ class PrefixManagerWidget(QWidget):
         # Wire explicit tab order for keyboard/gamepad navigation
         self._tab_order_chain: list[tuple[QWidget, QWidget]] = []
         self._wire_tab_order()
+
+    def refresh_theme_sizing(self) -> None:
+        """Resync every row's fixed sizes after the active theme changes at runtime."""
+        self.refresh_prefixes()
 
     def _wire_tab_order(self) -> None:
         """Wire setTabOrder chain: Refresh → List."""

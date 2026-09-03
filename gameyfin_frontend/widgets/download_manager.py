@@ -50,12 +50,8 @@ class DownloadManagerWidget(QWidget):
         self.list_widget.setAlternatingRowColors(True)
         self.list_widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        # Themes like qt-material style QListView::item with a 4px padding.
-        # setItemWidget() insets our per-row DownloadItemWidget by that padding
-        # on every side instead of just leaving space around it, so the widget
-        # ends up shorter than the row height we gave it via setSizeHint() and
-        # its bottom border gets clipped off. Zero the padding for this list so
-        # each item widget gets the exact rect we sized it for.
+        # qt-material's QListView::item padding otherwise insets each row's
+        # itemWidget below the size we gave it via setSizeHint(), clipping it.
         self.list_widget.setStyleSheet("QListView::item { padding: 0px; }")
 
         self.scroll_area.setWidget(self.scroll_content)
@@ -84,6 +80,19 @@ class DownloadManagerWidget(QWidget):
                     if child.isVisible():
                         buttons.append(child)
         return buttons
+
+    def refresh_theme_sizing(self) -> None:
+        """Resync every row's fixed sizes after the active theme changes at runtime.
+
+        Resized in place rather than rebuilt, since an active download's
+        worker/thread would otherwise be dropped.
+        """
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            widget = self.list_widget.itemWidget(item)
+            if isinstance(widget, DownloadItemWidget):
+                widget.refresh_theme_sizing()
+                item.setSizeHint(widget.sizeHint())
 
     def add_download_to_list(self, controller: DownloadItemWidget) -> None:
         """Adds a download item widget to the list at the last row."""

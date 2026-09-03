@@ -124,10 +124,7 @@ class DownloadItemWidget(QWidget):
         self._install_arrow.setFixedWidth(36)
         self._install_arrow.clicked.connect(self._toggle_install_mode)
 
-        # Container to hold install button + arrow side-by-side. Themed
-        # QPushButtons (e.g. qt-material) each draw their own rounded border,
-        # so touching them with zero spacing produces a doubled/broken-looking
-        # seam - give them the same gap as the rest of the button row.
+        # Container to hold install button + arrow side-by-side
         self._install_group = QWidget()
         self._install_group_layout = QHBoxLayout(self._install_group)
         self._install_group_layout.setContentsMargins(0, 0, 0, 0)
@@ -140,19 +137,6 @@ class DownloadItemWidget(QWidget):
                     self.open_folder_button, self.remove_button):
             btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-        # Pin all buttons to the same height so the row looks consistent even
-        # though Cancel/Install-group/Open Folder/Remove are never shown at
-        # the same time. Ask each button for its own natural sizeHint (which
-        # already accounts for the active theme's border/padding, e.g.
-        # qt-material's 2px border) rather than guessing from font metrics -
-        # a guessed height shorter than what the theme needs clips the
-        # button's own border off at the bottom.
-        segment_buttons = (self.cancel_button, self.install_button, self._install_arrow,
-                            self.open_folder_button, self.remove_button)
-        button_height = max(btn.sizeHint().height() for btn in segment_buttons)
-        for btn in segment_buttons:
-            btn.setFixedHeight(button_height)
-
         self.button_container = QWidget()
         self.button_layout = QHBoxLayout(self.button_container)
         self.button_layout.setContentsMargins(0, 0, 0, 0)
@@ -162,31 +146,9 @@ class DownloadItemWidget(QWidget):
         self.button_layout.addWidget(self.open_folder_button)
         self.button_layout.addWidget(self.remove_button)
 
-        font_metrics = self.fontMetrics()
-        self.icon_label.setFixedWidth(font_metrics.height())
-        status_width = max(
-            font_metrics.horizontalAdvance("Completed (999.99 GB)"),
-            font_metrics.horizontalAdvance("999.99 GB / 999.99 GB (999.99 MB/s)"),
-        ) + 10
-        self.status_label.setFixedWidth(status_width)
         self.progress_bar.setMinimumWidth(100)
 
-        # Fix install button width to the longest label so it doesn't resize on
-        # toggle. Measure via the button's own sizeHint (toggling its text)
-        # rather than raw font metrics - themes like qt-material render button
-        # text bold and uppercased, which is wider than plain font metrics on
-        # the mixed-case string would suggest, and previously left "Advanced
-        # Install" clipped.
-        self.install_button.setText("Advanced Install")
-        advanced_install_width = self.install_button.sizeHint().width()
-        self.install_button.setText("Install")
-        install_width = self.install_button.sizeHint().width()
-        self.install_button.setFixedWidth(max(advanced_install_width, install_width))
-
-        # Fix the button container's width to the widest button combination (Install,
-        # Open Folder, Remove) so hiding/showing buttons doesn't shift the other columns.
-        self.button_layout.activate()
-        self.button_container.setFixedWidth(self.button_container.sizeHint().width())
+        self.refresh_theme_sizing()
 
         # Pack everything into the row layout
         item_layout.addWidget(self.icon_label)
@@ -207,6 +169,40 @@ class DownloadItemWidget(QWidget):
             self._start_worker(worker)
         elif self.record:
             self.update_ui_for_historic_state()
+
+    def refresh_theme_sizing(self) -> None:
+        """(Re)compute this row's theme-dependent fixed sizes.
+
+        Called at construction and again by the download manager whenever
+        the active theme changes at runtime.
+        """
+        segment_buttons = (self.cancel_button, self.install_button, self._install_arrow,
+                            self.open_folder_button, self.remove_button)
+        button_height = max(btn.sizeHint().height() for btn in segment_buttons)
+        for btn in segment_buttons:
+            btn.setFixedHeight(button_height)
+
+        font_metrics = self.fontMetrics()
+        self.icon_label.setFixedWidth(font_metrics.height())
+        status_width = max(
+            font_metrics.horizontalAdvance("Completed (999.99 GB)"),
+            font_metrics.horizontalAdvance("999.99 GB / 999.99 GB (999.99 MB/s)"),
+        ) + 10
+        self.status_label.setFixedWidth(status_width)
+
+        current_text = self.install_button.text()
+        self.install_button.setText("Advanced Install")
+        advanced_install_width = self.install_button.sizeHint().width()
+        self.install_button.setText("Install")
+        install_width = self.install_button.sizeHint().width()
+        self.install_button.setText(current_text)
+        self.install_button.setFixedWidth(max(advanced_install_width, install_width))
+
+        # Fix the button container's width to the widest button combination
+        # (Install, Open Folder, Remove) so hiding/showing buttons doesn't
+        # shift the other columns.
+        self.button_layout.activate()
+        self.button_container.setFixedWidth(self.button_container.sizeHint().width())
 
     def _start_worker(self, worker: StreamDownloadWorker):
         """Start the download worker thread and connect signals."""

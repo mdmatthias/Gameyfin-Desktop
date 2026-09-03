@@ -904,3 +904,8 @@ class GameyfinWindow(QMainWindow):
                 app.setFont(app.default_font)
             if hasattr(app, 'default_style_name'):
                 app.setStyle(app.default_style_name)
+
+        if hasattr(self, "download_manager"):
+            self.download_manager.refresh_theme_sizing()
+        if hasattr(self, "prefix_manager"):
+            self.prefix_manager.refresh_theme_sizing()
