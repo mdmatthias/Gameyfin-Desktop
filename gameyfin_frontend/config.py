@@ -19,8 +19,8 @@ SCRIPT_PERMISSION = 0o755
 # Flatpak application ID
 FLATPAK_ID = "org.gameyfin.Gameyfin-Desktop"
 
-# Number of fixed tabs (Main, Downloads, Prefixes, Settings)
-FIXED_TAB_COUNT = 4
+# Number of fixed tabs (Main, Downloads, Prefixes, Settings, System)
+FIXED_TAB_COUNT = 5
 
 # Download chunk size for streaming (128 KB)
 DOWNLOAD_CHUNK_SIZE = 131072

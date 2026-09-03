@@ -18,6 +18,7 @@ from gameyfin_frontend.widgets.library_browser import LibraryBrowserWidget
 from gameyfin_frontend.widgets.prefix_manager import PrefixManagerWidget
 from gameyfin_frontend.widgets.loading_overlay import LoadingOverlay
 from gameyfin_frontend.widgets.gamepad_hud import GamepadHintBar
+from gameyfin_frontend.widgets.system_tab import SystemTabWidget
 from gameyfin_frontend.dialogs import UpdateDialog
 from gameyfin_frontend.workers import StreamDownloadWorker, UpdateCheckWorker
 from gameyfin_frontend.services.update_service import compare_versions, get_current_version
@@ -112,6 +113,7 @@ class GameyfinWindow(QMainWindow):
         self.setWindowTitle("Gameyfin")
         self.setGeometry(0, 0, settings.get("GF_WINDOW_WIDTH"), settings.get("GF_WINDOW_HEIGHT"))
         self.is_really_quitting = False
+        self._close_cleanup_done = False
 
         self._setup_profile()
         self._setup_browser()
@@ -168,6 +170,10 @@ class GameyfinWindow(QMainWindow):
 
         # --- Settings Setup ---
         self.settings_widget = SettingsWidget(self, self.settings)
+
+        # --- System tab (info + exit) ---
+        self.system_tab = SystemTabWidget(self, self.settings)
+        self.system_tab.quit_requested.connect(self.quit_application)
 
         # --- Native library UI (feature-flagged) ---
         self.api_client: GameyfinApiClient | None = None
@@ -272,6 +278,9 @@ class GameyfinWindow(QMainWindow):
 
         settings_index = self.tab_widget.addTab(self.settings_widget, "Settings")
         self.tab_widget.tabBar().setTabButton(settings_index, QTabBar.ButtonPosition.RightSide, None)
+
+        system_index = self.tab_widget.addTab(self.system_tab, "System")
+        self.tab_widget.tabBar().setTabButton(system_index, QTabBar.ButtonPosition.RightSide, None)
 
         # Gamepad button hints live under the tabs and only appear once a
         # controller is actually connected.
@@ -382,8 +391,8 @@ class GameyfinWindow(QMainWindow):
         self.gamepad_hint_bar.hide()
 
     def close_tab(self, index: int) -> None:
-        """Close an external browser tab, preventing closure of the four fixed tabs."""
-        # Prevent closing the fixed tabs (Main, Downloads, Prefixes, Settings)
+        """Close an external browser tab, preventing closure of the fixed tabs."""
+        # Prevent closing the fixed tabs (Main, Downloads, Prefixes, Settings, System)
         if index < FIXED_TAB_COUNT:
             return
 
@@ -438,7 +447,7 @@ class GameyfinWindow(QMainWindow):
         """
         # Close all external tabs (starting from the end to avoid index shift issues)
         count = self.tab_widget.count()
-        # Fixed tabs are 0 (Main), 1 (Downloads), 2 (Prefixes), 3 (Settings) - indices < FIXED_TAB_COUNT
+        # Fixed tabs are 0 (Main), 1 (Downloads), 2 (Prefixes), 3 (Settings), 4 (System) - indices < FIXED_TAB_COUNT
         for i in range(count - 1, FIXED_TAB_COUNT - 1, -1):
             self.close_tab(i)
 
@@ -690,6 +699,18 @@ class GameyfinWindow(QMainWindow):
         self.activateWindow()
         self.tab_widget.setCurrentWidget(self.settings_widget)
 
+    def quit_application(self) -> None:
+        """Quit the application completely (System tab exit button).
+
+        Runs the window's full close cleanup, then stops the event loop, which
+        also tears down the tray icon.
+        """
+        self.is_really_quitting = True
+        self.close()
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
+
     def closeEvent(self, event: QCloseEvent) -> None:
         """Handle window close: quit if ``is_really_quitting``, otherwise hide to tray.
 
@@ -697,6 +718,12 @@ class GameyfinWindow(QMainWindow):
             event: The close event.
         """
         if self.is_really_quitting:
+            if self._close_cleanup_done:
+                # A second close event (e.g. during destruction) must not
+                # re-run the cleanup: the browser is already deleted by then.
+                event.accept()
+                return
+            self._close_cleanup_done = True
             # This is a real quit, run cleanup
             gamepad = getattr(self, "gamepad", None)
             if gamepad is not None:

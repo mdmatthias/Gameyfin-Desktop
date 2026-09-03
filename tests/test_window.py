@@ -228,9 +228,9 @@ class TestGameyfinWindow:
                             qtbot.addWidget(window)
                             return window
 
-    def test_window_has_four_fixed_tabs(self, qtbot, mock_umu_database, mock_settings):
+    def test_window_has_five_fixed_tabs(self, qtbot, mock_umu_database, mock_settings):
         window = self._make_window(qtbot, mock_umu_database, mock_settings)
-        assert window.tab_widget.count() == 4
+        assert window.tab_widget.count() == 5
 
     def test_main_tab_has_no_close_button(self, qtbot, mock_umu_database, mock_settings):
         from PyQt6.QtWidgets import QTabBar
@@ -241,7 +241,7 @@ class TestGameyfinWindow:
     def test_close_tab_prevents_closing_fixed_tabs(self, qtbot, mock_umu_database, mock_settings):
         window = self._make_window(qtbot, mock_umu_database, mock_settings)
         initial_count = window.tab_widget.count()
-        for i in range(4):
+        for i in range(5):
             window.close_tab(i)
         assert window.tab_widget.count() == initial_count
 
@@ -260,6 +260,28 @@ class TestGameyfinWindow:
         window = self._make_window(qtbot, mock_umu_database, mock_settings)
         window.show_settings_tab()
         assert window.tab_widget.currentWidget() is window.settings_widget
+
+    def test_system_tab_is_last_fixed_tab(self, qtbot, mock_umu_database, mock_settings):
+        from PyQt6.QtWidgets import QTabBar
+        window = self._make_window(qtbot, mock_umu_database, mock_settings)
+        index = window.tab_widget.count() - 1
+        assert window.tab_widget.tabText(index) == "System"
+        assert window.tab_widget.widget(index) is window.system_tab
+        # Like the other fixed tabs, the System tab has no close button
+        right_button = window.tab_widget.tabBar().tabButton(index, QTabBar.ButtonPosition.RightSide)
+        assert right_button is None
+
+    def test_system_tab_exit_button_quits_application(self, qtbot, mock_umu_database, mock_settings):
+        from PyQt6.QtWidgets import QMessageBox
+        window = self._make_window(qtbot, mock_umu_database, mock_settings)
+        mock_app = MagicMock()
+        with patch("gameyfin_frontend.gameyfin_window.QApplication") as mock_app_cls, \
+             patch("gameyfin_frontend.widgets.system_tab.QMessageBox.question",
+                   return_value=QMessageBox.StandardButton.Yes):
+            mock_app_cls.instance.return_value = mock_app
+            window.system_tab.exit_button.click()
+        assert window.is_really_quitting
+        mock_app.quit.assert_called_once()
 
     def test_close_event_hides_when_not_quitting(self, qtbot, mock_umu_database, mock_settings):
         from PyQt6.QtGui import QCloseEvent
@@ -302,9 +324,9 @@ class TestGameyfinWindow:
         window = self._make_window(qtbot, mock_umu_database, mock_settings)
         external_view = QWebEngineView()
         window.tab_widget.addTab(external_view, "External")
-        assert window.tab_widget.count() == 5
+        assert window.tab_widget.count() == 6
         window.handle_logout(QUrl("http://localhost/logout"))
-        assert window.tab_widget.count() == 4
+        assert window.tab_widget.count() == 5
         assert window.tab_widget.currentIndex() == 0
 
     def test_redirect_to_main_tab(self, qtbot, mock_umu_database, mock_settings):
@@ -539,8 +561,8 @@ class TestNativeLibraryUI:
         assert window.library_browser is not None
         assert window.api_client is not None
         assert window.main_stack.count() == 2
-        # The four fixed tabs are unchanged — the stack lives inside tab 0
-        assert window.tab_widget.count() == 4
+        # The five fixed tabs are unchanged — the stack lives inside tab 0
+        assert window.tab_widget.count() == 5
         assert window.tab_widget.widget(0) is window.main_stack
 
     def test_api_client_uses_live_web_view_cookies(self, qtbot, mock_umu_database, native_settings):

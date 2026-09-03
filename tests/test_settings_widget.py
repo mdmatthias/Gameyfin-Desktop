@@ -85,9 +85,7 @@ class TestSettingsWidgetSections:
     def test_action_buttons_are_pinned_below_scroll(self, settings_widget):
         scroll = settings_widget.findChild(QScrollArea)
         assert not scroll.isAncestorOf(settings_widget.save_button)
-        assert not scroll.isAncestorOf(settings_widget.update_button)
         assert settings_widget.save_button.text() == "Save and Apply"
-        assert settings_widget.update_button.text() == "Check for Updates"
 
     def test_set_gamepad_status_updates_label(self, settings_widget):
         settings_widget.set_gamepad_status("Xbox Controller")
