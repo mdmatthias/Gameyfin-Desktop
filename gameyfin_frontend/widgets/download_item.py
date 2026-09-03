@@ -184,10 +184,7 @@ class DownloadItemWidget(QWidget):
 
         font_metrics = self.fontMetrics()
         self.icon_label.setFixedWidth(font_metrics.height())
-        status_width = max(
-            font_metrics.horizontalAdvance("Completed (999.99 GB)"),
-            font_metrics.horizontalAdvance("999.99 GB / 999.99 GB (999.99 MB/s)"),
-        ) + 10
+        status_width = font_metrics.horizontalAdvance("___________________________________________")
         self.status_label.setFixedWidth(status_width)
 
         current_text = self.install_button.text()
