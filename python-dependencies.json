@@ -181,6 +181,30 @@
       ]
     },
     {
+      "name": "python3-qt-themes",
+      "buildsystem": "simple",
+      "build-commands": [
+        "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"qt-themes==0.4.0\" \"QtPy==2.4.3\" --no-build-isolation"
+      ],
+      "sources": [
+        {
+          "type": "file",
+          "url": "https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/packaging-26.3-py3-none-any.whl",
+          "sha256": "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c"
+        },
+        {
+          "type": "file",
+          "url": "https://files.pythonhosted.org/packages/69/76/37c0ccd5ab968a6a438f9c623aeecc84c202ab2fabc6a8fd927580c15b5a/QtPy-2.4.3-py3-none-any.whl",
+          "sha256": "72095afe13673e017946cc258b8d5da43314197b741ed2890e563cf384b51aa1"
+        },
+        {
+          "type": "file",
+          "url": "https://files.pythonhosted.org/packages/ac/b4/8d2276d1ff41e7178cb8bfd374977614ed90eb2b1da3ac7a4d872932c73f/qt_themes-0.4.0-py3-none-any.whl",
+          "sha256": "ff754bd5ecd0bd54caf49260939c9d1454d2967240bd6973420bd3fb9ef32c1e"
+        }
+      ]
+    },
+    {
       "name": "python3-pygame-ce",
       "buildsystem": "simple",
       "build-commands": [

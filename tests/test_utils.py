@@ -10,6 +10,7 @@ from gameyfin_frontend.utils import (
     build_umu_env_prefix,
     build_flatpak_exec_command,
     get_xdg_user_dir,
+    release_year,
 )
 
 
@@ -177,3 +178,19 @@ class TestGetXdgUserDir:
                 os.environ["XDG_CONFIG_HOME"] = old_xdg
             else:
                 os.environ.pop("XDG_CONFIG_HOME", None)
+
+
+class TestReleaseYear:
+    """release_year pulls the four-digit year out of whatever the server sends."""
+
+    def test_iso_date(self):
+        assert release_year("2019-05-14") == "2019"
+
+    def test_bare_year(self):
+        assert release_year("1998") == "1998"
+
+    def test_no_year_present(self):
+        assert release_year("coming soon") == ""
+
+    def test_missing_release(self):
+        assert release_year(None) == ""

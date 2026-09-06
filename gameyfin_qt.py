@@ -60,8 +60,8 @@ if __name__ == "__main__":
     # Apply theme
     theme = settings.get("GF_THEME")
     if theme and theme != "auto":
-        from qt_material import apply_stylesheet
-        apply_stylesheet(app, theme=theme)
+        from gameyfin_frontend.theming import apply_theme
+        apply_theme(app, theme)
 
     umu_database = UmuDatabase(settings)
     # Start a background cache refresh so the API call doesn't block app startup.

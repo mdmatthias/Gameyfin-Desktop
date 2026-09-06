@@ -58,7 +58,7 @@ class PrefixItemWidget(QWidget):
         self.manage_combo = QComboBox()
         self.manage_combo.setFixedWidth(180)
         self.manage_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.manage_combo.addItem("Manage ▾")
+        self.manage_combo.addItem("Manage")
         self.manage_combo.addItem("Shortcuts")
         self.manage_combo.addItem("Config")
         self.manage_combo.addItem("Delete")

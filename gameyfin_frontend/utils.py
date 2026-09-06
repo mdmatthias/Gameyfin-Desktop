@@ -72,6 +72,19 @@ def format_size(nbytes: int) -> str:
     return f"{nbytes} B"
 
 
+def release_year(release: Any) -> str:
+    """Return the four-digit year in *release*, or "" when there is none.
+
+    The server sends the release date as a free-form string — an ISO date, a
+    year, or a timestamp depending on the metadata provider — and the grid only
+    has room for the year.
+    """
+    if not release:
+        return ""
+    match = re.search(r'(19|20)\d{2}', str(release))
+    return match.group(0) if match else ""
+
+
 def parse_size(text: str) -> int:
     """Parse a human-readable size string back to bytes.
 
@@ -320,11 +333,11 @@ def resource_path(relative_path: str) -> str:
 def get_app_icon_path(custom_path: str | None = None, theme: str | None = None) -> str:
     """Return the path to the app icon based on theme selection and system appearance.
 
-    Priority: custom path (if it exists) → qt-material theme (light/dark) → system color scheme.
+    Priority: custom path (if it exists) → selected theme (light/dark) → system color scheme.
 
     Args:
         custom_path: Optional user-specified icon file path.
-        theme: Theme string (e.g. "auto", "material_light", "dark_teal.xml").
+        theme: Theme string (e.g. "auto", "dark_teal.xml", "nord").
 
     Returns:
         Absolute path to the appropriate icon file.
@@ -334,12 +347,10 @@ def get_app_icon_path(custom_path: str | None = None, theme: str | None = None) 
 
     icon_name = "icon.png"
 
-    # 1. Check if a qt-material theme is specified
+    # 1. Check if an explicit theme is selected (qt-material or qt-themes)
     if theme and theme != "auto":
-        if "light" in theme.lower():
-            icon_name = "icon_light.png"
-        else:
-            icon_name = "icon.png"
+        from gameyfin_frontend.theming import is_light_theme
+        icon_name = "icon_light.png" if is_light_theme(theme) else "icon.png"
     else:
         # 2. Fallback to system theme detection
         app = QGuiApplication.instance()

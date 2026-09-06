@@ -5,7 +5,7 @@ import subprocess
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QFormLayout, QLineEdit,
                              QPushButton, QLabel, QSlider, QSpinBox, QMessageBox, QCheckBox, QHBoxLayout, QFileDialog, QComboBox, QGroupBox, QScrollArea, QGridLayout, QSizePolicy)
 from PyQt6.QtCore import Qt
-from qt_material import list_themes
+from gameyfin_frontend.theming import list_all_themes
 from .settings import SettingsManager
 from .utils import muted_text_color
 
@@ -112,7 +112,7 @@ class SettingsWidget(QWidget):
         self.theme_combo = QComboBox()
         self.theme_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.theme_combo.addItem("auto")
-        self.theme_combo.addItems(list_themes())
+        self.theme_combo.addItems(list_all_themes())
         current_theme = self.settings.get("GF_THEME") if self.settings else "auto"
         if current_theme:
             self.theme_combo.setCurrentText(current_theme)

@@ -11,7 +11,7 @@ from PyQt6.QtCore import QUrl, QStandardPaths, QTimer, pyqtSignal, pyqtSlot, Qt
 from PyQt6.QtWebEngineCore import (QWebEngineScript,
                                    QWebEngineDownloadRequest, QWebEngineProfile, QWebEngineSettings, QWebEnginePage)
 
-from qt_material import apply_stylesheet
+from gameyfin_frontend.theming import apply_theme
 
 from gameyfin_frontend.widgets.download_manager import DownloadManagerWidget
 from gameyfin_frontend.widgets.library_browser import LibraryBrowserWidget
@@ -934,16 +934,7 @@ class GameyfinWindow(QMainWindow):
         # 7. Update Theme
         theme = self.settings.get("GF_THEME")
         app = QApplication.instance()
-        if theme and theme != "auto":
-            apply_stylesheet(app, theme=theme)
-        else:
-            app.setStyleSheet("")
-            if hasattr(app, 'default_palette'):
-                app.setPalette(app.default_palette)
-            if hasattr(app, 'default_font'):
-                app.setFont(app.default_font)
-            if hasattr(app, 'default_style_name'):
-                app.setStyle(app.default_style_name)
+        apply_theme(app, theme)
 
         # Palette-derived label colours are baked into stylesheets at build
         # time, so they have to be recomputed whenever the theme changes.

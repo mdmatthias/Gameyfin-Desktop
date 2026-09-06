@@ -9,7 +9,7 @@ import logging
 import math
 
 from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QFontMetrics, QIcon, QKeyEvent, QPixmap
+from PyQt6.QtGui import QFont, QFontMetrics, QIcon, QKeyEvent, QPixmap
 from PyQt6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit,
                              QListWidget, QListWidgetItem, QPushButton,
                              QStackedWidget, QVBoxLayout, QWidget)
@@ -19,8 +19,9 @@ from ..services.gameyfin_api import (DownloadProvider, Game, GameyfinApiClient,
                                      GameyfinApiError, GameyfinAuthError, Library)
 from ..services.image_cache import ImageCache
 from ..settings import SettingsManager
-from ..utils import format_size, muted_text_color
+from ..utils import format_size, muted_text_color, release_year
 from ..workers import ApiCallWorker
+from .cover_tile import CoverTileDelegate, tile_size_hint
 from .game_detail import GameDetailWidget
 
 logger = logging.getLogger(__name__)
@@ -135,10 +136,15 @@ class LibraryBrowserWidget(QWidget):
         self.grid.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.grid.setMovement(QListWidget.Movement.Static)
         self.grid.setUniformItemSizes(True)
-        self.grid.setWordWrap(True)
-        self.grid.setSpacing(10)
+        self.grid.setSpacing(6)
         self.grid.setIconSize(QSize(COVER_TILE_WIDTH, COVER_TILE_HEIGHT))
         self.grid.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        # The tiles are painted by the delegate, so the view only has to hand
+        # it a flat surface — no frame, no style-drawn selection background.
+        self.grid.setFrameShape(QListWidget.Shape.NoFrame)
+        self.grid.setItemDelegate(CoverTileDelegate(self.grid))
+        self.grid.setMouseTracking(True)  # so tiles can react to hover
+        self.grid.viewport().setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.grid.itemActivated.connect(self._open_item)
         self.grid.itemClicked.connect(self._open_item)
         self.grid.verticalScrollBar().valueChanged.connect(lambda _: self._load_visible_covers())
@@ -150,15 +156,6 @@ class LibraryBrowserWidget(QWidget):
         self.detail.back_requested.connect(self.show_grid)
         self.detail.download_requested.connect(self.download_requested.emit)
         self.stack.addWidget(self.detail)
-
-        self._placeholder_icon = self._build_placeholder_icon()
-
-    @staticmethod
-    def _build_placeholder_icon() -> QIcon:
-        """Return a neutral tile shown until a cover arrives (or when none exists)."""
-        pixmap = QPixmap(COVER_TILE_WIDTH, COVER_TILE_HEIGHT)
-        pixmap.fill(QColor(60, 60, 66))
-        return QIcon(pixmap)
 
     # ------------------------------------------------------------------
     # Paging
@@ -344,13 +341,14 @@ class LibraryBrowserWidget(QWidget):
 
         for game in page_games:
             item = QListWidgetItem(game.title)
-            item.setIcon(self._placeholder_icon)
+            # No placeholder icon: until the cover arrives the delegate paints
+            # a palette-derived block, which follows the active theme.
             item.setData(GAME_ID_ROLE, game.id)
             if game.cover:
                 item.setData(IMAGE_ID_ROLE, game.cover.id)
-            item.setSizeHint(QSize(COVER_TILE_WIDTH + 16, COVER_TILE_HEIGHT + 44))
+            item.setData(CoverTileDelegate.META_ROLE, self._meta_for(game))
+            item.setSizeHint(tile_size_hint(self.grid.font()))
             item.setToolTip(self._tooltip_for(game))
-            item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
             self.grid.addItem(item)
 
         self._update_status(len(games), start, len(page_games))
@@ -374,6 +372,17 @@ class LibraryBrowserWidget(QWidget):
         self.page_label.setText(f"{self._page + 1}/{total_pages}")
         self.prev_button.setEnabled(self._page > 0)
         self.next_button.setEnabled(self._page < total_pages - 1)
+
+    @staticmethod
+    def _meta_for(game: Game) -> str:
+        """Return the muted line under a tile's title (release year, size)."""
+        parts = []
+        year = release_year(game.release)
+        if year:
+            parts.append(year)
+        if game.file_size:
+            parts.append(format_size(game.file_size))
+        return " · ".join(parts)
 
     @staticmethod
     def _tooltip_for(game: Game) -> str:
