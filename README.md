@@ -12,8 +12,7 @@ Download, install and play your games from [Gameyfin](https://github.com/gameyfi
 * **Couch friendly:** the whole app can be driven with a gamepad, and it lives in the system tray.
 * Persistent login (including SSO) so you only sign in once.
 
-<details>
-<summary>Gamepad controls</summary>
+### 🎮 Gamepad controls
 
 | Button             | Action                    |
 |:-------------------|:--------------------------|
@@ -25,8 +24,6 @@ Download, install and play your games from [Gameyfin](https://github.com/gameyfi
 | LT / RT            | Page up / page down       |
 | Right stick        | Scroll                    |
 | Start              | Show the controls overlay |
-
-</details>
 
 ---
 
