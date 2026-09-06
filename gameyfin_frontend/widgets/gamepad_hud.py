@@ -12,6 +12,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QPainter
 from PyQt6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
+from ..utils import muted_text_color
+
 ACCENT = "#00bcd4"
 
 _BADGE_STYLE = (
@@ -52,11 +54,15 @@ class GamepadHintBar(QWidget):
         self._layout.setContentsMargins(12, 6, 12, 6)
         self._layout.setSpacing(8)
         self._status = QLabel("")
-        self._status.setStyleSheet("color: palette(mid);")
+        self._status.setStyleSheet(f"color: {muted_text_color(self)};")
         self._layout.addWidget(self._status)
         self._layout.addStretch(1)
         self._hint_widgets: list[QWidget] = []
         self.set_hints([])
+
+    def refresh_theme_colors(self) -> None:
+        """Re-apply palette-derived colours after the theme changed."""
+        self._status.setStyleSheet(f"color: {muted_text_color(self)};")
 
     def set_status(self, text: str) -> None:
         """Set the left-hand status text (device name, mouse mode, …)."""

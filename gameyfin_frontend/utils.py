@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtGui import QGuiApplication, QIcon
+from PyQt6.QtGui import QColor, QGuiApplication, QIcon, QPalette
 from PyQt6.QtCore import Qt
 
 from gameyfin_frontend.config import DEFAULT_PROTON, SCRIPT_PERMISSION, FLATPAK_ID
@@ -21,6 +21,24 @@ _SIZE_UNITS = [
     (1024 ** 2, "MB"),
     (1024, "KB"),
 ]
+
+
+def muted_text_color(widget: Any = None, alpha: int = 190) -> str:
+    """Return a CSS colour for secondary ("muted") label text.
+
+    ``palette(mid)`` is a mid-grey sitting between the window and shadow
+    colours, so on a dark theme it renders nearly invisible against the
+    background.  Instead, take the theme's own text colour and make it
+    translucent: the result blends with whatever is painted behind it and
+    stays legible on light and dark themes alike.
+
+    qt-material only resolves its colours per widget (the application palette
+    keeps the platform defaults), so pass the label being styled — or one of
+    its ancestors — to get the colour that theme actually paints with.
+    """
+    source = widget if widget is not None else QGuiApplication.instance()
+    colour = source.palette().color(QPalette.ColorRole.WindowText) if source else QColor(255, 255, 255)
+    return f"rgba({colour.red()}, {colour.green()}, {colour.blue()}, {alpha})"
 
 
 def sanitize_name(name: str) -> str:

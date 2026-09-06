@@ -1,3 +1,4 @@
+import gc
 import sys
 import os
 import logging
@@ -83,4 +84,27 @@ if __name__ == "__main__":
 
         window.show()
 
-    sys.exit(app.exec())
+    exit_code = app.exec()
+
+    # Deterministic teardown, in this order. Left to interpreter shutdown the
+    # Qt wrappers are released in whatever order the module globals happen to
+    # be cleared, and destroying the window's widget tree (WebEngine views in
+    # particular) after QApplication is gone segfaults inside sip. Dropping
+    # the window first also lets the web profile flush its cookies and cache
+    # from its own destructor.
+    window = None
+    tray_app = None
+    app.processEvents()
+    del app
+    gc.collect()
+
+    # Then leave without running interpreter finalization: PyQt registers an
+    # atexit hook that walks Qt wrappers whose C++ objects Qt has already
+    # destroyed, which segfaults (and, because pygame's parachute handler is
+    # still installed, gets reported as "pygame parachute"). Everything with
+    # state to persist — settings, caches, downloads, SDL — was shut down by
+    # the window's close cleanup, so nothing useful is skipped here.
+    logging.shutdown()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(exit_code)

@@ -318,3 +318,65 @@ class TestSdlInit:
 
         assert mgr.start() is False
         assert mgr.is_running() is False
+
+
+class TestShutdown:
+    def test_shutdown_quits_sdl(self, monkeypatch):
+        """SDL must be torn down explicitly at quit, not by pygame's exit hook
+        (which runs after Qt is gone and segfaults)."""
+        calls = []
+
+        class FakeController:
+            @staticmethod
+            def get_init():
+                return True
+
+            @staticmethod
+            def quit():
+                calls.append("controller.quit")
+
+        class FakePygame:
+            @staticmethod
+            def quit():
+                calls.append("pygame.quit")
+
+        monkeypatch.setattr(
+            "gameyfin_frontend.gamepad._init_sdl", lambda: (FakePygame, FakeController)
+        )
+        mgr = GamepadManager()
+        assert mgr.start() is True
+
+        mgr.shutdown()
+
+        assert calls == ["controller.quit", "pygame.quit"]
+        assert mgr.is_running() is False
+        assert mgr._pygame is None
+
+    def test_shutdown_is_safe_before_start(self):
+        mgr = GamepadManager()
+        mgr.shutdown()  # must not raise
+        assert mgr.is_running() is False
+
+    def test_shutdown_survives_a_failing_sdl_teardown(self, monkeypatch):
+        class FakeController:
+            @staticmethod
+            def get_init():
+                return True
+
+            @staticmethod
+            def quit():
+                raise RuntimeError("boom")
+
+        class FakePygame:
+            @staticmethod
+            def quit():
+                raise RuntimeError("boom")
+
+        monkeypatch.setattr(
+            "gameyfin_frontend.gamepad._init_sdl", lambda: (FakePygame, FakeController)
+        )
+        mgr = GamepadManager()
+        mgr.start()
+
+        mgr.shutdown()  # must not raise
+        assert mgr._pygame is None

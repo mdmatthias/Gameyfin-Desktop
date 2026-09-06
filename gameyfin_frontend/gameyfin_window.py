@@ -678,8 +678,19 @@ class GameyfinWindow(QMainWindow):
         """Show the window; position overlay without showing loading screen after initial load."""
         super().showEvent(event)
         self._position_overlay()
+        # Stylesheet-driven colours are only resolved once widgets are polished,
+        # so muted label colours have to be recomputed after the first show.
+        self._refresh_theme_colors()
         if not self._initial_load_complete:
             self._loading_overlay.show_overlay()
+
+    def _refresh_theme_colors(self) -> None:
+        """Recompute palette-derived label colours across the UI."""
+        if self.library_browser is not None:
+            self.library_browser.refresh_theme_colors()
+        self.settings_widget.refresh_theme_colors()
+        if hasattr(self, "gamepad_hint_bar"):
+            self.gamepad_hint_bar.refresh_theme_colors()
 
     def show_main_tab(self) -> None:
         """Show the window and switch to the main Gameyfin tab."""
@@ -727,7 +738,9 @@ class GameyfinWindow(QMainWindow):
             # This is a real quit, run cleanup
             gamepad = getattr(self, "gamepad", None)
             if gamepad is not None:
-                gamepad.stop()
+                # Full SDL teardown, not just stop(): pygame must not be left
+                # to shut SDL down from its exit hook, after Qt is gone.
+                gamepad.shutdown()
             self._release_update_check_worker()
             self.download_manager.close()
             if self.library_browser is not None:
@@ -931,6 +944,10 @@ class GameyfinWindow(QMainWindow):
                 app.setFont(app.default_font)
             if hasattr(app, 'default_style_name'):
                 app.setStyle(app.default_style_name)
+
+        # Palette-derived label colours are baked into stylesheets at build
+        # time, so they have to be recomputed whenever the theme changes.
+        self._refresh_theme_colors()
 
         if hasattr(self, "download_manager"):
             self.download_manager.refresh_theme_sizing()

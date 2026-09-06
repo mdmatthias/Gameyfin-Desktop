@@ -291,6 +291,35 @@ class GamepadManager(QObject):
         if was_connected:
             self.disconnected.emit()
 
+    def shutdown(self) -> None:
+        """Stop polling and tear SDL down completely.
+
+        Must run while the interpreter and Qt are still alive: left to pygame's
+        own exit hook, SDL is shut down after Qt has already destroyed its
+        objects, which segfaults (reported as "pygame parachute").  Quitting
+        pygame here also removes its SIGSEGV handler, so any later crash is
+        reported as itself instead of as a parachute trace.
+        """
+        self.stop()
+
+        controller = self._controller_module
+        pygame_mod = self._pygame
+        self._controller_module = None
+        self._pygame = None
+
+        if controller is not None:
+            try:
+                if controller.get_init():
+                    controller.quit()
+            except Exception as exc:  # noqa: BLE001 - teardown must not raise
+                logger.warning("Controller module shutdown failed: %s", exc)
+
+        if pygame_mod is not None:
+            try:
+                pygame_mod.quit()
+            except Exception as exc:  # noqa: BLE001 - teardown must not raise
+                logger.warning("pygame shutdown failed: %s", exc)
+
     def is_running(self) -> bool:
         return self._running
 

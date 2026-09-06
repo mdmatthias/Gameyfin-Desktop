@@ -20,7 +20,7 @@ from ..config import (COVER_TILE_HEIGHT, COVER_TILE_WIDTH,
 from ..services.gameyfin_api import DownloadProvider, Game, GameImage
 from ..services.image_cache import ImageCache
 from ..settings import SettingsManager
-from ..utils import format_size
+from ..utils import format_size, muted_text_color
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +112,8 @@ class GameDetailWidget(QWidget):
         self._screenshot_images: dict[int, bytes] = {}
         # Reusable viewer dialog
         self._viewer_dialog: ScreenshotViewerDialog | None = None
+        # Image id the user clicked while its bytes were still being fetched
+        self._awaited_screenshot: int | None = None
 
         self.image_cache.ready.connect(self._on_image_ready)
 
@@ -175,7 +177,7 @@ class GameDetailWidget(QWidget):
 
         self.subtitle_label = QLabel()
         self.subtitle_label.setWordWrap(True)
-        self.subtitle_label.setStyleSheet("font-size: 12px; color: palette(mid);")
+        self.subtitle_label.setStyleSheet(f"font-size: 12px; color: {muted_text_color(self)};")
         info_column.addWidget(self.subtitle_label)
 
         self.rating_label = QLabel()
@@ -183,12 +185,13 @@ class GameDetailWidget(QWidget):
         info_column.addWidget(self.rating_label)
 
         self.detail_labels: dict[str, QLabel] = {}
+        self._muted_labels: list[QLabel] = [self.subtitle_label]
         for key in ("Platforms", "Genres", "Themes", "Features", "Developers",
                     "Publishers", "Size"):
             row = QHBoxLayout()
             name = QLabel(f"{key}:")
             name.setMinimumWidth(90)
-            name.setStyleSheet("font-size: 12px; color: palette(mid);")
+            name.setStyleSheet(f"font-size: 12px; color: {muted_text_color(self)};")
             value = QLabel()
             value.setWordWrap(True)
             value.setStyleSheet("font-size: 12px;")
@@ -197,6 +200,7 @@ class GameDetailWidget(QWidget):
             row.addWidget(value, 1)
             info_column.addLayout(row)
             self.detail_labels[key] = value
+            self._muted_labels.append(name)
 
         download_row = QHBoxLayout()
         self.download_button = QPushButton("Download")
@@ -247,6 +251,16 @@ class GameDetailWidget(QWidget):
     # ------------------------------------------------------------------
     # Population
     # ------------------------------------------------------------------
+
+    def showEvent(self, event) -> None:  # type: ignore[override]
+        """Pick up the theme's resolved colours once the widget is polished."""
+        super().showEvent(event)
+        self.refresh_theme_colors()
+
+    def refresh_theme_colors(self) -> None:
+        """Re-apply palette-derived colours after the theme changed."""
+        for label in self._muted_labels:
+            label.setStyleSheet(f"font-size: 12px; color: {muted_text_color(self)};")
 
     def set_providers(self, providers: list[DownloadProvider]) -> None:
         """Set the available download providers, showing the picker when >1."""
@@ -312,6 +326,9 @@ class GameDetailWidget(QWidget):
 
     def _rebuild_screenshots(self, game: Game) -> None:
         """Replace the screenshot strip with thumbnails for *game*."""
+        # Drop the previous game's bytes and any pending click on them
+        self._screenshot_images.clear()
+        self._awaited_screenshot = None
         while self.screenshot_layout.count():
             item = self.screenshot_layout.takeAt(0)
             widget = item.widget()
@@ -359,13 +376,18 @@ class GameDetailWidget(QWidget):
     def _on_image_ready(self, image_id: int, data: bytes) -> None:
         """Apply a background-fetched image to the label that asked for it."""
         target = self._pending_images.pop(image_id, None)
-        if target is None:
-            return
-        label, width, height = target
-        if label is self.header_label:
-            self._apply_header(data)
-            return
-        self._apply_pixmap(label, data, width, height)
+        if target is not None:
+            label, width, height = target
+            if label is self.header_label:
+                self._apply_header(data)
+                return
+            if isinstance(label, ClickableLabel):
+                # Store raw bytes for the screenshot viewer
+                self._screenshot_images[image_id] = data
+            self._apply_pixmap(label, data, width, height)
+        if image_id == self._awaited_screenshot:
+            self._awaited_screenshot = None
+            self._show_screenshot(image_id, data)
 
     def _apply_header(self, data: bytes) -> None:
         """Fill the banner across the full view width, cropping the overflow."""
@@ -425,12 +447,13 @@ class GameDetailWidget(QWidget):
         """Show *image* in a full-size viewer dialog."""
         data = self._screenshot_images.get(image.id)
         if data is None:
-            # Try to fetch it now; the viewer will open when the image arrives
-            self.image_cache.request(image)
-            self.image_cache.ready.connect(
-                lambda img_id, img_data: self._show_screenshot(img_id, img_data),
-            )
-            return
+            # Not fetched yet: take it from the cache, or wait for this one
+            # image only -- ``_on_image_ready`` opens the viewer when it lands.
+            data = self.image_cache.request(image)
+            if data is None:
+                self._awaited_screenshot = image.id
+                return
+            self._screenshot_images[image.id] = data
         self._show_screenshot(image.id, data)
 
     def _show_screenshot(self, image_id: int, data: bytes) -> None:

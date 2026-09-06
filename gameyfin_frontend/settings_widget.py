@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QFormLayout, QL
 from PyQt6.QtCore import Qt
 from qt_material import list_themes
 from .settings import SettingsManager
+from .utils import muted_text_color
 
 
 class SettingsWidget(QWidget):
@@ -241,7 +242,7 @@ class SettingsWidget(QWidget):
         form.addRow("Gamepad Support:", self.gamepad_enabled_check)
 
         self.gamepad_status_label = QLabel("No controller detected")
-        self.gamepad_status_label.setStyleSheet("font-size: 11px; color: palette(mid);")
+        self.gamepad_status_label.setStyleSheet(f"font-size: 11px; color: {muted_text_color(self)};")
         form.addRow("Controller:", self.gamepad_status_label)
 
         self.gamepad_hints_check = QCheckBox()
@@ -353,6 +354,11 @@ class SettingsWidget(QWidget):
     def _update_deadzone_label(self, value: int) -> None:
         """Show the stick deadzone as a percentage."""
         self.gamepad_deadzone_label.setText(f"{value}%")
+
+    def refresh_theme_colors(self) -> None:
+        """Re-apply palette-derived colours after the theme changed."""
+        self.gamepad_status_label.setStyleSheet(
+            f"font-size: 11px; color: {muted_text_color(self)};")
 
     def set_gamepad_status(self, text: str) -> None:
         """Display the currently detected controller (set by the main window)."""

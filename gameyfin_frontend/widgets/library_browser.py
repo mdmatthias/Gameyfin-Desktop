@@ -19,7 +19,7 @@ from ..services.gameyfin_api import (DownloadProvider, Game, GameyfinApiClient,
                                      GameyfinApiError, GameyfinAuthError, Library)
 from ..services.image_cache import ImageCache
 from ..settings import SettingsManager
-from ..utils import format_size
+from ..utils import format_size, muted_text_color
 from ..workers import ApiCallWorker
 from .game_detail import GameDetailWidget
 
@@ -110,7 +110,7 @@ class LibraryBrowserWidget(QWidget):
 
         self.page_label = QLabel("1/1")
         self.page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.page_label.setStyleSheet("font-size: 11px; color: palette(mid);")
+        self.page_label.setStyleSheet(f"font-size: 11px; color: {muted_text_color(self)};")
         # Reserve room for a two-digit page number so the neighbouring
         # buttons don't shift when going e.g. from page 9 to 10.
         indicator_font = QFont()
@@ -127,7 +127,7 @@ class LibraryBrowserWidget(QWidget):
         grid_layout.addLayout(top_bar)
 
         self.status_label = QLabel("Not loaded yet.")
-        self.status_label.setStyleSheet("font-size: 11px; color: palette(mid);")
+        self.status_label.setStyleSheet(f"font-size: 11px; color: {muted_text_color(self)};")
         grid_layout.addWidget(self.status_label)
 
         self.grid = QListWidget()
@@ -140,7 +140,7 @@ class LibraryBrowserWidget(QWidget):
         self.grid.setIconSize(QSize(COVER_TILE_WIDTH, COVER_TILE_HEIGHT))
         self.grid.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.grid.itemActivated.connect(self._open_item)
-        self.grid.itemDoubleClicked.connect(self._open_item)
+        self.grid.itemClicked.connect(self._open_item)
         self.grid.verticalScrollBar().valueChanged.connect(lambda _: self._load_visible_covers())
         grid_layout.addWidget(self.grid, 1)
 
@@ -185,6 +185,18 @@ class LibraryBrowserWidget(QWidget):
         self._page_size = size
         self._page = 0
         self._apply_filter()
+
+    def showEvent(self, event) -> None:  # type: ignore[override]
+        """Pick up the theme's resolved colours once the widget is polished."""
+        super().showEvent(event)
+        self.refresh_theme_colors()
+
+    def refresh_theme_colors(self) -> None:
+        """Re-apply palette-derived colours after the theme changed."""
+        muted = muted_text_color(self)
+        self.page_label.setStyleSheet(f"font-size: 11px; color: {muted};")
+        self.status_label.setStyleSheet(f"font-size: 11px; color: {muted};")
+        self.detail.refresh_theme_colors()
 
     # ------------------------------------------------------------------
     # Loading
