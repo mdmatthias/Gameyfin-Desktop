@@ -147,7 +147,8 @@ class SettingsWidget(QWidget):
         self.native_ui_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.native_ui_check.setToolTip(
             "Show libraries and games as a native Qt grid served by the Gameyfin API "
-            "instead of the embedded web page. The web view is still used for login."
+            "instead of the embedded web page. The web view is still used for login. "
+            "Takes effect immediately \u2014 no restart needed."
         )
         self.native_ui_check.setChecked(bool(self.settings.get("GF_NATIVE_UI")) if self.settings else False)
         form.addRow("Native Library UI:", self.native_ui_check)

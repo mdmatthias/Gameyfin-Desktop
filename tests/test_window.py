@@ -565,6 +565,41 @@ class TestNativeLibraryUI:
         assert window.tab_widget.count() == 5
         assert window.tab_widget.widget(0) is window.main_stack
 
+    def test_toggling_the_flag_on_at_runtime_adds_the_browser_to_the_stack(
+        self, qtbot, mock_umu_database, mock_settings
+    ):
+        """Switching the setting on must take effect without an app restart."""
+        window = TestGameyfinWindow()._make_window(qtbot, mock_umu_database, mock_settings)
+        assert window.main_stack.count() == 1
+
+        base = mock_settings.get.side_effect
+        mock_settings.get.side_effect = lambda key, default=None: (
+            1 if key == "GF_NATIVE_UI" else base(key, default)
+        )
+        with patch("gameyfin_frontend.widgets.library_browser.LibraryBrowserWidget.refresh"):
+            window._apply_native_ui_setting()
+
+        assert window.library_browser is not None
+        assert window.main_stack.indexOf(window.library_browser) >= 0
+
+        # ...and the library actually comes forward once it loads
+        window.library_browser.library_loaded.emit()
+        assert window.main_stack.currentWidget() is window.library_browser
+
+    def test_toggling_the_flag_off_at_runtime_returns_to_the_web_view(
+        self, qtbot, mock_umu_database, native_settings
+    ):
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+        window.main_stack.setCurrentWidget(window.library_browser)
+
+        native_settings.get.side_effect = lambda key, default=None: (
+            0 if key == "GF_NATIVE_UI" else default
+        )
+        window._apply_native_ui_setting()
+
+        assert window.main_stack.currentWidget() is window.browser
+        assert not window._native_probe_timer.isActive()
+
     def test_api_client_uses_live_web_view_cookies(self, qtbot, mock_umu_database, native_settings):
         window = self._make_native_window(qtbot, mock_umu_database, native_settings)
         window._cookies["JSESSIONID"] = "session-value"

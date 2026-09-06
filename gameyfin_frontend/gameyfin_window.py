@@ -227,6 +227,16 @@ class GameyfinWindow(QMainWindow):
         self.library_browser.login_required.connect(self._on_native_login_required)
         self.library_browser.library_loaded.connect(self._on_native_library_loaded)
 
+        # When the flag is turned on at runtime the stack already exists, so the
+        # browser has to be added here; otherwise _setup_tabs adds it below.
+        # Without this, switching the setting on only took effect after a restart.
+        main_stack = getattr(self, "main_stack", None)
+        if main_stack is not None and main_stack.indexOf(self.library_browser) < 0:
+            main_stack.addWidget(self.library_browser)
+            # Palette-derived colours are baked in at build time and the window
+            # has already been polished by now.
+            self.library_browser.refresh_theme_colors()
+
         # Gameyfin completes login through client-side routing, so waiting for a
         # page load is not enough: poll until the API answers as authenticated.
         self._native_probe_timer = QTimer(self)
