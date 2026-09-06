@@ -1,186 +1,78 @@
 # 🖥️ Gameyfin Desktop
 
-A dedicated desktop client for [Gameyfin](https://github.com/gameyfin/gameyfin) that wraps the web interface in a standalone application for a more integrated experience.
-
----
-### ✨ Features
-
-* **🖥️ Dedicated Desktop Application:** Runs Gameyfin in its own window on both Windows and Linux, separate from your web browser.
-* **🔑 Persistent SSO Login:** Supports persistent logins with SSO providers. The application saves your session data, so you only have to log in once. (*Note: This requires the "remember me" feature to be enabled in your SSO provider's settings.*)
-* **⚙️ System Tray Integration:** Includes an icon in the system tray for quickly showing, hiding, or quitting the application.
-* **⚙️ Integrated Settings:** Configure your Gameyfin URL, window dimensions, and more directly within the app's **Settings** tab.
-* **📥 Download Manager:**
-  * Manages all file downloads in a persistent "Downloads" tab.
-  * Shows progress, speed, and a complete download history.
-* **⚡ Streaming Download & Extraction:**
-  * Downloads and extracts ZIP archives simultaneously using `stream-unzip` — no intermediate ZIP file is ever saved to disk.
-  * Saves disk space and skips the separate unzip step entirely.
-  * Once the download completes, the **Install** button appears immediately.
-* **💽 Installer (Windows):**
-  * Extracts the downloaded archive.
-  * Detects `.exe` files. If multiple are found, it asks you to choose which one to launch.
-  * No complex configuration required.
-* **💽 Installer (Linux):**
-  * Prompts for per-install environment configuration (Wayland, MangoHud, GameID, Store, etc.).
-  * Extracts the downloaded archive to a customizable directory.
-  * Detects `.exe` files. If multiple are found, it asks you to choose which one to launch.
-  * Automatically lookup the umu-id for proton fixes by codename, folder name or manual search entry.
-  * Automatically creates a wineprefix and launches the installer using `umu-run`.
-  * **🛠️ Wine Tools:** Quick access to `winecfg`, `winetricks`, and `regedit` for manual prefix configuration during installation.
-* **🍷 Prefix & Game Manager (Linux):**
-  * **Quick Launch:** Launch any game shortcut script directly from the Prefix Manager via a select box.
-  * **Post-Install Configuration:** Edit wine prefix settings (environment variables, Wayland, MangoHud, WOW64) after a game is installed.
-  * **Shortcut Management:** Re-sync or clean up system shortcuts (Desktop & Application Menu) at any time.
-  * **Prefix Cleanup:** Delete prefixes with a safety warning about saved game data.
-* **⤴️ Integrated Shortcut Management (Linux):**
-  * When a game installation finishes, the app automatically detects any shortcuts created by the installer.
-  * **You're in Control:** A dialog pops up letting you choose exactly which shortcuts (e.g., "Game" "Settings," "Uninstall") you want to add.
-  * **Dual-Location Selection:** Choose exactly which shortcuts go on your **Desktop** and which go in your **Application Menu**.
-  * **Steam Library Integration:** Optionally add any shortcut as a non-Steam game entry in your local Steam library, making it launchable from Big Picture mode.
-  * **Just like Windows:** This gives you the simple, familiar "Create a desktop shortcut?" experience.
-  * **Auto-generated Helpers:** Even if system shortcuts aren't created, helper scripts are always generated for the internal launch menu.
-* **🎮 Full Gamepad Support:**
-  * Drive the **entire** application from a controller — the game library web view, the Downloads, Prefixes and Settings tabs, and every dialog (install configuration, launcher/shortcut pickers, confirmations, file dialogs).
-  * Any Xbox, PlayStation, Switch Pro or 8BitDo style pad works; SDL's controller database handles the button mapping, and pads can be plugged in or unplugged while the app runs.
-  * **Directional navigation:** the D-pad and left stick move between on-screen items by position, not by tab order, and the focused item is highlighted with a clear ring.
-  * **On-screen keyboard:** press **X** on any text field — including search boxes inside the Gameyfin web UI — to type without a keyboard.
-  * **Mouse mode:** press **Back** to turn the left stick into a mouse pointer for anything a focus ring can't reach.
-  * A hint bar shows the current bindings while a controller is connected; **Start** opens the full list.
-
-| Button                | Action                                    |
-|:----------------------|:------------------------------------------|
-| D-pad / Left stick    | Move between items                        |
-| A                     | Select / activate                         |
-| B                     | Back, cancel or close                     |
-| X                     | Edit text (opens the on-screen keyboard)  |
-| Y                     | Refresh / reload                          |
-| LB / RB               | Previous / next tab                       |
-| LT / RT               | Page up / page down                       |
-| Right stick           | Scroll                                    |
-| Back                  | Toggle mouse mode                         |
-| Start                 | Show the controls overlay                 |
-
-### 🗓️ Planned Features
-* **Other ideas?:** Create a new issue/merge request and I will look into it.
+Download, install and play your games from [Gameyfin](https://github.com/gameyfin/gameyfin) — a desktop client for Windows and Linux.
 
 ---
 
-### 🛠️ Configuration
+### ✨ What it does
 
-While the application can be configured using environment variables (see below), you can now manage most settings directly within the application's **Settings** tab. Settings saved in the app persist in a `settings.json` file.
+* **Download** games from your Gameyfin instance, with progress and history in a Downloads tab. Archives are extracted while they download, so nothing extra is written to disk.
+* **Install** them with one click. On Linux the app creates a wine prefix and launches the installer with `umu-run` (including automatic umu-id lookup for Proton fixes); on Windows it just extracts and runs the `.exe`.
+* **Play** them — shortcuts are created on your desktop, in your application menu and optionally in Steam, and installed games can be launched straight from the app. Wine prefixes can be reconfigured or deleted afterwards.
+* **Couch friendly:** the whole app can be driven with a gamepad, and it lives in the system tray.
+* Persistent login (including SSO) so you only sign in once.
 
-| Environment Variable      | Description                                                                      |
-|:--------------------------|:---------------------------------------------------------------------------------|
-| `GF_URL`                  | **(Required)** The URL of your Gameyfin instance, e.g., `http://localhost:8080`. |
-| `GF_START_MINIMIZED`      | Set to `1` to start the application minimized to the tray.                       |
-| `GF_ICON_PATH`            | The absolute file path to a custom tray icon.                                    |
-| `GF_WINDOW_WIDTH`         | Window width.                                                                    |
-| `GF_WINDOW_HEIGHT`        | Window height.                                                                   |
-| `GF_THEME`                | The UI theme to use (e.g., `dark_teal.xml`, `light_blue.xml`). Set to `auto` for default. |
-| `PROTONPATH`              | **(Linux Only)** Path or name of the Proton version to use (default: `GE-Proton`).                |
-| `GF_UMU_API_URL`          | **(Linux Only)** URL for the UMU API to search for game fixes.                                    |
-| `GF_DEFAULT_DOWNLOAD_DIR` | Default directory where game archives are extracted (defaults to `~/Downloads`). |
-| `GF_PROMPT_DOWNLOAD_DIR`  | Set to `1` to always prompt for a download directory when a download starts.     |
-| `GF_DOWNLOAD_NOTIFICATIONS` | Show desktop notifications on download/install completion (default: enabled).    |
-| `GF_LOG_LEVEL`            | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). Defaults to `WARNING`.      |
-| `GF_GAMEPAD_ENABLED`      | Set to `0` to disable gamepad support entirely (default: enabled).               |
-| `GF_GAMEPAD_HINTS`        | Set to `0` to hide the button hint bar (default: shown when a pad is connected). |
-| `GF_GAMEPAD_DEADZONE`     | Stick deadzone in percent of full deflection (default: `25`).                    |
-| `GF_GAMEPAD_REPEAT_MS`    | Milliseconds between repeats while a direction is held (default: `140`).         |
-| `GF_GAMEPAD_SCROLL_SPEED` | Right-stick scroll speed in pixels (default: `60`).                              |
-| `GF_BANDWIDTH_LIMIT`      | Max download speed in bytes/sec (default: `0` for unlimited).                    |
-| `GF_NATIVE_UI`            | Set to `1` to browse libraries and games in a native Qt grid served by the Gameyfin API instead of the embedded web page (experimental). |
+<details>
+<summary>Gamepad controls</summary>
+
+| Button             | Action                    |
+|:-------------------|:--------------------------|
+| D-pad / Left stick | Move between items        |
+| A                  | Select / activate         |
+| B                  | Back, cancel or close     |
+| Y                  | Refresh / reload          |
+| LB / RB            | Previous / next tab       |
+| LT / RT            | Page up / page down       |
+| Right stick        | Scroll                    |
+| Start              | Show the controls overlay |
+
+</details>
 
 ---
 
-### ▶️ How to Run
+### ▶️ Install & run
 
-Choose your platform below to get started.
+#### 🐧 Linux (Flatpak, recommended)
+
+Download the latest `Gameyfin-Desktop-vX.X.X.flatpak` from [Releases](https://github.com/mdmatthias/Gameyfin-Desktop/releases), then:
+
+```bash
+flatpak install --user Gameyfin-Desktop-vX.X.X.flatpak -y
+flatpak run org.gameyfin.Gameyfin-Desktop
+```
+
+Everything (including `umu-launcher`) is bundled, and no root password is needed.
 
 #### 🪟 Windows
 
-**Option 1: Executable (Recommended)**
-1. Download the latest `Gameyfin-Desktop-vX.X.X.exe` from the [Releases](https://github.com/mdmatthias/Gameyfin-Desktop/releases) page.
-2. Run the executable.
+Download and run the latest `Gameyfin-Desktop-vX.X.X.exe` from [Releases](https://github.com/mdmatthias/Gameyfin-Desktop/releases).
 
-**Option 2: Running from Source (Python)**
-1. **Install Python:** Ensure you have Python installed.
-2. **Install Dependencies:**
-   ```powershell
-   py -m pip install -r requirements.txt
-   ```
-3. **Run the App:**
-   ```powershell
-   py gameyfin_qt.py
-   ```
+#### From source
 
----
+```bash
+pip install -r requirements.txt
+python gameyfin_qt.py
+```
 
-#### 🐧 Linux
+On Linux you also need `umu-launcher` from your distro's repos. If you prefer distro packages for the Python
+dependencies, note that `stream-unzip` and `pygame-ce` (gamepad support) aren't packaged on Arch/Fedora and have to
+come from pip.
 
-**Option 1: Flatpak (Recommended)**
-1. **Dependencies:** None required! The Flatpak build now includes the `umu-launcher` and all necessary dependencies.
-2. **Install:** Download the latest `Gameyfin-Desktop-vX.X.X.flatpak` from the [Releases](https://github.com/mdmatthias/Gameyfin-Desktop/releases) page, then:
-   ```bash
-   flatpak install --user Gameyfin-Desktop-vX.X.X.flatpak -y
-   ```
-   No sudo password needed — the app is installed in your user space.
-
-   *Alternative:* You can also open the `.flatpak` file with Discover, but this installs system-wide and will prompt for your password. To update, uninstall first (settings persist), then reinstall.
-
-3. **Run:** Launch it from your application menu or run:
-   ```bash
-   flatpak run org.gameyfin.Gameyfin-Desktop
-   ```
-
-**Option 2: Running from Source (Python)**
-1. **Dependencies:** Install Python, required libraries, and `umu-launcher`.
-   - stream-unzip is currently not available in the arch/fedora repo's, you will need to install it with pip with the --break-system-packages flag
-   - `pygame-ce` provides gamepad support; without it the app still runs, it just reports gamepad support as unavailable. It is not packaged by Arch/Fedora, so install it with pip (it is a drop-in replacement for `pygame` — do not install both)
-   *   **Arch:**
-       ```bash
-       sudo pacman -Syu python-pyqt6 python-pyqt6-webengine python-dotenv python-requests python-qt-material umu-launcher
-       pip install --user --break-system-packages stream-unzip pygame-ce
-       ```
-   *   **Fedora:**
-       ```bash
-       sudo dnf install python3-pyqt6 python3-pyqt6-webengine python3-dotenv python3-requests python3-qt-material umu-launcher
-       pip install --user --break-system-packages stream-unzip pygame-ce
-       ```
-   *   **Pip (General):**
-       ```bash
-       pip install -r requirements.txt
-       ```
-2. **Run the App:**
-   ```bash
-   python gameyfin_qt.py &
-   ```
+On first launch, enter the URL of your Gameyfin instance in the **Settings** tab.
 
 ---
 
 ### 📝 Notes
 
-#### Data Persistence
-The application saves all data (settings, download history, cookies, local storage, and cache) to your system's standard application data directory. This allows your login session and configuration to persist between launches.
-
-*   **Linux:** `~/.local/share/Gameyfin/Gameyfin/`
-*   **Windows:** `%APPDATA%\Gameyfin\Gameyfin\`
-
-
-#### Download Progress
-The download progress bar is based on the `Content-Length` header from the Gameyfin server, giving accurate progress since Gameyfin 2.4.1-preview. On older servers that don't send this header, the size is estimated from the download button label in the UI. See [this issue](https://github.com/gameyfin/gameyfin/issues/707#issuecomment-2038166299) for more details.
-
-### AI notice
-Build with the help from AI. If you see something that could be better or looks weird, please let me know!
+* Data (settings, history, login session, cache) is stored in `~/.local/share/Gameyfin/Gameyfin/` on Linux and
+  `%APPDATA%\Gameyfin\Gameyfin\` on Windows.
+* Accurate download progress needs Gameyfin 2.4.1-preview or newer; on older servers the size is estimated.
+* Ideas or bugs? Open an issue.
+* Built with the help of AI — if something looks off, please let me know!
 
 ### 🖼️ Screenshots
-<img src="screenshots/authentik.png" alt="Gamepad navigation" width="800">
+<img src="screenshots/authentik.png" alt="SSO login" width="800">
 <img src="screenshots/gamepad1.png" alt="Gamepad navigation" width="800">
-<img src="screenshots/gamepad2.png" alt="Gamepad navigation" width="800">
 <img src="screenshots/gamepad3.png" alt="Gamepad navigation" width="800">
-<img src="screenshots/gamepad4.png" alt="Gamepad navigation" width="800">
 <img src="screenshots/gamepad5.png" alt="Gamepad navigation" width="800">
-<img src="screenshots/gamepad6.png" alt="Gamepad navigation" width="800">
 <img src="screenshots/gamepad7.png" alt="Gamepad navigation" width="800">
-<img src="screenshots/gamepad8.png" alt="Gamepad navigation" width="800">
-
