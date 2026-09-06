@@ -194,3 +194,58 @@ class TestReleaseYear:
 
     def test_missing_release(self):
         assert release_year(None) == ""
+
+
+class TestAccentColor:
+    def test_prefers_the_qt_material_accent(self, monkeypatch, qtbot):
+        from PyQt6.QtWidgets import QWidget
+
+        from gameyfin_frontend.utils import accent_color
+
+        monkeypatch.setenv("QTMATERIAL_PRIMARYCOLOR", "#ff9800")
+
+        assert accent_color(QWidget()).name() == "#ff9800"
+
+    def test_falls_back_to_the_palette_highlight(self, monkeypatch, qtbot):
+        from PyQt6.QtGui import QColor, QPalette
+        from PyQt6.QtWidgets import QWidget
+
+        from gameyfin_frontend.utils import accent_color
+
+        monkeypatch.delenv("QTMATERIAL_PRIMARYCOLOR", raising=False)
+        widget = QWidget()
+        palette = widget.palette()
+        palette.setColor(QPalette.ColorRole.Highlight, QColor("#8bc34a"))
+        widget.setPalette(palette)
+
+        assert accent_color(widget).name() == "#8bc34a"
+
+    def test_ignores_a_broken_material_accent(self, monkeypatch, qtbot):
+        from PyQt6.QtGui import QColor, QPalette
+        from PyQt6.QtWidgets import QWidget
+
+        from gameyfin_frontend.utils import accent_color
+
+        monkeypatch.setenv("QTMATERIAL_PRIMARYCOLOR", "not-a-colour")
+        widget = QWidget()
+        palette = widget.palette()
+        palette.setColor(QPalette.ColorRole.Highlight, QColor("#8bc34a"))
+        widget.setPalette(palette)
+
+        assert accent_color(widget).name() == "#8bc34a"
+
+
+class TestContrastingTextColor:
+    def test_dark_text_on_a_light_background(self):
+        from PyQt6.QtGui import QColor
+
+        from gameyfin_frontend.utils import contrasting_text_color
+
+        assert contrasting_text_color(QColor("#ffd740")).name() == "#000000"
+
+    def test_light_text_on_a_dark_background(self):
+        from PyQt6.QtGui import QColor
+
+        from gameyfin_frontend.utils import contrasting_text_color
+
+        assert contrasting_text_color(QColor("#3f51b5")).name() == "#ffffff"

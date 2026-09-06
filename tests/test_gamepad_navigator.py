@@ -732,6 +732,30 @@ class TestTabs:
 
         assert window.tab_widget.currentIndex() == 0
 
+    def test_back_lets_the_current_page_handle_it_first(self, qtbot, manager):
+        window = TabWindow()
+        page = window.tab_widget.widget(1)
+        page.gamepad_back = lambda: (handled.append(True), True)[1]
+        handled: list[bool] = []
+        navigator = make_navigator(qtbot, window, manager)
+        window.tab_widget.setCurrentIndex(1)
+
+        manager.button_pressed.emit("b")
+
+        assert handled == [True]
+        # The page consumed the press, so the tab must not have changed.
+        assert window.tab_widget.currentIndex() == 1
+
+    def test_back_falls_through_when_the_page_declines(self, qtbot, manager):
+        window = TabWindow()
+        window.tab_widget.widget(1).gamepad_back = lambda: False
+        navigator = make_navigator(qtbot, window, manager)
+        window.tab_widget.setCurrentIndex(1)
+
+        manager.button_pressed.emit("b")
+
+        assert window.tab_widget.currentIndex() == 0
+
 
 class TestDialogs:
     def test_back_rejects_a_dialog(self, qtbot, manager):
@@ -844,6 +868,21 @@ class TestHelpAndMouseMode:
         manager.button_pressed.emit("start")
         assert not navigator.help_overlay.isVisible()
 
+    def test_help_overlay_badges_use_the_theme_accent(self, qtbot):
+        from PyQt6.QtGui import QColor, QPalette
+
+        from gameyfin_frontend.widgets.gamepad_hud import GamepadHelpOverlay
+
+        host = QWidget()
+        palette = host.palette()
+        palette.setColor(QPalette.ColorRole.Highlight, QColor("#ff9800"))
+        host.setPalette(palette)
+        qtbot.addWidget(host)
+        overlay = GamepadHelpOverlay(host)
+        overlay.refresh_theme_colors()
+
+        assert "#ff9800" in overlay._badges[0].styleSheet()
+
     def test_help_overlay_swallows_navigation(self, grid, manager):
         navigator, window = grid
         window.top_left.setFocus()
@@ -893,13 +932,19 @@ class TestFocusRing:
         centre = target.mapTo(host, target.rect().center())
         assert QColor(image.pixel(centre.x(), centre.y())).name() == "#ff0000"
 
-    def test_ring_band_is_painted(self, qtbot):
-        from PyQt6.QtGui import QColor
+    @staticmethod
+    def _painted_band(qtbot, accent=None):
+        """Grab the colour of the ring band drawn around a hosted widget."""
+        from PyQt6.QtGui import QColor, QPalette
 
         from gameyfin_frontend.gamepad_navigator import FocusRing
 
         host = QWidget()
         host.resize(300, 200)
+        if accent is not None:
+            palette = host.palette()
+            palette.setColor(QPalette.ColorRole.Highlight, QColor(accent))
+            host.setPalette(palette)
         layout = QVBoxLayout(host)
         target = QWidget()
         target.setStyleSheet("background-color: #ff0000;")
@@ -915,8 +960,15 @@ class TestFocusRing:
         image = host.grab().toImage()
         top_left = target.mapTo(host, target.rect().topLeft())
         centre_x = target.mapTo(host, target.rect().center()).x()
-        band = QColor(image.pixel(centre_x, top_left.y() - FocusRing.MARGIN + 1))
-        assert band.name() == "#00bcd4"
+        return QColor(image.pixel(centre_x, top_left.y() - FocusRing.MARGIN + 1))
+
+    def test_ring_band_is_painted(self, qtbot):
+        from gameyfin_frontend.utils import accent_color
+
+        assert self._painted_band(qtbot).name() == accent_color(QWidget()).name()
+
+    def test_ring_band_follows_the_theme_accent(self, qtbot):
+        assert self._painted_band(qtbot, accent="#ff9800").name() == "#ff9800"
 
 
     def test_ring_follows_the_focused_widget(self, qtbot, grid, manager):

@@ -41,6 +41,62 @@ def muted_text_color(widget: Any = None, alpha: int = 190) -> str:
     return f"rgba({colour.red()}, {colour.green()}, {colour.blue()}, {alpha})"
 
 
+def accent_color(widget: Any = None) -> QColor:
+    """Return the colour the active theme paints selections with.
+
+    Everything that marks something as picked — the gamepad focus ring, the
+    hint bar's button badges, the cover grid's selected tile — should agree on
+    one colour, and that colour has to come from the theme rather than being
+    baked in. ``palette(highlight)`` is exactly that colour.
+
+    Pass the widget being painted (or one of its ancestors) so the colour can
+    be read off the theme that widget is actually styled by.
+    """
+    return _themed_color(widget, "QTMATERIAL_PRIMARYCOLOR", QPalette.ColorRole.Highlight)
+
+
+def surface_color(widget: Any = None) -> QColor:
+    """Return the colour the active theme paints panels and backgrounds with.
+
+    Carries the same caveats as :func:`accent_color`.
+    """
+    return _themed_color(widget, "QTMATERIAL_SECONDARYCOLOR", QPalette.ColorRole.Window)
+
+
+def _themed_color(widget: Any, material_key: str, role: QPalette.ColorRole) -> QColor:
+    """Resolve a theme colour, preferring qt-material's own value for it.
+
+    qt-material paints purely through a stylesheet and leaves several palette
+    roles at the platform defaults — ``Highlight`` and ``Window`` among them —
+    so for those the only accurate source is the environment it exports (which
+    :mod:`~gameyfin_frontend.theming` clears when switching away from it).
+    Every other theme engine sets the palette, which is the fallback.
+    """
+    material = os.environ.get(material_key)
+    if material:
+        colour = QColor(material)
+        if colour.isValid():
+            return colour
+    source = widget if widget is not None else QGuiApplication.instance()
+    resolve = getattr(source, "palette", None)
+    palette = resolve() if callable(resolve) else QPalette()
+    return palette.color(role)
+
+
+def contrasting_text_color(background: QColor) -> QColor:
+    """Return black or white — whichever stays readable on *background*.
+
+    The palette's own ``HighlightedText`` would be the natural pairing, but
+    themes that only customise ``Highlight`` leave it at the platform default,
+    which can end up near-invisible on their accent. Deriving it from the
+    accent's perceived brightness always holds up.
+    """
+    luminance = (0.299 * background.red()
+                 + 0.587 * background.green()
+                 + 0.114 * background.blue()) / 255
+    return QColor(Qt.GlobalColor.black) if luminance > 0.6 else QColor(Qt.GlobalColor.white)
+
+
 def sanitize_name(name: str) -> str:
     r"""Restrict a name to alphanumeric characters, underscores, hyphens, and spaces.
 

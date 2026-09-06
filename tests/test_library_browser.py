@@ -217,6 +217,20 @@ class TestLibraryBrowser:
         browser.show_grid()
         assert browser.stack.currentIndex() == 0
 
+    def test_gamepad_back_leaves_the_detail_page(self, qtbot, browser):
+        browser.refresh()
+        qtbot.waitUntil(lambda: browser.grid.count() == 2, timeout=5000)
+        browser._open_item(browser.grid.item(1))
+
+        assert browser.gamepad_back() is True
+        assert browser.stack.currentIndex() == 0
+
+    def test_gamepad_back_declines_on_the_grid(self, qtbot, browser):
+        browser.refresh()
+        qtbot.waitUntil(lambda: browser.grid.count() == 2, timeout=5000)
+
+        assert browser.gamepad_back() is False
+
     def test_download_request_is_forwarded_with_provider(self, qtbot, browser):
         browser.refresh()
         qtbot.waitUntil(lambda: browser.grid.count() == 2, timeout=5000)

@@ -29,6 +29,7 @@ from gameyfin_frontend.utils import (
 from gameyfin_frontend.config import COLOR_STATUS_DOWNLOADING, COLOR_STATUS_INSTALLING, DEFAULT_PROTON
 from gameyfin_frontend.workers import StreamDownloadWorker
 from gameyfin_frontend.services import LauncherResolver, GameInstaller, GameLauncher, SteamIntegrationService
+from gameyfin_frontend.services.prefix_service import PrefixService
 from gameyfin_frontend.services.shortcut_service import ShortcutService
 from gameyfin_frontend.settings import SettingsManager
 
@@ -141,6 +142,10 @@ class DownloadItemWidget(QWidget):
         self.button_layout = QHBoxLayout(self.button_container)
         self.button_layout.setContentsMargins(0, 0, 0, 0)
         self.button_layout.setSpacing(4)
+        # Keeps whatever subset of buttons a row currently shows against the
+        # right edge at its natural width, instead of stretching it across the
+        # whole (fixed-width) column — a downloading row shows Cancel alone.
+        self.button_layout.addStretch(1)
         self.button_layout.addWidget(self.cancel_button)
         self.button_layout.addWidget(self._install_group)
         self.button_layout.addWidget(self.open_folder_button)
@@ -195,11 +200,18 @@ class DownloadItemWidget(QWidget):
         self.install_button.setText(current_text)
         self.install_button.setFixedWidth(max(advanced_install_width, install_width))
 
-        # Fix the button container's width to the widest button combination
-        # (Install, Open Folder, Remove) so hiding/showing buttons doesn't
-        # shift the other columns.
+        # Fix the button container's width to the widest combination a row can
+        # show — Install, Open Folder and Remove — so hiding/showing buttons
+        # doesn't shift the other columns. Cancel is deliberately left out: it
+        # never appears alongside those three (a row is either downloading or
+        # finished), so counting it would only pad the column with dead space.
         self.button_layout.activate()
-        self.button_container.setFixedWidth(self.button_container.sizeHint().width())
+        self.button_container.setFixedWidth(
+            self._install_group.sizeHint().width()
+            + self.open_folder_button.sizeHint().width()
+            + self.remove_button.sizeHint().width()
+            + 2 * self.button_layout.spacing()
+        )
 
     def _start_worker(self, worker: StreamDownloadWorker):
         """Start the download worker thread and connect signals."""
@@ -531,6 +543,8 @@ class DownloadItemWidget(QWidget):
             target_dir: Download target directory (unused, for future use).
             install_config: Dict of environment variables and UMU settings.
         """
+        self._save_install_config(install_config)
+
         # Show loading dialog before launching
         game_name = self.filename_label.text()
         self._loading_dialog = LaunchLoadingDialog(game_name, parent=self)
@@ -555,6 +569,22 @@ class DownloadItemWidget(QWidget):
         self.run_process.finished.connect(self.on_run_finished)
         self.run_process.finished.connect(self._loading_dialog.close)  # Close loading dialog when game process ends
         self._set_running_status()
+
+    def _save_install_config(self, install_config: dict[str, Any]) -> None:
+        """Store the config this install runs with next to the game's scripts.
+
+        Everything that touches the game afterwards — Manage > Config, Manage >
+        Shortcuts — starts from that file. Without it the auto-detected GAMEID
+        and STORE only ever live in the generated .sh scripts, and the first
+        rewrite of those scripts silently falls back to "umu-default".
+        """
+        if not self.settings or not install_config or not self.current_wine_prefix:
+            return
+        game_name, _ = resolve_shortcut_game_info(self.current_wine_prefix, install_config)
+        try:
+            PrefixService(self.settings).save_config(game_name, install_config)
+        except OSError as e:
+            logger.error("Could not save install config for '%s': %s", game_name, e)
 
     @pyqtSlot()
     @pyqtSlot(int, QProcess.ExitStatus)

@@ -239,3 +239,64 @@ class TestGameLauncher:
             MockProcess.return_value.setProgram.assert_called_once_with("/tmp/game/game.exe")
             MockProcess.return_value.setWorkingDirectory.assert_called_once_with("/tmp/game")
             MockProcess.return_value.start.assert_called_once()
+
+class TestInstallConfigPersistence:
+    """The config a game is installed with has to outlive the install run.
+
+    Manage > Config and Manage > Shortcuts both start from config.json; when it
+    is missing, the auto-detected GAMEID/STORE live only in the generated .sh
+    scripts and the next rewrite silently falls back to "umu-default".
+    """
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="Linux-only test")
+    def test_install_writes_config_next_to_the_scripts(self, qtbot, tmp_path, mock_umu_database):
+        from gameyfin_frontend.widgets.download_item import DownloadItemWidget
+
+        settings = MagicMock()
+        settings.get.return_value = "GE-Proton"
+        settings.get_shortcuts_dir.return_value = str(tmp_path / "scripts" / "my game")
+
+        record = {"filename": "my game.zip", "path": str(tmp_path / "my game"), "status": "Completed"}
+        widget = DownloadItemWidget(umu_database=mock_umu_database, record=record, settings=settings)
+        qtbot.addWidget(widget)
+        widget.current_wine_prefix = str(tmp_path / "prefixes" / "my game_pfx")
+
+        config = {"GAMEID": "umu-367500", "STORE": "steam", "MANGOHUD": "0"}
+        with patch("gameyfin_frontend.services.game_launcher.QProcess") as MockProcess:
+            MockProcess.return_value.waitForStarted.return_value = True
+            widget._start_linux_installation("/tmp/game/game.exe", str(tmp_path / "my game"), config)
+
+        settings.get_shortcuts_dir.assert_called_with("my game")
+        with open(tmp_path / "scripts" / "my game" / "config.json") as f:
+            assert json.load(f) == config
+
+    def test_recreating_shortcuts_keeps_the_installed_env(self, tmp_path):
+        """Without a config.json the env is read back out of the .sh scripts."""
+        from gameyfin_frontend.services.shortcut_service import ShortcutService
+
+        scripts_dir = tmp_path / "scripts" / "my game"
+        scripts_dir.mkdir(parents=True)
+        (scripts_dir / "My Game.sh").write_text(
+            '#!/bin/sh\n\n'
+            'PROTONPATH="GE-Proton" WINEPREFIX="/prefixes/my game_pfx" '
+            'GAMEID="umu-367500" STORE="steam" umu-run "/prefixes/my game_pfx/game.exe"\n'
+        )
+
+        prefix = tmp_path / "prefixes" / "my game_pfx"
+        desktop_dir = prefix / "drive_c" / "proton_shortcuts"
+        desktop_dir.mkdir(parents=True)
+        (desktop_dir / "My Game.desktop").write_text(
+            "[Desktop Entry]\nName=My Game\nPath=/prefixes/my game_pfx\nStartupWMClass=game.exe\n"
+        )
+
+        settings = MagicMock()
+        settings.get.return_value = "GE-Proton"
+        settings.get_shortcuts_dirs.return_value = [str(scripts_dir)]
+        settings.get_shortcuts_dir.return_value = str(scripts_dir)
+
+        service = ShortcutService(settings)
+        assert service.create_shortcuts_for_prefix(str(prefix), "my game", [], [], MagicMock())
+
+        rebuilt = (scripts_dir / "My Game.sh").read_text()
+        assert 'GAMEID="umu-367500"' in rebuilt
+        assert 'STORE="steam"' in rebuilt

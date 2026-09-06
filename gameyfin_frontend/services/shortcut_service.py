@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import glob
-import json
 import logging
 import os
 from typing import Any
@@ -11,6 +10,7 @@ from typing import Any
 from PyQt6.QtWidgets import QDialog, QMessageBox
 
 from gameyfin_frontend.dialogs import SelectShortcutsDialog
+from gameyfin_frontend.services.prefix_service import PrefixService
 from gameyfin_frontend.services.steam_integration import SteamIntegrationService
 from gameyfin_frontend.utils import create_shortcuts, resolve_shortcut_game_info, get_xdg_user_dir, sanitize_name
 
@@ -121,21 +121,11 @@ class ShortcutService:
         Returns:
             True if shortcuts were created successfully, False otherwise.
         """
-        # Load config.json from scripts directory
-        scripts_dirs = self.settings.get_shortcuts_dirs(game_name)
-        install_config: dict[str, Any] = {}
-        scripts_dir: str | None = None
-
-        for sd in scripts_dirs:
-            config_path = os.path.join(sd, "config.json")
-            if os.path.exists(config_path):
-                try:
-                    with open(config_path, 'r') as f:
-                        install_config = json.load(f)
-                    scripts_dir = sd
-                    break
-                except (json.JSONDecodeError, OSError) as e:
-                    logger.error("Error loading config for shortcuts: %s", e)
+        # Load the game's stored config — config.json when it exists, otherwise
+        # parsed back out of the existing .sh scripts. Rebuilding the scripts
+        # from an empty config would drop the env the game was installed with
+        # (GAMEID, STORE, extra variables) without saying so.
+        install_config, scripts_dir = PrefixService(self.settings).load_config_from_scripts_dir(game_name)
 
         if not scripts_dir:
             logger.warning("No scripts directory found for game '%s'", game_name)

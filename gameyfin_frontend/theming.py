@@ -100,8 +100,70 @@ def is_light_theme(theme: str | None) -> bool:
     return "light" in theme.lower()
 
 
+def _clear_material_env() -> None:
+    """Drop the colours qt-material exports through the environment.
+
+    They are how :func:`~gameyfin_frontend.utils.accent_color` reads a
+    qt-material accent (that engine never touches the palette), so they must
+    not outlive the theme that set them.
+    """
+    for key in [k for k in os.environ if k.startswith("QTMATERIAL_")]:
+        del os.environ[key]
+
+
+def _material_selection_override() -> str:
+    """QSS that repaints qt-material's selected rows in a readable colour.
+
+    qt-material hard-codes white text on its accent for selected list/menu
+    items, which disappears on the light accents (amber, yellow, lime). The
+    accent itself is fine — only the text on top of it has to follow the
+    accent's brightness.
+    """
+    from PyQt6.QtGui import QColor
+
+    from gameyfin_frontend.utils import contrasting_text_color
+
+    rules = []
+    for key, selectors in (
+        ("QTMATERIAL_PRIMARYCOLOR",
+         "QTableView::item:selected:focus, QTreeView::item:selected:focus, "
+         "QListView::item:selected:focus"),
+        ("QTMATERIAL_PRIMARYLIGHTCOLOR",
+         "QComboBox::item:selected, QCalendarWidget QMenu::item:selected, "
+         "QMenu::item:selected"),
+    ):
+        accent = QColor(os.environ.get(key, ""))
+        if not accent.isValid():
+            continue
+        text = contrasting_text_color(accent).name()
+        rules.append(f"{selectors} {{ color: {text}; selection-color: {text}; }}")
+    return "\n" + "\n".join(rules) + "\n" if rules else ""
+
+
+def _fix_highlighted_text(app) -> None:
+    """Force selected text to a colour that stays readable on the accent.
+
+    Several themes — palette themes and desktop themes alike — customise
+    ``Highlight`` (a bright yellow, in the gruvbox-style ones) but leave
+    ``HighlightedText`` near-white, which makes every selected row — combo box
+    popups, list views, menus — unreadable. Derive it from the accent's
+    brightness instead, the same way the hand-painted widgets do.
+    """
+    from gameyfin_frontend.utils import contrasting_text_color
+
+    palette = app.palette()
+    for group in (QPalette.ColorGroup.Active,
+                  QPalette.ColorGroup.Inactive,
+                  QPalette.ColorGroup.Disabled):
+        highlight = palette.color(group, QPalette.ColorRole.Highlight)
+        palette.setColor(group, QPalette.ColorRole.HighlightedText,
+                         contrasting_text_color(highlight))
+    app.setPalette(palette)
+
+
 def reset_theme(app) -> None:
     """Restore the palette/font/style the application started with."""
+    _clear_material_env()
     app.setStyleSheet("")
     if hasattr(app, "default_palette"):
         app.setPalette(app.default_palette)
@@ -117,15 +179,18 @@ def apply_theme(app, theme: str | None) -> None:
     """Apply ``theme`` to ``app``, dispatching to the right theme engine."""
     if not theme or theme == AUTO_THEME:
         reset_theme(app)
+        _fix_highlighted_text(app)
         return
 
     if is_palette_theme(theme):
         module = _qt_themes()
         if module is None:
             reset_theme(app)
+            _fix_highlighted_text(app)
             return
         # qt-material leaves a stylesheet behind that would override the
         # palette, so start from a clean slate.
+        _clear_material_env()
         app.setStyleSheet("")
         if hasattr(app, "default_font"):
             app.setFont(app.default_font)
@@ -134,6 +199,7 @@ def apply_theme(app, theme: str | None) -> None:
         except Exception:  # pragma: no cover - defensive
             _logger.warning("Could not apply qt-themes theme %r.", theme, exc_info=True)
             reset_theme(app)
+        _fix_highlighted_text(app)
         return
 
     try:
@@ -141,8 +207,10 @@ def apply_theme(app, theme: str | None) -> None:
     except ImportError:  # pragma: no cover - depends on the environment
         _logger.warning("qt-material is not installed; cannot apply %r.", theme)
         reset_theme(app)
+        _fix_highlighted_text(app)
         return
     # Drop any palette/style a previously applied qt-themes theme left behind;
     # qt-material only paints through a stylesheet and would inherit the rest.
     reset_theme(app)
     apply_stylesheet(app, theme=theme)
+    app.setStyleSheet(app.styleSheet() + _material_selection_override())

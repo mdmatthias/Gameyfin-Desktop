@@ -14,6 +14,7 @@ from PyQt6.QtGui import (QColor, QFont, QFontMetrics, QLinearGradient, QPainter,
 from PyQt6.QtWidgets import QStyle, QStyledItemDelegate
 
 from ..config import COVER_TILE_HEIGHT, COVER_TILE_WIDTH
+from ..utils import accent_color
 
 # Padding around the card's content and the radius of its rounded corners
 TILE_PADDING = 9
@@ -81,7 +82,7 @@ class CoverTileDelegate(QStyledItemDelegate):
 
         rect = QRectF(opt.rect).adjusted(0.5, 0.5, -0.5, -0.5)
         text_colour = opt.palette.color(opt.palette.ColorRole.WindowText)
-        accent = opt.palette.color(opt.palette.ColorRole.Highlight)
+        accent = accent_color(self.parent())
 
         self._paint_card(painter, rect, text_colour, accent, selected, hovered, has_focus)
 

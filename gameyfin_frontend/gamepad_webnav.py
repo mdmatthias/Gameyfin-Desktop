@@ -40,6 +40,11 @@ NAV_SCRIPT = """
 
     var RING_ID = 'gameyfin-gamepad-ring';
 
+    /* Kept in sync with the Qt side's theme accent by setRingColor(), so the
+       in-page highlight matches the ring drawn around native widgets. The
+       default only applies until the first call. */
+    var ringColor = '#00bcd4';
+
     /* The ring used to be a CSS class toggled on the focused element itself
        (with a `::after` overlay to dodge ancestor `overflow: hidden` clipping
        — see the git history for that whole saga). That broke against the
@@ -63,7 +68,7 @@ NAV_SCRIPT = """
             'pointer-events: none;' +
             'z-index: 2147483647;' +
             'box-sizing: border-box;' +
-            'border: 3px solid #00bcd4;' +
+            'border: 3px solid ' + ringColor + ';' +
             'border-radius: 4px;' +
             'display: none;';
         (document.body || document.documentElement).appendChild(ring);
@@ -71,6 +76,12 @@ NAV_SCRIPT = """
     }
 
     var ringTarget = null;
+
+    function setRingColor(color) {
+        ringColor = color;
+        var ring = document.getElementById(RING_ID);
+        if (ring) { ring.style.borderColor = ringColor; }
+    }
 
     /* Re-measures ringTarget and repositions the ring to match. Called right
        after selecting something, and on an interval, since the target can
@@ -386,6 +397,8 @@ NAV_SCRIPT = """
 
         focusFirst: function () { return first(); },
 
+        setRingColor: function (color) { setRingColor(color); },
+
         clear: function () { highlight(null); },
 
         activate: function () {
@@ -454,6 +467,10 @@ class WebNavigator:
 
     def clear(self) -> None:
         self._run(f"window.{NAV_OBJECT}.clear()")
+
+    def set_ring_color(self, color: str) -> None:
+        """Repaint the in-page highlight in *color* (any CSS colour)."""
+        self._run(f"window.{NAV_OBJECT}.setRingColor({json.dumps(color)})")
 
     def activate(self, callback: Callable[[Any], None]) -> None:
         """Fetch the on-screen point of the focused element, for a real click."""

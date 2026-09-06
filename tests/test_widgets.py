@@ -49,6 +49,38 @@ class TestDownloadItemWidget:
         assert widget.cancel_button.isHidden()
         assert widget._install_group.isHidden()
 
+    def test_cancel_button_keeps_its_natural_width(self, qtbot, mock_umu_database):
+        from gameyfin_frontend.widgets.download_item import DownloadItemWidget
+        record = {"filename": "game.zip", "path": "/tmp/downloads/game", "status": "Downloading"}
+        widget = DownloadItemWidget(umu_database=mock_umu_database, record=record)
+        qtbot.addWidget(widget)
+        widget.resize(900, 60)
+        # The downloading state: Cancel alone in a column sized for the three
+        # completed-state buttons, which it must not stretch across.
+        widget.cancel_button.show()
+        widget._install_group.hide()
+        widget.open_folder_button.hide()
+        widget.remove_button.hide()
+        widget.show()
+        qtbot.waitExposed(widget)
+
+        assert widget.cancel_button.width() == widget.cancel_button.sizeHint().width()
+        # ...and it stays flush with the right edge, where Remove sits.
+        assert (widget.cancel_button.geometry().right()
+                == widget.button_container.rect().right())
+
+    def test_button_column_is_the_same_width_in_every_state(self, qtbot, mock_umu_database):
+        from gameyfin_frontend.widgets.download_item import DownloadItemWidget
+
+        widths = []
+        for status in ("Downloading", "Completed", "Failed"):
+            record = {"filename": "game.zip", "path": "/tmp/downloads/game", "status": status}
+            widget = DownloadItemWidget(umu_database=mock_umu_database, record=record)
+            qtbot.addWidget(widget)
+            widths.append(widget.button_container.width())
+
+        assert len(set(widths)) == 1
+
     def test_download_item_in_list(self, qtbot, mock_umu_database):
         from gameyfin_frontend.widgets.download_item import DownloadItemWidget
         from gameyfin_frontend.widgets.download_manager import DownloadManagerWidget
@@ -126,3 +158,45 @@ class TestPrefixItemWidget:
         # Should show "No scripts found" and be disabled
         assert widget.script_combo.count() == 1
         assert widget.script_combo.itemText(0) == "No scripts found"
+
+
+class TestGamepadHintBar:
+    @staticmethod
+    def _bar(qtbot, accent):
+        from PyQt6.QtGui import QColor, QPalette
+
+        from gameyfin_frontend.widgets.gamepad_hud import GamepadHintBar
+
+        bar = GamepadHintBar()
+        palette = bar.palette()
+        palette.setColor(QPalette.ColorRole.Highlight, QColor(accent))
+        bar.setPalette(palette)
+        qtbot.addWidget(bar)
+        bar.set_hints([("A", "Select"), ("B", "Back")])
+        return bar
+
+    def test_badges_use_the_theme_accent(self, qtbot):
+        bar = self._bar(qtbot, "#ff9800")
+
+        for _chip, badge, _label, _action in bar._chips:
+            assert "#ff9800" in badge.styleSheet()
+
+    def test_badges_follow_a_theme_change(self, qtbot):
+        from PyQt6.QtGui import QColor, QPalette
+
+        bar = self._bar(qtbot, "#ff9800")
+        palette = bar.palette()
+        palette.setColor(QPalette.ColorRole.Highlight, QColor("#8bc34a"))
+        bar.setPalette(palette)
+
+        bar.refresh_theme_colors()
+
+        for _chip, badge, _label, _action in bar._chips:
+            assert "#8bc34a" in badge.styleSheet()
+
+    def test_badge_text_stays_readable_on_a_light_accent(self, qtbot):
+        light_bar = self._bar(qtbot, "#ffffff")
+        dark_bar = self._bar(qtbot, "#101010")
+
+        assert "color: #000000" in light_bar._chips[0][1].styleSheet()
+        assert "color: #ffffff" in dark_bar._chips[0][1].styleSheet()

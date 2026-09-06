@@ -21,7 +21,7 @@ import logging
 from typing import Any
 
 from PyQt6.QtCore import QEvent, QObject, QPoint, QPointF, QRect, QRectF, Qt, QTimer
-from PyQt6.QtGui import (QColor, QKeyEvent, QMouseEvent, QPainter, QPainterPath,
+from PyQt6.QtGui import (QKeyEvent, QMouseEvent, QPainter, QPainterPath,
                          QRegion, QWheelEvent)
 from PyQt6.QtWidgets import (
     QAbstractItemView, QAbstractScrollArea, QAbstractSlider, QApplication,
@@ -35,6 +35,7 @@ from .gamepad import (
     BTN_Y, GamepadState,
 )
 from .gamepad_webnav import WebNavigator
+from .utils import accent_color
 from .widgets.gamepad_hud import BINDINGS, GamepadHelpOverlay, GamepadHintBar
 
 logger = logging.getLogger(__name__)
@@ -68,10 +69,12 @@ def web_view_class() -> Any:
 
 
 class FocusRing(QWidget):
-    """A theme-independent highlight drawn around the focused widget.
+    """A highlight drawn around the focused widget, in the theme's accent.
 
     qt-material styles focus very subtly, which is unusable from a couch, so the
-    ring is painted by us instead of fighting the stylesheet.
+    ring is painted by us instead of fighting the stylesheet — but in the
+    colour the active theme paints selections with, so it belongs to whatever
+    theme the user picked rather than being a fixed hue.
 
     The ring is a sibling widget laid *over* the focused one, so its interior is
     masked away: qt-material gives every plain ``QWidget`` an opaque
@@ -111,7 +114,7 @@ class FocusRing(QWidget):
         # The mask clips this to the band, giving a clean rounded outline.
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor(0, 188, 212))
+        painter.fillRect(self.rect(), accent_color(self.parentWidget() or self))
         painter.end()
 
     def follow(self, widget: QWidget | None) -> None:
@@ -379,6 +382,17 @@ class GamepadNavigator(QObject):
                 return node
             node = node.parentWidget()
         return None
+
+    def _web_navigator(self, web_view: Any) -> WebNavigator:
+        """A :class:`WebNavigator` whose in-page ring matches the Qt one.
+
+        The colour is pushed on every use rather than once: the injected script
+        starts from its own default in each freshly loaded page, and the theme
+        can change under it at any time.
+        """
+        navigator = WebNavigator(web_view)
+        navigator.set_ring_color(accent_color(self.window).name())
+        return navigator
 
     def _current_web_view(self) -> Any:
         """The web view that should receive navigation, if one is in play."""
@@ -663,6 +677,15 @@ class GamepadNavigator(QObject):
         self._hide_rings(keep=ring)
         ring.follow(widget)
 
+    def refresh_theme_colors(self) -> None:
+        """Repaint the gamepad UI after the theme changed."""
+        for ring in self._rings.values():
+            ring.update()
+        self.help_overlay.refresh_theme_colors()
+        web_view = self._current_web_view()
+        if web_view is not None:
+            self._web_navigator(web_view)
+
     def _on_focus_changed(self, _old: QWidget | None, new: QWidget | None) -> None:
         if new is not None:
             self.sync_list_selection(new)
@@ -685,7 +708,7 @@ class GamepadNavigator(QObject):
         web_view = self._current_web_view()
         if web_view is not None:
             web_view.setFocus(Qt.FocusReason.OtherFocusReason)
-            WebNavigator(web_view).focus_first()
+            self._web_navigator(web_view).focus_first()
             return
 
         self.focus_widget(self._first_candidate(page))
@@ -750,13 +773,13 @@ class GamepadNavigator(QObject):
         web_view = self._current_web_view()
         focused = self._focus_widget()
         if web_view is not None and self._is_inside_web_view(focused, web_view):
-            WebNavigator(web_view).move(direction)
+            self._web_navigator(web_view).move(direction)
             return
 
         # Web view is current but nothing inside it is focused — route
         # navigation into the page so the user can browse the embedded UI.
         if web_view is not None and focused is None:
-            WebNavigator(web_view).move(direction)
+            self._web_navigator(web_view).move(direction)
             return
 
         root = self._active_window()
@@ -969,7 +992,7 @@ class GamepadNavigator(QObject):
         it instead, the same trick :meth:`_send_wheel_scroll` already uses for
         wheel input.
         """
-        WebNavigator(web_view).activate(lambda point: self._click_web_point(web_view, point))
+        self._web_navigator(web_view).activate(lambda point: self._click_web_point(web_view, point))
 
     def _click_web_point(self, web_view: Any, point: Any) -> None:
         if not point:
@@ -1004,6 +1027,9 @@ class GamepadNavigator(QObject):
                 window.reject()
             return
 
+        if self._page_handled_back():
+            return
+
         tab_widget = getattr(self.window, "tab_widget", None)
         if tab_widget is None:
             return
@@ -1022,6 +1048,45 @@ class GamepadNavigator(QObject):
                 close_tab(index)
         elif index != 0:
             tab_widget.setCurrentIndex(0)
+
+    def _page_handled_back(self) -> bool:
+        """Give the page in front the first chance at B.
+
+        A native page can be showing a sub-view of its own — the library
+        browser's game detail page, for instance — which B should leave before
+        anything at the tab level happens. Pages opt in by exposing a
+        ``gamepad_back()`` returning True when it consumed the press, the same
+        duck-typed convention :meth:`_refresh` uses for ``refresh_prefixes``.
+        """
+        for widget in self._back_handler_candidates():
+            handler = getattr(widget, "gamepad_back", None)
+            if callable(handler) and handler():
+                return True
+        return False
+
+    def _back_handler_candidates(self) -> list[QWidget]:
+        """Widgets that may want to handle B, innermost first.
+
+        The focused widget's ancestor chain covers the usual case; the current
+        tab (and the page inside it, since tab 0 wraps browser and native
+        library in a QStackedWidget) is the fallback for when nothing in the
+        window holds focus.
+        """
+        candidates: list[QWidget] = []
+        node = self._focus_widget()
+        while node is not None:
+            candidates.append(node)
+            if node is self.window:
+                break
+            node = node.parentWidget()
+
+        tab_widget = getattr(self.window, "tab_widget", None)
+        current = tab_widget.currentWidget() if tab_widget is not None else None
+        if isinstance(current, QStackedWidget):
+            candidates.append(current.currentWidget())
+        if current is not None:
+            candidates.append(current)
+        return [w for w in candidates if w is not None]
 
     # -- Y -----------------------------------------------------------------
 

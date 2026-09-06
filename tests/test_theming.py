@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from gameyfin_frontend import theming
@@ -54,6 +56,34 @@ class TestApplyTheme:
         assert app.styleSheet() == ""
         assert app.palette().window().color() != app.default_palette.window().color()
 
+    def test_material_theme_repaints_selected_text_readably(self, app):
+        """qt-material paints selections white, which vanishes on a light accent."""
+        theming.apply_theme(app, "dark_amber.xml")
+
+        css = app.styleSheet()
+        assert css.rstrip().endswith("selection-color: #000000; }")
+        assert "QListView::item:selected:focus { color: #000000;" in css
+        assert "QMenu::item:selected { color: #000000;" in css
+
+    def test_material_theme_keeps_white_on_a_dark_accent(self, app):
+        theming.apply_theme(app, "dark_blue.xml")
+
+        assert "color: #ffffff; selection-color: #ffffff; }" in app.styleSheet()
+
+    def test_selected_text_contrasts_with_the_palette_accent(self, app):
+        """A theme with a light accent but white selected text gets corrected."""
+        from PyQt6.QtGui import QColor, QPalette
+
+        palette = app.palette()
+        palette.setColor(QPalette.ColorRole.Highlight, QColor("#ffd740"))
+        palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
+        app.setPalette(palette)
+        app.default_palette = palette
+
+        theming.apply_theme(app, "auto")
+
+        assert app.palette().color(QPalette.ColorRole.HighlightedText).name() == "#000000"
+
     def test_material_theme_sets_stylesheet(self, app):
         theming.apply_theme(app, "dark_teal.xml")
         assert "QWidget" in app.styleSheet()
@@ -62,6 +92,23 @@ class TestApplyTheme:
         theming.apply_theme(app, "nord")
         theming.apply_theme(app, "dark_teal.xml")
         assert app.palette().window().color() == app.default_palette.window().color()
+
+    def test_material_theme_exports_its_accent(self, app):
+        from gameyfin_frontend.utils import accent_color
+
+        theming.apply_theme(app, "dark_cyan.xml")
+
+        assert os.environ["QTMATERIAL_PRIMARYCOLOR"] == "#4dd0e1"
+        assert accent_color(app).name() == "#4dd0e1"
+
+    def test_leaving_a_material_theme_drops_its_accent(self, app):
+        theming.apply_theme(app, "dark_cyan.xml")
+
+        theming.apply_theme(app, "auto")
+
+        # Left behind, the exported accent would outlive its theme and keep
+        # colouring selections after the user switched away from it.
+        assert "QTMATERIAL_PRIMARYCOLOR" not in os.environ
 
     def test_auto_restores_defaults(self, app):
         theming.apply_theme(app, "nord")

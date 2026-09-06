@@ -459,6 +459,13 @@ class LibraryBrowserWidget(QWidget):
         self.stack.setCurrentIndex(0)
         self.grid.setFocus(Qt.FocusReason.OtherFocusReason)
 
+    def gamepad_back(self) -> bool:
+        """Handle the gamepad's B button: leave the detail page for the grid."""
+        if self.stack.currentWidget() is not self.detail:
+            return False
+        self.show_grid()
+        return True
+
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         """Load covers exposed by a resize."""
         super().resizeEvent(event)

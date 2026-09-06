@@ -701,6 +701,8 @@ class GameyfinWindow(QMainWindow):
         self.settings_widget.refresh_theme_colors()
         if hasattr(self, "gamepad_hint_bar"):
             self.gamepad_hint_bar.refresh_theme_colors()
+        if getattr(self, "gamepad_navigator", None) is not None:
+            self.gamepad_navigator.refresh_theme_colors()
 
     def show_main_tab(self) -> None:
         """Show the window and switch to the main Gameyfin tab."""

@@ -117,6 +117,17 @@ class TestPainting:
             state=QStyleOptionViewItem().state | QStyle.StateFlag.State_Selected)
         assert idle.toImage() != selected.toImage()
 
+    def test_selection_uses_the_theme_accent(self, monkeypatch, qtbot):
+        from PyQt6.QtWidgets import QStyle
+
+        selected_state = QStyleOptionViewItem().state | QStyle.StateFlag.State_Selected
+        monkeypatch.setenv("QTMATERIAL_PRIMARYCOLOR", "#ff9800")
+        warm = self._paint(qtbot, icon=None, state=selected_state)
+        monkeypatch.setenv("QTMATERIAL_PRIMARYCOLOR", "#8bc34a")
+        green = self._paint(qtbot, icon=None, state=selected_state)
+
+        assert warm.toImage() != green.toImage()
+
     def test_size_hint_matches_the_tile_metrics(self, qtbot):
         view = QListWidget()
         qtbot.addWidget(view)
