@@ -81,6 +81,45 @@
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="2.10.0" date="2026-09-06">
+            <description>
+                <ul>
+                    <li>
+                        <strong>Native library UI:</strong>
+                        Optional native Qt game library that talks to the Gameyfin server API directly
+                        instead of the embedded web page: a cover grid with library filter, search,
+                        paging and a game detail page. The web view is still used for logging in.
+                        Enable it under Settings &gt; Library; the switch takes effect immediately,
+                        no restart needed. The number of games shown per page is configurable.
+                    </li>
+                    <li>
+                        <strong>More themes:</strong>
+                        Added QPalette based themes from qt-themes (nord, catppuccin, and others)
+                        next to the existing qt-material themes, plus an "auto" option that follows
+                        your system's light/dark preference. Existing theme settings keep working.
+                    </li>
+                    <li>
+                        <strong>Settings tab reorganized:</strong>
+                        Settings are now grouped into clearly separated sections, and a new System
+                        tab holds the update check and the quit action.
+                    </li>
+                    <li>
+                        <strong>Downloads tab:</strong>
+                        The install button now has an advanced toggle so the extra install options
+                        stay out of the way until you need them.
+                    </li>
+                    <li>
+                        <strong>Gamepad:</strong>
+                        Reworked the on-screen controls overlay and improved directional navigation
+                        in the web view.
+                    </li>
+                    <li>Theme fixes across the app: select boxes, download item buttons, cover tiles and dialogs now follow the active theme.</li>
+                    <li>Cleaner shutdown, so the app no longer leaves gamepad or worker threads running on exit.</li>
+                    <li>(Linux) Added a scrollbar to the prefixes view.</li>
+                    <li>Updated screenshots and a shorter, clearer README.</li>
+                </ul>
+            </description>
+        </release>
         <release version="2.9.9" date="2026-08-19">
             <description>
                 <ul>
