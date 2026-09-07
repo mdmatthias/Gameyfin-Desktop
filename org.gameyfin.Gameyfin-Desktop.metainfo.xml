@@ -17,21 +17,41 @@
                 Runs Gameyfin in its own window, separate from your web browser.
             </li>
             <li>
+                <strong>Native Library UI:</strong>
+                Optional native Qt game library that talks to the Gameyfin server API directly instead of the
+                embedded web page, with a cover grid, filtering, search, paging and a game detail page. The web
+                view is still used for logging in and administration.
+            </li>
+            <li>
                 <strong>Persistent SSO Login:</strong>
                 Supports persistent logins with SSO providers. The application saves your session data, so you only have
                 to log in once.
             </li>
             <li>
                 <strong>System Tray Integration:</strong>
-                Includes an icon in the system tray for quickly showing, hiding, or quitting the application.
+                Includes an icon in the system tray for quickly showing, hiding, or quitting the application, plus
+                system tray notifications.
+            </li>
+            <li>
+                <strong>Gamepad Support:</strong>
+                The whole app, including the Gameyfin web view, can be driven with a gamepad, making it couch and
+                Steam Big Picture friendly.
+            </li>
+            <li>
+                <strong>Themes:</strong>
+                A range of qt-material and QPalette based themes (nord, catppuccin, and others), plus an "auto"
+                option that follows your system's light/dark preference.
             </li>
             <li>
                 <strong>Integrated Settings:</strong>
-                Configure your Gameyfin URL, window dimensions, and more directly within the app.
+                Configure your Gameyfin URL, window dimensions, download speed limit, log level and more directly
+                within the app.
             </li>
             <li>
                 <strong>Download Manager:</strong>
                 Manages all file downloads in a persistent "Downloads" tab, showing progress, speed, and history.
+                Archives are downloaded and extracted simultaneously, so no intermediate ZIP file is ever saved to
+                disk.
             </li>
             <li>
                 <strong>Linux Installer:</strong>
@@ -40,47 +60,75 @@
                     <li>Extracts the downloaded archive and detects .exe files.</li>
                     <li>Automatically looks up the umu-id for proton fixes.</li>
                     <li>Automatically creates a wineprefix and launches the installer using umu-run.</li>
-                    <li>Quick access to winecfg and winetricks for manual prefix configuration.</li>
+                    <li>Quick access to winecfg and winetricks for manual prefix configuration via an integrated
+                        Prefix Manager.
+                    </li>
                 </ul>
             </li>
             <li>
                 <strong>Integrated Shortcut Management:</strong>
-                Automatically detects shortcuts created by the installer and allows you to add them to your Desktop and
-                Application Menu.
+                Automatically detects shortcuts created by the installer and allows you to add them to your Desktop,
+                Application Menu and, on Linux, Steam as a non-Steam game.
             </li>
         </ul>
     </description>
     <screenshots>
-        <screenshot>
-            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/authentik.png</image>
-            <caption>SSO Login Screen</caption>
+        <screenshot type="default">
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/gf0.png</image>
+            <caption>SSO login</caption>
         </screenshot>
         <screenshot>
-            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/gameyfin.png</image>
-            <caption>Gameyfin</caption>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/gf1.png</image>
+            <caption>Library native</caption>
         </screenshot>
         <screenshot>
-            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/downloads.png</image>
-            <caption>Downloads</caption>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/gf11.png</image>
+            <caption>Library webview</caption>
         </screenshot>
         <screenshot>
-            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/install_linux.png
-            </image>
-            <caption>Linux Pre Installer</caption>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/gf2.png</image>
+            <caption>Game details</caption>
         </screenshot>
         <screenshot>
-            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/install.png</image>
-            <caption>Installing Game</caption>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/gf3.png</image>
+            <caption>Download</caption>
         </screenshot>
         <screenshot>
-            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/settings.png</image>
-            <caption>Application Settings</caption>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/gf4.png</image>
+            <caption>Install</caption>
+        </screenshot>
+        <screenshot>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/gf5.png</image>
+            <caption>Shortcuts</caption>
+        </screenshot>
+        <screenshot>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/gf6.png</image>
+            <caption>Settings</caption>
+        </screenshot>
+        <screenshot>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/gf7.png</image>
+            <caption>Updates</caption>
+        </screenshot>
+        <screenshot>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/gf8.png</image>
+            <caption>Launch scripts</caption>
+        </screenshot>
+        <screenshot>
+            <image>https://raw.githubusercontent.com/mdmatthias/Gameyfin-Desktop/main/screenshots/gf9.png</image>
+            <caption>Umu proton fixes</caption>
         </screenshot>
     </screenshots>
     <url type="homepage">https://github.com/mdmatthias/Gameyfin-Desktop</url>
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="2.10.1" date="2026-09-08">
+            <description>
+                <ul>
+                    <li>Fix cookie handling in native qt game library</li>
+                </ul>
+            </description>
+        </release>
         <release version="2.10.0" date="2026-09-06">
             <description>
                 <ul>
