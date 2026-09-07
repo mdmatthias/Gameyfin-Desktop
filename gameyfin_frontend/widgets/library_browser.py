@@ -63,6 +63,7 @@ class LibraryBrowserWidget(QWidget):
         self._page_count = 0  # pages rendered last time; avoids rebuilding the dropdown
 
         self.image_cache.ready.connect(self._on_cover_ready)
+        self.image_cache.failed.connect(self._on_cover_failed)
 
         self._build_ui()
 
@@ -428,6 +429,10 @@ class LibraryBrowserWidget(QWidget):
         if item is None:
             return
         self._apply_cover(item, data)
+
+    def _on_cover_failed(self, image_id: int, _message: str) -> None:
+        """Drop a failed fetch from the pending set so it can be retried later."""
+        self._pending_covers.pop(image_id, None)
 
     @staticmethod
     def _apply_cover(item: QListWidgetItem, data: bytes) -> None:

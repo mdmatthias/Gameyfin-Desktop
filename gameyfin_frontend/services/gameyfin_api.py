@@ -265,6 +265,7 @@ class GameyfinApiClient:
 
         info: dict[str, str] = {}
         try:
+            self._session.cookies.clear()
             response = self._session.get(f"{self.base_url}/", cookies=cookies, timeout=API_TIMEOUT)
             body = response.text if isinstance(response.text, str) else ""
         except requests.RequestException as e:
@@ -344,6 +345,7 @@ class GameyfinApiClient:
             headers.update(self._csrf_headers(cookies))
 
             try:
+                self._session.cookies.clear()
                 response = self._session.post(
                     url, json=params or {}, headers=headers, cookies=cookies,
                     timeout=API_TIMEOUT,
@@ -425,8 +427,12 @@ class GameyfinApiClient:
         """
         url = self.image_url(image)
         try:
+            self._session.cookies.clear()
             response = self._session.get(url, cookies=self._cookies(), timeout=API_TIMEOUT)
             response.raise_for_status()
         except requests.RequestException as e:
+            body = getattr(e.response, "text", None) if hasattr(e, "response") else None
+            if body:
+                logger.debug("Image %s error response body: %s", image.id, body[:500])
             raise GameyfinApiError(f"Could not fetch image {image.id}: {e}") from e
         return response.content

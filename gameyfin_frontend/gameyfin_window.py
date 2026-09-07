@@ -220,6 +220,7 @@ class GameyfinWindow(QMainWindow):
             rpc_transport=self.webview_rpc,
         )
         self.image_cache = ImageCache(self.api_client, self.settings, self)
+        self.image_cache.failed.connect(self._on_image_fetch_failed)
         self.library_browser = LibraryBrowserWidget(
             self.api_client, self.image_cache, self.settings, self
         )
@@ -780,6 +781,19 @@ class GameyfinWindow(QMainWindow):
         timer = getattr(self, "_native_cookie_timer", None)
         if timer is not None and not self._native_ui_active():
             timer.start()
+
+    def _on_image_fetch_failed(self, _image_id: int, _message: str) -> None:
+        """Resync the mirrored cookie jar after an image fetch is rejected.
+
+        ``self._cookies`` is built incrementally from ``cookieAdded``/
+        ``cookieRemoved`` signals, which can silently miss a cookie rotated by
+        a background fetch/XHR (as opposed to a full page navigation). Image
+        fetches are the only requests exposed to that drift -- RPC calls run
+        inside the logged-in page and always see the real, current cookies.
+        Re-requesting every cookie nudges the store into re-emitting
+        ``cookieAdded`` for the current values, correcting the mirror.
+        """
+        self.profile.cookieStore().loadAllCookies()
 
     def _on_cookie_removed(self, cookie) -> None:
         """Remove a cookie from the internal cookie dict."""

@@ -116,6 +116,7 @@ class GameDetailWidget(QWidget):
         self._awaited_screenshot: int | None = None
 
         self.image_cache.ready.connect(self._on_image_ready)
+        self.image_cache.failed.connect(self._on_image_failed)
 
         self._build_ui()
 
@@ -388,6 +389,12 @@ class GameDetailWidget(QWidget):
         if image_id == self._awaited_screenshot:
             self._awaited_screenshot = None
             self._show_screenshot(image_id, data)
+
+    def _on_image_failed(self, image_id: int, _message: str) -> None:
+        """Drop a failed fetch from the pending set so it can be retried later."""
+        self._pending_images.pop(image_id, None)
+        if image_id == self._awaited_screenshot:
+            self._awaited_screenshot = None
 
     def _apply_header(self, data: bytes) -> None:
         """Fill the banner across the full view width, cropping the overflow."""
