@@ -7,6 +7,10 @@ base-version: '6.11'
 command: gameyfin-desktop
 separate-locales: false
 
+sdk-extensions:
+  - org.freedesktop.Sdk.Compat.i386
+  - org.freedesktop.Platform.VulkanLayer.MangoHud
+
 finish-args:
   # --- Networking & Webview Support ---
   - --share=network
@@ -48,20 +52,19 @@ finish-args:
   - --system-talk-name=org.freedesktop.UPower
 
   # Standard Path setup
-  - --env=PATH=/app/bin:/app/utils/bin:/usr/bin:/app/lib/extensions/vulkan/MangoHud/bin:/app/lib/i386-linux-gnu/extensions/vulkan/MangoHud/bin
+  - --env=PATH=/app/bin:/usr/bin:/app/lib/extensions/vulkan/MangoHud/bin
   # Ensure i386 libs are found at runtime
   - --env=LD_LIBRARY_PATH=/app/lib32:/app/lib/i386-linux-gnu:/app/lib:/app/lib/i386-linux-gnu/GL/lib
   - --env=SteamVirtualGamepadInfo=
   - --env=QTWEBENGINEPROCESS_PATH=/app/bin/QtWebEngineProcess
 
 add-extensions:
-  org.freedesktop.Platform.VulkanLayer.MangoHud.i386:
-    directory: lib/i386-linux-gnu/extensions/vulkan/MangoHud
-    version: '25.08'
-    add-ld-path: lib
-    no-autodownload: false
-    autodelete: false
-
+  # Also vendored at build time (see pre-setup module) since this already
+  # ships both x86_64 and i386 MangoHud libs in one extension — there is no
+  # separate ".i386" extension (that name doesn't exist on Flathub), and
+  # `flatpak install`/`flatpak run` don't auto-fetch add-extensions anyway
+  # (https://github.com/flatpak/flatpak/issues/3828). Kept declared so a
+  # system-installed copy transparently overlays the vendored one if present.
   org.freedesktop.Platform.VulkanLayer.MangoHud:
     directory: lib/extensions/vulkan/MangoHud
     version: '25.08'
@@ -89,13 +92,6 @@ add-extensions:
     enable-if: active-gl-driver
     autoprune-unless: active-gl-driver
 
-  com.valvesoftware.Steam.Utility:
-    subdirectories: true
-    directory: utils
-    version: stable
-    add-ld-path: lib
-    merge-dirs: bin
-
 modules:
   - name: pre-setup
     buildsystem: simple
@@ -104,14 +100,16 @@ modules:
       - mkdir -p /app/lib32
       - mkdir -p /app/lib/debug/lib/i386-linux-gnu
       - mkdir -p /app/lib/python3.13/site-packages
-      - mkdir -p /app/utils
       - mkdir -p /app/etc
       - mkdir -p /app/lib/extensions/vulkan/MangoHud
-      - mkdir -p /app/lib/i386-linux-gnu/extensions/vulkan/MangoHud
 
       # FIX: amdgpu hardware ID silence
       - mkdir -p /app/lib/i386-linux-gnu/GL/default/share/libdrm
       - touch /app/lib/i386-linux-gnu/GL/default/share/libdrm/amdgpu.ids
+      # for 32 bit games
+      - find /usr/lib/i386-linux-gnu/ -mindepth 1 -maxdepth 1 ! -name GL ! -name extensions -exec cp -a {} /app/lib/i386-linux-gnu/ \;
+      # Vendor MangoHud (both x86_64 and i386 libs ship together in this one
+      - cp -a /usr/lib/extensions/vulkan/MangoHud/bin /usr/lib/extensions/vulkan/MangoHud/lib /usr/lib/extensions/vulkan/MangoHud/share /app/lib/extensions/vulkan/MangoHud/
 
   # --- Tools for Winetricks ---
   - name: 7zip
