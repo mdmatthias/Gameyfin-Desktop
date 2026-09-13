@@ -1,7 +1,7 @@
 """Centralized constants for the Gameyfin application."""
 
 # Application version — bump on each release
-APP_VERSION = "2.10.1"
+APP_VERSION = "2.10.2"
 
 # GitHub repository used for update checks
 GITHUB_REPO = "mdmatthias/Gameyfin-Desktop"
