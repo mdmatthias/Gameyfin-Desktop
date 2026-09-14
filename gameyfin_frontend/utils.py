@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import shutil
+import struct
 import sys
 from pathlib import Path
 from typing import Any
@@ -499,6 +500,119 @@ def resolve_shortcut_game_info(
     return game_name, proton_path
 
 
+def _unescape_desktop_exec(value: str) -> str:
+    """Strip quoting and collapse backslash runs from a .desktop Exec value.
+
+    Proton writes Windows paths through two layers of escaping (desktop-entry
+    then shell), so a single separator arrives as ``\\\\``.  Collapsing any run
+    of backslashes to one gives back the original Windows path.
+    """
+    value = value.strip()
+    if value.startswith('"') and value.endswith('"') and len(value) > 1:
+        value = value[1:-1]
+    return re.sub(r"\\+", r"\\", value)
+
+
+def resolve_wine_path(win_path: str, wine_prefix: str) -> str | None:
+    """Map a Windows path to its host path using the prefix's dosdevices links.
+
+    Returns None when the drive letter has no mapping in the prefix.
+    """
+    match = re.match(r"^([A-Za-z]):[\\/](.*)$", win_path)
+    if not match:
+        return None
+    drive, remainder = match.group(1).lower(), match.group(2).replace("\\", "/")
+
+    for dosdevices in (os.path.join(wine_prefix, "pfx", "dosdevices"),
+                       os.path.join(wine_prefix, "dosdevices")):
+        link = os.path.join(dosdevices, f"{drive}:")
+        if os.path.exists(link):
+            return os.path.join(os.path.realpath(link), remainder)
+    return None
+
+
+def parse_lnk_target(lnk_path: str) -> str | None:
+    """Return the Windows target path recorded in a Windows .lnk file.
+
+    Reads LinkInfo's LocalBasePath (the field Proton itself resolves against),
+    falling back to the RelativePath string when LinkInfo is absent.
+    Returns None if the file is not a readable shell link.
+    """
+    try:
+        with open(lnk_path, "rb") as handle:
+            data = handle.read()
+    except OSError as exc:
+        logger.warning("Could not read shortcut %s: %s", lnk_path, exc)
+        return None
+
+    # Shell Link Header: 0x4c-byte header whose GUID identifies the format.
+    if len(data) < 0x4C or data[4:20] != b"\x01\x14\x02\x00\x00\x00\x00\x00\xc0\x00\x00\x00\x00\x00\x00\x46":
+        return None
+
+    try:
+        flags = struct.unpack_from("<I", data, 20)[0]
+        offset = 0x4C
+
+        if flags & 0x1:  # HasLinkTargetIDList
+            offset += 2 + struct.unpack_from("<H", data, offset)[0]
+
+        if flags & 0x2:  # HasLinkInfo
+            info_size = struct.unpack_from("<I", data, offset)[0]
+            base_offset = struct.unpack_from("<I", data, offset + 16)[0]
+            suffix_offset = struct.unpack_from("<I", data, offset + 24)[0]
+            if base_offset:
+                base = data[offset + base_offset:data.index(b"\0", offset + base_offset)]
+                suffix = b""
+                if suffix_offset:
+                    suffix = data[offset + suffix_offset:data.index(b"\0", offset + suffix_offset)]
+                target = (base + suffix).decode("latin-1")
+                if target:
+                    return target
+            offset += info_size
+
+        # StringData: length-prefixed UTF-16 strings, in flag-bit order.
+        unicode_strings = bool(flags & 0x80)
+        for bit in (0x4, 0x8):  # Name, RelativePath
+            if not flags & bit:
+                continue
+            count = struct.unpack_from("<H", data, offset)[0]
+            offset += 2
+            size = count * 2 if unicode_strings else count
+            raw = data[offset:offset + size]
+            offset += size
+            if bit == 0x8:
+                return raw.decode("utf-16-le" if unicode_strings else "latin-1")
+    except (struct.error, ValueError) as exc:
+        logger.warning("Malformed shortcut %s: %s", lnk_path, exc)
+
+    return None
+
+
+def resolve_target_from_exec(exec_value: str, wine_prefix: str) -> tuple[str, str] | None:
+    """Derive (working_dir, exe_name) from a Proton .desktop Exec line.
+
+    Proton omits ``Path=`` for some shortcuts, leaving the .lnk it points at as
+    the only record of where the game lives.  Follow it; also accept an Exec
+    that names the executable directly.
+    """
+    win_path = _unescape_desktop_exec(exec_value.split('" "')[0])
+    host_path = resolve_wine_path(win_path, wine_prefix)
+    if not host_path:
+        return None
+
+    if host_path.lower().endswith(".lnk"):
+        target = parse_lnk_target(host_path)
+        if not target:
+            return None
+        host_path = resolve_wine_path(target, wine_prefix)
+        if not host_path:
+            return None
+
+    if not host_path.lower().endswith(".exe"):
+        return None
+    return os.path.dirname(host_path), os.path.basename(host_path)
+
+
 def create_shortcuts(
     all_desktop_files: list[str],
     scripts_dir: str,
@@ -518,11 +632,13 @@ def create_shortcuts(
         wine_prefix: WINEPREFIX path for the game.
         install_config: Dict of install configuration (env vars, USE_HOST_UMU, etc.).
         proton_path: Proton version string. Defaults to "GE-Proton".
-        selected_desktop: Desktop files to place on the user's Desktop.
-        selected_apps: Desktop files to place in ~/.local/share/applications.
+        selected_desktop: Full paths of .desktop files to place on the user's Desktop.
+        selected_apps: Full paths of .desktop files to place in
+            ~/.local/share/applications.
         remove_unselected: If True, removes system shortcuts not in selected lists.
     """
     os.makedirs(scripts_dir, exist_ok=True)
+    launchable: set[str] = set()
 
     # 1. Create/update .sh helper scripts for ALL detected desktop files
     for original_path in all_desktop_files:
@@ -538,7 +654,17 @@ def create_shortcuts(
                 exe_name = entry.get("Name", "game") + ".exe"
 
             if not working_dir:
-                continue
+                # Proton leaves Path= out for some shortcuts; follow the .lnk
+                # the Exec line points at to recover the install directory.
+                resolved = resolve_target_from_exec(entry.get("Exec", ""), wine_prefix)
+                if not resolved:
+                    logger.warning(
+                        "Skipping %s: no Path= and its Exec could not be resolved to an executable",
+                        original_path,
+                    )
+                    continue
+                working_dir, exe_name = resolved
+                logger.info("Resolved %s to %s in %s", original_path, exe_name, working_dir)
 
             exe_path = os.path.join(working_dir, exe_name)
             command_to_run = build_umu_command(proton_path, wine_prefix, install_config, f'umu-run {shell_dquote(exe_path)}')
@@ -555,6 +681,7 @@ def create_shortcuts(
             with open(script_path, "w", encoding="utf-8") as f:
                 f.write(script_content)
             os.chmod(script_path, SCRIPT_PERMISSION)
+            launchable.add(original_path)
             logger.info("Created/Updated helper script: %s", script_path)
 
         except (OSError, configparser.Error) as e:
@@ -584,6 +711,14 @@ def create_shortcuts(
 
         # Create/Update those selected for this specific location
         for original_path in selected_list:
+            if original_path not in launchable:
+                # No helper script was written, so a .desktop here would be a
+                # shortcut that silently does nothing when clicked.
+                logger.warning(
+                    "Not creating a shortcut for %s: no helper script could be generated",
+                    original_path,
+                )
+                continue
             try:
                 config_parser = parse_desktop_file(original_path)
                 if config_parser is None:

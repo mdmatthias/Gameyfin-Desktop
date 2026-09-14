@@ -113,8 +113,9 @@ class ShortcutService:
         Args:
             prefix_path: Full filesystem path to the Wine prefix.
             game_name: Name of the game (for finding scripts dir).
-            selected_desktop: Basenames to place on the user's Desktop.
-            selected_apps: Basenames to place in ~/.local/share/applications.
+            selected_desktop: Full paths of .desktop files to place on the user's Desktop.
+            selected_apps: Full paths of .desktop files to place in
+                ~/.local/share/applications.
             parent: Parent widget for error dialogs.
             steam_shortcuts: List of .desktop file basenames to also add to Steam.
 

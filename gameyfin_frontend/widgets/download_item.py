@@ -665,8 +665,9 @@ class DownloadItemWidget(QWidget):
 
         Args:
             all_desktop_files: All detected .desktop files in the game.
-            selected_desktop: Basenames to place on the user's Desktop.
-            selected_apps: Basenames to place in ~/.local/share/applications.
+            selected_desktop: Full paths of .desktop files to place on the user's Desktop.
+            selected_apps: Full paths of .desktop files to place in
+                ~/.local/share/applications.
             steam_shortcuts: List of .desktop file basenames to also add to Steam.
         """
         if not self.current_install_config:
