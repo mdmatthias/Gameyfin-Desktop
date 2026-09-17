@@ -122,10 +122,18 @@
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="2.11.0" date="2026-09-17">
+            <description>
+                <ul>
+                    <li>(Linux) add 'run exe on prefix' button, and optionally create launch script for it.</li>
+                    <li>(Linux) fix shortcut scripts and icons from proton shortcuts without a 'path'.</li>
+                </ul>
+            </description>
+        </release>
         <release version="2.10.2" date="2026-09-13">
             <description>
                 <ul>
-                    <li>Include 32 bit extension (for running older games without needing wow64) and mangohud</li>
+                    <li>(Linux) Include 32 bit extension (for running older games without needing wow64) and mangohud.</li>
                 </ul>
             </description>
         </release>
