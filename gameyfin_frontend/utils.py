@@ -724,9 +724,8 @@ def create_shortcuts(
                 if config_parser is None:
                     continue
 
-
                 # Icon handling - find and install icon to system directory
-                icon_name = entry.get("Icon")
+                icon_name = config_parser["Desktop Entry"].get("Icon")
                 if icon_name:
                     source_dir = os.path.dirname(original_path)
                     found_icon_path = copy_icon_from_source(source_dir, icon_name)

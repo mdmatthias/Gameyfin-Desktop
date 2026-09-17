@@ -11,7 +11,8 @@ import shutil
 from typing import Any
 
 from gameyfin_frontend.config import DEFAULT_PROTON, SCRIPT_PERMISSION
-from gameyfin_frontend.utils import build_umu_env_prefix, shell_dquote
+from gameyfin_frontend.services.exe_icon import extract_exe_icon
+from gameyfin_frontend.utils import build_umu_env_prefix, create_shortcuts, sanitize_name, shell_dquote
 
 logger = logging.getLogger(__name__)
 
@@ -247,6 +248,77 @@ class PrefixService:
                 logger.error("Failed to update script %s: %s", script_path, e)
 
         return count
+
+    def create_shortcut_for_exe(
+        self,
+        prefix_path: str,
+        game_name: str,
+        exe_path: str,
+        shortcut_name: str,
+        config: dict[str, Any] | None = None,
+    ) -> tuple[str, str]:
+        """Register an arbitrary executable as a shortcut of a prefix.
+
+        Writes a .desktop file into the prefix's ``drive_c/proton_shortcuts``
+        directory — the same place Proton drops the ones captured during
+        install, so the shortcut manager lists it alongside them — and then
+        generates its launcher .sh script the usual way, with the game's
+        stored install config.
+
+        Args:
+            prefix_path: WINEPREFIX path.
+            game_name: Name of the game (without ``_pfx``), used to find the scripts dir.
+            exe_path: Full filesystem path to the Windows executable.
+            shortcut_name: Display name for the shortcut.
+            config: Install config to use. Loaded from the scripts dir when omitted.
+
+        Returns:
+            Tuple of (desktop_file_path, script_path).
+        """
+        if config is None:
+            config, _ = self.load_config_from_scripts_dir(game_name)
+
+        base = sanitize_name(os.path.splitext(shortcut_name)[0]).strip() or "script"
+
+        shortcuts_dir = os.path.join(prefix_path, "drive_c", "proton_shortcuts")
+        os.makedirs(shortcuts_dir, exist_ok=True)
+        desktop_path = os.path.join(shortcuts_dir, f"{base}.desktop")
+
+        working_dir = os.path.dirname(exe_path)
+        entry = (
+            "[Desktop Entry]\n"
+            f"Name={base}\n"
+            "Type=Application\n"
+            "Categories=Application;Game;\n"
+            f"Path={working_dir}\n"
+            f"StartupWMClass={os.path.basename(exe_path)}\n"
+            f"Exec={exe_path}\n"
+        )
+
+        # Icons live where Proton puts the ones it captures during install, so
+        # copy_icon_from_source finds this one the same way.
+        icon_path = os.path.join(shortcuts_dir, "icons", "256x256", "apps", f"{base}.png")
+        if extract_exe_icon(exe_path, icon_path):
+            entry += f"Icon={base}\n"
+        with open(desktop_path, "w", encoding="utf-8") as f:
+            f.write(entry)
+        logger.info("Created proton shortcut %s for %s", desktop_path, exe_path)
+
+        scripts_dir = self.settings.get_shortcuts_dir(game_name)
+        proton_path = config.get("PROTONPATH") or self.settings.get("PROTONPATH") or DEFAULT_PROTON
+
+        # Only this .desktop is passed in: the other shortcuts' scripts are left
+        # exactly as they are, the same way Config → Update scripts leaves
+        # shortcuts it wasn't asked about alone.
+        create_shortcuts(
+            all_desktop_files=[desktop_path],
+            scripts_dir=scripts_dir,
+            wine_prefix=prefix_path,
+            install_config=config,
+            proton_path=proton_path,
+        )
+
+        return desktop_path, os.path.join(scripts_dir, f"{base}.sh")
 
     def delete_prefix(self, prefix_path: str, game_name: str) -> None:
         """Delete a prefix directory and its associated shortcut scripts.

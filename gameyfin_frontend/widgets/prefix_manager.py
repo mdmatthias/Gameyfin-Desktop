@@ -4,15 +4,17 @@ import os
 from typing import Any
 
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QListWidget, QListWidgetItem, QPushButton,
-                             QHBoxLayout, QLabel, QMessageBox, QDialog, QComboBox,
-                             QAbstractItemView, QScrollArea)
+                             QHBoxLayout, QLabel, QMessageBox, QDialog, QComboBox, QFileDialog,
+                             QDialogButtonBox, QLineEdit, QAbstractItemView, QScrollArea)
 from PyQt6.QtCore import Qt, QProcess
 
-from gameyfin_frontend.dialogs import InstallConfigDialog, LaunchLoadingDialog
+from gameyfin_frontend.dialogs import InstallConfigDialog, LaunchLoadingDialog, ensure_field_height
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.settings import SettingsManager
 from gameyfin_frontend.services import PrefixService, ShortcutService, SteamIntegrationService
 from gameyfin_frontend.services.game_launcher import log_output_as_it_arrives
+from gameyfin_frontend.config import DEFAULT_PROTON
+from gameyfin_frontend.utils import build_umu_env_prefix, shell_dquote
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,7 @@ class PrefixItemWidget(QWidget):
         self.settings = settings
         self._loading_dialog = None
         self._script_process: QProcess | None = None
+        self._exe_process: QProcess | None = None
 
         # Determine scripts_dir based on prefix_name
         game_name = prefix_name.removesuffix("_pfx")
@@ -48,6 +51,12 @@ class PrefixItemWidget(QWidget):
         layout.addWidget(self.name_label)
 
         layout.addStretch()
+
+        self.run_exe_btn = QPushButton("Run exe on prefix")
+        self.run_exe_btn.setFixedWidth(160)
+        self.run_exe_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.run_exe_btn.clicked.connect(self.run_exe_on_prefix)
+        layout.addWidget(self.run_exe_btn)
 
         self.script_combo = QComboBox()
         self.script_combo.setFixedWidth(300)
@@ -69,6 +78,7 @@ class PrefixItemWidget(QWidget):
         # Match the downloads page's button height - QComboBox renders
         # noticeably shorter than QPushButton under themes like qt-material.
         control_height = QPushButton().sizeHint().height()
+        self.run_exe_btn.setFixedHeight(control_height)
         self.script_combo.setFixedHeight(control_height)
         self.manage_combo.setFixedHeight(control_height)
 
@@ -128,6 +138,128 @@ class PrefixItemWidget(QWidget):
             except OSError as e:
                 logger.error("Failed to launch script %s: %s", script_path, e)
                 QMessageBox.critical(self, "Launch Error", f"Failed to launch: {e}")
+
+    def run_exe_on_prefix(self) -> None:
+        """Pick a Windows executable and run it inside this prefix via umu-run.
+
+        Offers to keep it as an extra shortcut before launching, so the answer
+        isn't waited on behind a game that may run for hours.
+        """
+        start_dir = os.path.join(self.prefix_path, "drive_c")
+        if not os.path.isdir(start_dir):
+            start_dir = self.prefix_path
+
+        exe_path, _ = QFileDialog.getOpenFileName(
+            self, "Select executable to run in prefix", start_dir,
+            "Windows executables (*.exe *.bat *.msi);;All Files (*)",
+        )
+        if not exe_path:
+            return
+
+        self.prompt_add_exe_as_shortcut(exe_path)
+
+        config: dict[str, Any] = {}
+        if self.settings:
+            config, _ = PrefixService(self.settings).load_config_from_scripts_dir(
+                self.prefix_name.removesuffix("_pfx")
+            )
+
+        proton_path = config.get("PROTONPATH") or (self.settings.get("PROTONPATH") if self.settings else "") or DEFAULT_PROTON
+        env_prefix = build_umu_env_prefix(proton_path, self.prefix_path, config)
+        command = f'{env_prefix}exec umu-run {shell_dquote(exe_path)}'
+
+        exe_name = os.path.basename(exe_path)
+        try:
+            self._loading_dialog = LaunchLoadingDialog(exe_name, parent=self)
+            self._loading_dialog.show()
+
+            logger.info('Running exe in prefix %s: /bin/sh -c "%s"', self.prefix_name, command)
+            process = QProcess(self)
+            process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+            process.setWorkingDirectory(os.path.dirname(exe_path))
+            process.start("/bin/sh", ["-c", command])
+            if not process.waitForStarted():
+                raise OSError(f"Failed to start {exe_path}")
+            log_output_as_it_arrives(process)
+            self._exe_process = process
+        except OSError as e:
+            logger.error("Failed to run exe %s: %s", exe_path, e)
+            QMessageBox.critical(self, "Launch Error", f"Failed to launch: {e}")
+
+    def prompt_add_exe_as_shortcut(self, exe_path: str) -> None:
+        """Ask whether to keep an executable as an extra shortcut for this prefix.
+
+        Args:
+            exe_path: Full path to the executable about to be run.
+        """
+        if not self.settings:
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Add as Shortcut?",
+            f"Also add '{os.path.basename(exe_path)}' as an extra shortcut for this prefix?\n\n"
+            "It will then be available in the script selector, and in the shortcut "
+            "manager for placing on your desktop, in your app menu or in Steam.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        default_name = os.path.splitext(os.path.basename(exe_path))[0]
+        name = self.ask_script_name(default_name)
+        if not name:
+            return
+
+        game_name = self.prefix_name.removesuffix("_pfx")
+        try:
+            _desktop_path, script_path = PrefixService(self.settings).create_shortcut_for_exe(
+                self.prefix_path, game_name, exe_path, name,
+            )
+        except OSError as e:
+            logger.error("Failed to create shortcut for %s: %s", exe_path, e)
+            QMessageBox.critical(self, "Error", f"Failed to create shortcut:\n{e}")
+            return
+
+        self.populate_scripts()
+        logger.info("Added shortcut script %s", script_path)
+
+    def ask_script_name(self, default_name: str) -> str | None:
+        """Ask for a name for a new script.
+
+        QInputDialog is avoided here: its built-in line edit reports a zero
+        minimum size hint under qt-material, so the field collapses and the
+        dialog shows only a label and buttons.
+
+        Args:
+            default_name: Name to pre-fill the field with.
+
+        Returns:
+            The entered name, or ``None`` if the dialog was cancelled or left empty.
+        """
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Shortcut Name")
+        dialog.setMinimumWidth(360)
+
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("Name for the new shortcut:"))
+
+        name_edit = QLineEdit(default_name)
+        ensure_field_height(name_edit)
+        name_edit.selectAll()
+        layout.addWidget(name_edit)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
+                                      QDialogButtonBox.StandardButton.Cancel)
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+
+        name_edit.setFocus()
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return name_edit.text().strip() or None
 
     def recreate_shortcuts(self) -> None:
         """Open the shortcut selection dialog and recreate desktop shortcuts for this prefix."""

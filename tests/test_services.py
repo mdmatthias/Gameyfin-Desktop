@@ -300,3 +300,150 @@ class TestInstallConfigPersistence:
         rebuilt = (scripts_dir / "My Game.sh").read_text()
         assert 'GAMEID="umu-367500"' in rebuilt
         assert 'STORE="steam"' in rebuilt
+
+
+class TestExeShortcutCreation:
+    @staticmethod
+    def _settings(tmp_path):
+        settings = MagicMock()
+        settings.get.return_value = "GE-Proton"
+        scripts_dir = tmp_path / "scripts" / "my game"
+        settings.get_shortcuts_dirs.return_value = [str(scripts_dir)]
+        settings.get_shortcuts_dir.return_value = str(scripts_dir)
+        return settings, scripts_dir
+
+    def test_creates_both_a_proton_shortcut_and_its_script(self, tmp_path):
+        """An exe run on a prefix becomes a .desktop the shortcut manager lists."""
+        from gameyfin_frontend.services.prefix_service import PrefixService
+
+        settings, scripts_dir = self._settings(tmp_path)
+        prefix = tmp_path / "prefixes" / "my game_pfx"
+        exe_dir = prefix / "drive_c" / "Games" / "My Game"
+        exe_dir.mkdir(parents=True)
+        exe = exe_dir / "config.exe"
+        exe.touch()
+
+        desktop_path, script_path = PrefixService(settings).create_shortcut_for_exe(
+            str(prefix), "my game", str(exe), "Config Tool",
+        )
+
+        assert desktop_path == str(prefix / "drive_c" / "proton_shortcuts" / "Config Tool.desktop")
+        desktop = open(desktop_path).read()
+        assert f"Path={exe_dir}" in desktop
+        assert "StartupWMClass=config.exe" in desktop
+
+        assert script_path == str(scripts_dir / "Config Tool.sh")
+        script = open(script_path).read()
+        assert f'umu-run "{exe}"' in script
+        assert f'WINEPREFIX="{prefix}"' in script
+        assert os.access(script_path, os.X_OK)
+
+    def test_uses_the_exes_own_icon(self, tmp_path):
+        """The icon is extracted next to the .desktop, where the shortcut code looks."""
+        from gameyfin_frontend.services.prefix_service import PrefixService
+
+        settings, _scripts_dir = self._settings(tmp_path)
+        prefix = tmp_path / "prefixes" / "my game_pfx"
+        exe_dir = prefix / "drive_c" / "Games"
+        exe_dir.mkdir(parents=True)
+        exe = exe_dir / "config.exe"
+        exe.touch()
+
+        icons: list[str] = []
+
+        def fake_extract(exe_path, dest_path, size=256):
+            icons.append(dest_path)
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            open(dest_path, "wb").close()
+            return dest_path
+
+        with patch("gameyfin_frontend.services.prefix_service.extract_exe_icon", fake_extract):
+            desktop_path, _script_path = PrefixService(settings).create_shortcut_for_exe(
+                str(prefix), "my game", str(exe), "Config Tool",
+            )
+
+        shortcuts_dir = prefix / "drive_c" / "proton_shortcuts"
+        assert icons == [str(shortcuts_dir / "icons" / "256x256" / "apps" / "Config Tool.png")]
+        assert "Icon=Config Tool" in open(desktop_path).read()
+
+        # copy_icon_from_source must find it from the .desktop's own directory
+        from gameyfin_frontend.utils import copy_icon_from_source
+        assert copy_icon_from_source(str(shortcuts_dir), "Config Tool") == icons[0]
+
+    def test_skips_the_icon_line_when_the_exe_has_none(self, tmp_path):
+        from gameyfin_frontend.services.prefix_service import PrefixService
+
+        settings, _scripts_dir = self._settings(tmp_path)
+        prefix = tmp_path / "prefixes" / "my game_pfx"
+        exe_dir = prefix / "drive_c" / "Games"
+        exe_dir.mkdir(parents=True)
+        exe = exe_dir / "config.exe"
+        exe.touch()
+
+        with patch("gameyfin_frontend.services.prefix_service.extract_exe_icon", return_value=None):
+            desktop_path, _script_path = PrefixService(settings).create_shortcut_for_exe(
+                str(prefix), "my game", str(exe), "Config Tool",
+            )
+
+        assert "Icon=" not in open(desktop_path).read()
+
+    def test_uses_the_prefixs_stored_env(self, tmp_path):
+        """The generated script carries the env the game was installed with."""
+        from gameyfin_frontend.services.prefix_service import PrefixService
+
+        settings, scripts_dir = self._settings(tmp_path)
+        scripts_dir.mkdir(parents=True)
+        with open(scripts_dir / "config.json", "w") as f:
+            json.dump({"GAMEID": "umu-367500", "STORE": "steam"}, f)
+
+        prefix = tmp_path / "prefixes" / "my game_pfx"
+        exe_dir = prefix / "drive_c" / "Games"
+        exe_dir.mkdir(parents=True)
+        exe = exe_dir / "tool.exe"
+        exe.touch()
+
+        _desktop_path, script_path = PrefixService(settings).create_shortcut_for_exe(
+            str(prefix), "my game", str(exe), "tool",
+        )
+
+        script = open(script_path).read()
+        assert 'GAMEID="umu-367500"' in script
+        assert 'STORE="steam"' in script
+
+    def test_system_shortcut_icon_comes_from_its_own_desktop_file(self, tmp_path, monkeypatch):
+        """Each system shortcut must take its Icon from the file being installed."""
+        from gameyfin_frontend import utils
+
+        prefix = tmp_path / "prefixes" / "my game_pfx"
+        shortcuts_dir = prefix / "drive_c" / "proton_shortcuts"
+        shortcuts_dir.mkdir(parents=True)
+        for name, icon in (("First", "first-icon"), ("Second", "second-icon")):
+            (shortcuts_dir / f"{name}.desktop").write_text(
+                f"[Desktop Entry]\nName={name}\nIcon={icon}\n"
+                f"Path={prefix}\nStartupWMClass={name.lower()}.exe\n"
+            )
+
+        target_dir = tmp_path / "Desktop"
+        monkeypatch.setattr(utils, "get_xdg_user_dir", lambda _name: "Desktop")
+        monkeypatch.setattr(os.path, "expanduser", lambda _p: str(tmp_path))
+
+        requested: list[str] = []
+
+        def fake_copy(source_dir, icon_name):
+            requested.append(icon_name)
+            return None
+
+        monkeypatch.setattr(utils, "copy_icon_from_source", fake_copy)
+
+        first = str(shortcuts_dir / "First.desktop")
+        second = str(shortcuts_dir / "Second.desktop")
+        utils.create_shortcuts(
+            all_desktop_files=[first, second],
+            scripts_dir=str(tmp_path / "scripts"),
+            wine_prefix=str(prefix),
+            install_config={},
+            selected_desktop=[first, second],
+        )
+
+        assert requested == ["first-icon", "second-icon"]
+        assert (target_dir / "First.desktop").exists()
