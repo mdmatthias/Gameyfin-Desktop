@@ -143,6 +143,15 @@ class PrefixService:
                     if key not in ["WINEPREFIX"]:
                         config[key] = value
 
+                # Extract game arguments from the part after umu-run
+                after_umu = umu_run_line.split("umu-run", 1)[1].strip()
+                # Match the exe path (quoted) and capture everything after it
+                match = re.match(r'(?:"([^"]*)"' r"|'([^']*)'" r"|(\S+))(.*)", after_umu)
+                if match:
+                    game_args = match.group(4).strip()
+                    if game_args:
+                        config["GAME_ARGS"] = game_args
+
         except (OSError, IOError) as e:
             logger.error("Error extracting config from %s: %s", script_path, e)
 
@@ -209,7 +218,23 @@ class PrefixService:
                 if umu_run_line:
                     parts = umu_run_line.split("umu-run")
                     if len(parts) > 1:
-                        exe_args = parts[1].strip()
+                        rest = parts[1].strip()
+                        # Extract only the exe path (e.g. "/path/to/game.exe"),
+                        # not any previously stored game args.
+                        exe_match = re.match(r'(?:"([^"]*)"' r"|'([^']*)'" r"|(\S+))(.*)", rest)
+                        if exe_match:
+                            # Reconstruct just the quoted exe path
+                            raw_exe = exe_match.group(1) or exe_match.group(2) or exe_match.group(3)
+                            exe_path = re.sub(r'\\([\\"$`])', r'\1', raw_exe)
+                            exe_args = shell_dquote(exe_path)
+                        else:
+                            exe_args = rest
+
+                        # Append GAME_ARGS from config if present
+                        game_args = config.get("GAME_ARGS", "")
+                        if game_args:
+                            exe_args = f"{exe_args} {game_args}"
+
                         new_command = f"{env_part}umu-run {exe_args}"
 
                         # Determine working directory: prefer explicit cd line, fall back to exe parent dir

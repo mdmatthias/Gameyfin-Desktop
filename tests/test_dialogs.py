@@ -106,6 +106,37 @@ class TestInstallConfigDialog:
         config = dialog.get_config()
         assert config["STORE"] == "steam"
 
+    def test_get_config_with_game_args(self, qtbot, mock_umu_database):
+        from gameyfin_frontend.dialogs import InstallConfigDialog
+        dialog = InstallConfigDialog(umu_database=mock_umu_database)
+        qtbot.addWidget(dialog)
+        dialog.game_args_input.setText("-windowed -memory=2048")
+        config = dialog.get_config()
+        assert config["GAME_ARGS"] == "-windowed -memory=2048"
+
+    def test_get_config_game_args_empty(self, qtbot, mock_umu_database):
+        from gameyfin_frontend.dialogs import InstallConfigDialog
+        dialog = InstallConfigDialog(umu_database=mock_umu_database)
+        qtbot.addWidget(dialog)
+        config = dialog.get_config()
+        assert "GAME_ARGS" not in config
+
+    def test_initial_config_populates_game_args(self, qtbot, mock_umu_database):
+        from gameyfin_frontend.dialogs import InstallConfigDialog
+        initial = {
+            "GAMEID": "UMU-TEST",
+            "STORE": "gog",
+            "GAME_ARGS": "-noaudio",
+        }
+        dialog = InstallConfigDialog(
+            umu_database=mock_umu_database,
+            default_game_id="umu-default",
+            default_store="none",
+            initial_config=initial,
+        )
+        qtbot.addWidget(dialog)
+        assert dialog.game_args_input.text() == "-noaudio"
+
 
 class TestSelectLauncherDialog:
     def test_dialog_initializes(self, qtbot):

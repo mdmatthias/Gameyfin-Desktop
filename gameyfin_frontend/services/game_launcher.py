@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any
 
 from PyQt6.QtCore import QProcess
@@ -107,11 +108,27 @@ class GameLauncher:
 
             env_prefix = build_umu_env_prefix(proton_path, wine_prefix_path, config)
 
-            logger.info("Executing: /bin/sh -c \"%s\"", f"{env_prefix} exec umu-run \"{launcher_to_run}\"")
+            game_args = config.get("GAME_ARGS", "")
+            if game_args:
+                command = f'exec umu-run "{launcher_to_run}" {game_args}'
+            else:
+                command = f'exec umu-run "{launcher_to_run}"'
+
+            logger.info("Executing: /bin/sh -c \"%s\"", command)
             process = QProcess()
             process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
             process.setWorkingDirectory(launcher_dir)
-            process.start("/bin/sh", ["-c", f"{env_prefix} exec umu-run \"{launcher_to_run}\""])
+
+            # Set UMU environment variables directly on the process instead of
+            # wrapping in /bin/sh -c "VAR=val umu-run ...".  This avoids all
+            # shell quoting issues — game args appear exactly as the user typed
+            # them, with no single-quote wrapping.
+            env = QProcess.systemEnvironment()
+            for match in re.finditer(r'(\w+)="([^"]*)"', env_prefix):
+                env.append(f'{match.group(1)}={match.group(2)}')
+            process.setProcessEnvironment(env)
+
+            process.start("/bin/sh", ["-c", command])
 
             if not process.waitForStarted():
                 logger.info("Launch failed (QProcess failed to start).")

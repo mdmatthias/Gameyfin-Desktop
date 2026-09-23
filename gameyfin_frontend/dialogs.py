@@ -122,6 +122,10 @@ class InstallConfigDialog(QDialog):
         self.extra_vars_input = QPlainTextEdit()
         self.extra_vars_input.setPlaceholderText("KEY1=VALUE1\nKEY2=VALUE2")
 
+        self.game_args_input = QLineEdit()
+        self.game_args_input.setPlaceholderText("e.g. -windowed -memory=2048")
+        ensure_field_height(self.game_args_input)
+
         # Apply initial config if provided
         if initial_config:
             if initial_config.get("PROTON_ENABLE_WAYLAND") == "1":
@@ -145,9 +149,13 @@ class InstallConfigDialog(QDialog):
             # Populate extra vars
             extra_lines = []
             for k, v in initial_config.items():
-                if k not in ["PROTON_ENABLE_WAYLAND", "MANGOHUD", "GAMEID", "STORE", "PROTON_USE_WOW64", "PROTONPATH"]:
+                if k not in ["PROTON_ENABLE_WAYLAND", "MANGOHUD", "GAMEID", "STORE", "PROTON_USE_WOW64", "PROTONPATH", "GAME_ARGS"]:
                     extra_lines.append(f"{k}={v}")
             self.extra_vars_input.setPlainText("\n".join(extra_lines))
+
+            # Populate game arguments
+            if "GAME_ARGS" in initial_config:
+                self.game_args_input.setText(initial_config["GAME_ARGS"])
 
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
                                       QDialogButtonBox.StandardButton.Cancel)
@@ -165,6 +173,9 @@ class InstallConfigDialog(QDialog):
 
         main_layout.addWidget(QLabel("Additional Environment Variables (one per line):"))
         main_layout.addWidget(self.extra_vars_input)
+
+        main_layout.addWidget(QLabel("Game Arguments:"))
+        main_layout.addWidget(self.game_args_input)
 
         if self.wine_prefix_path:
             prefix_label = QLabel(f"<b>WINE Prefix:</b><br>{self.wine_prefix_path}")
@@ -295,6 +306,10 @@ class InstallConfigDialog(QDialog):
             config["STORE"] = store
 
         config["PROTONPATH"] = self.protonpath_input.text().strip()
+
+        game_args = self.game_args_input.text().strip()
+        if game_args:
+            config["GAME_ARGS"] = game_args
 
         extra_vars_text = self.extra_vars_input.toPlainText().strip()
         if extra_vars_text:

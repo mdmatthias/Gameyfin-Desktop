@@ -53,8 +53,6 @@ finish-args:
 
   # Standard Path setup
   - --env=PATH=/app/bin:/usr/bin:/app/lib/extensions/vulkan/MangoHud/bin
-  # Ensure i386 libs are found at runtime
-  - --env=LD_LIBRARY_PATH=/app/lib32:/app/lib/i386-linux-gnu:/app/lib:/app/lib/i386-linux-gnu/GL/lib
   - --env=SteamVirtualGamepadInfo=
   - --env=QTWEBENGINEPROCESS_PATH=/app/bin/QtWebEngineProcess
 
@@ -103,9 +101,6 @@ modules:
       - mkdir -p /app/etc
       - mkdir -p /app/lib/extensions/vulkan/MangoHud
 
-      # FIX: amdgpu hardware ID silence
-      - mkdir -p /app/lib/i386-linux-gnu/GL/default/share/libdrm
-      - touch /app/lib/i386-linux-gnu/GL/default/share/libdrm/amdgpu.ids
       # for 32 bit games
       - find /usr/lib/i386-linux-gnu/ -mindepth 1 -maxdepth 1 ! -name GL ! -name extensions -exec cp -a {} /app/lib/i386-linux-gnu/ \;
       # Vendor MangoHud (both x86_64 and i386 libs ship together in this one

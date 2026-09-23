@@ -225,7 +225,7 @@ def build_umu_env_prefix(proton_path: str, wine_prefix: str, config: dict) -> st
         # appears.
         env_prefix += 'STEAM_COMPAT_CONFIG="xalia" '
     for key, value in config.items():
-        if key not in ("PROTONPATH", "WINEPREFIX"):
+        if key not in ("PROTONPATH", "WINEPREFIX", "GAME_ARGS"):
             env_prefix += f'{key}="{value}" '
     return env_prefix
 
@@ -667,7 +667,12 @@ def create_shortcuts(
                 logger.info("Resolved %s to %s in %s", original_path, exe_name, working_dir)
 
             exe_path = os.path.join(working_dir, exe_name)
-            command_to_run = build_umu_command(proton_path, wine_prefix, install_config, f'umu-run {shell_dquote(exe_path)}')
+            game_args = install_config.get("GAME_ARGS", "")
+            if game_args:
+                exe_part = f'umu-run {shell_dquote(exe_path)} {game_args}'
+            else:
+                exe_part = f'umu-run {shell_dquote(exe_path)}'
+            command_to_run = build_umu_command(proton_path, wine_prefix, install_config, exe_part)
 
             script_name = sanitize_name(os.path.splitext(os.path.basename(original_path))[0]) + ".sh"
             script_path = os.path.join(scripts_dir, script_name)
