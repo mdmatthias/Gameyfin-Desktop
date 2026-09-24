@@ -66,7 +66,23 @@ class PrefixService:
             if os.path.exists(config_path):
                 try:
                     with open(config_path, 'r') as f:
-                        return json.load(f), sd
+                        config = json.load(f)
+                    # Backward compat: migrate legacy string GAME_ARGS to dict
+                    if isinstance(config.get("GAME_ARGS"), str):
+                        legacy_args = config["GAME_ARGS"]
+                        config["GAME_ARGS"] = {}
+                        # Put legacy args under the primary script's basename
+                        primary_sh = os.path.join(sd, f"{game_name}.sh")
+                        if os.path.exists(primary_sh):
+                            config["GAME_ARGS"][os.path.basename(primary_sh)] = legacy_args
+                        else:
+                            # Fallback: use first .sh file found
+                            sh_files = glob.glob(os.path.join(sd, "*.sh"))
+                            if sh_files:
+                                config["GAME_ARGS"][os.path.basename(sh_files[0])] = legacy_args
+                            elif legacy_args:
+                                config["GAME_ARGS"]["main"] = legacy_args
+                    return config, sd
                 except (json.JSONDecodeError, OSError) as e:
                     logger.error("Error loading config from %s: %s", config_path, e)
 
@@ -105,7 +121,8 @@ class PrefixService:
         """Parse a .sh script to extract environment variables set before umu-run.
 
         Searches for the umu-run line, extracts ``KEY="VALUE"`` pairs, and detects
-        MangoHud usage.
+        MangoHud usage. Game arguments are stored under the script's filename key
+        in the ``GAME_ARGS`` dict.
 
         Args:
             script_path: Path to the .sh script file.
@@ -150,7 +167,10 @@ class PrefixService:
                 if match:
                     game_args = match.group(4).strip()
                     if game_args:
-                        config["GAME_ARGS"] = game_args
+                        # Store under the script's filename key
+                        if "GAME_ARGS" not in config:
+                            config["GAME_ARGS"] = {}
+                        config["GAME_ARGS"][os.path.basename(script_path)] = game_args
 
         except (OSError, IOError) as e:
             logger.error("Error extracting config from %s: %s", script_path, e)
@@ -231,7 +251,17 @@ class PrefixService:
                             exe_args = rest
 
                         # Append GAME_ARGS from config if present
-                        game_args = config.get("GAME_ARGS", "")
+                        game_args_config = config.get("GAME_ARGS", "")
+                        if isinstance(game_args_config, dict):
+                            # Per-script: look up by script filename
+                            script_name = os.path.basename(script_path)
+                            game_args = game_args_config.get(script_name, "")
+                            # Fall back to shared args if available
+                            if not game_args:
+                                game_args = game_args_config.get("ALL_SCRIPTS", "")
+                        else:
+                            # Legacy: single string value
+                            game_args = game_args_config if game_args_config else ""
                         if game_args:
                             exe_args = f"{exe_args} {game_args}"
 

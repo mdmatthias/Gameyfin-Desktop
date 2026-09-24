@@ -58,7 +58,7 @@ class InstallConfigDialog(QDialog):
     def __init__(self, umu_database: UmuDatabase, parent: QWidget | None = None,
                  default_game_id: str = "umu-default", default_store: str = "none",
                  wine_prefix_path: str | None = None, initial_config: dict[str, Any] | None = None,
-                 settings: SettingsManager | None = None):
+                 settings: SettingsManager | None = None, scripts: list[str] | None = None):
         """Configure UMU installation environment variables (protonfix, Proton path, store, extra env vars).
 
         Args:
@@ -69,11 +69,14 @@ class InstallConfigDialog(QDialog):
             wine_prefix_path: Optional WINE prefix path for wine tools.
             initial_config: Optional dict to pre-populate fields from a prior install.
             settings: SettingsManager instance providing app configuration.
+            scripts: Optional list of script file paths for per-script game arguments.
         """
         super().__init__(parent)
         self.umu_database = umu_database
         self.wine_prefix_path = wine_prefix_path
         self.settings = settings
+        self.scripts = scripts or []
+        self._game_args_dict: dict[str, str] = {}
         self.setWindowTitle("Installation Configuration")
         self.setMinimumWidth(400)
 
@@ -126,6 +129,11 @@ class InstallConfigDialog(QDialog):
         self.game_args_input.setPlaceholderText("e.g. -windowed -memory=2048")
         ensure_field_height(self.game_args_input)
 
+        self.script_selector = QComboBox()
+        self.script_selector.setPlaceholderText("Select script…")
+        ensure_field_height(self.script_selector)
+        self.script_selector.currentIndexChanged.connect(self._on_script_selected)
+
         # Apply initial config if provided
         if initial_config:
             if initial_config.get("PROTON_ENABLE_WAYLAND") == "1":
@@ -153,9 +161,38 @@ class InstallConfigDialog(QDialog):
                     extra_lines.append(f"{k}={v}")
             self.extra_vars_input.setPlainText("\n".join(extra_lines))
 
-            # Populate game arguments
-            if "GAME_ARGS" in initial_config:
-                self.game_args_input.setText(initial_config["GAME_ARGS"])
+            # Populate script selector and game arguments
+            game_args = initial_config.get("GAME_ARGS", "")
+            # Handle both legacy string format and new dict format
+            if isinstance(game_args, dict):
+                self._game_args_dict = dict(game_args)
+            elif isinstance(game_args, str):
+                # Legacy: migrate to dict format, key is the first script
+                self._game_args_dict = {}
+                if self.scripts:
+                    self._game_args_dict[os.path.basename(self.scripts[0])] = game_args
+                elif game_args:
+                    self._game_args_dict["main"] = game_args
+            else:
+                self._game_args_dict = {}
+
+            # Populate script selector
+            if self.scripts:
+                self.script_selector.addItem("All scripts (shared)")
+                for script_path in self.scripts:
+                    self.script_selector.addItem(os.path.basename(script_path), script_path)
+                self.script_selector.setCurrentIndex(0)  # Default to "All scripts"
+                # Show game args/input row when a script is selected
+                self._update_game_args_display()
+            elif game_args:
+                # No scripts available but legacy GAME_ARGS exists
+                self.game_args_input.setText(game_args)
+
+            # Apply initial checked states
+            if self.wayland_checkbox.isEnabled():
+                self.wayland_checkbox.setFocus()
+            elif self.gameid_input.isEnabled():
+                self.gameid_input.setFocus()
 
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
                                       QDialogButtonBox.StandardButton.Cancel)
@@ -176,6 +213,12 @@ class InstallConfigDialog(QDialog):
 
         main_layout.addWidget(QLabel("Game Arguments:"))
         main_layout.addWidget(self.game_args_input)
+
+        if self.scripts:
+            main_layout.addWidget(QLabel("Script:"))
+            main_layout.addWidget(self.script_selector)
+
+        main_layout.addWidget(button_box)
 
         if self.wine_prefix_path:
             prefix_label = QLabel(f"<b>WINE Prefix:</b><br>{self.wine_prefix_path}")
@@ -287,9 +330,36 @@ class InstallConfigDialog(QDialog):
         logger.info("Starting regedit with PROTONPATH=%s WINEPREFIX=%s", proton_path, self.wine_prefix_path)
         subprocess.Popen([UMU_RUN_CMD, "regedit"], env=proc_env, start_new_session=True)
 
+    def _on_script_selected(self, index: int) -> None:
+        """Update game arguments display when script selection changes."""
+        self._update_game_args_display()
+
+    def _update_game_args_display(self) -> None:
+        """Show game args for the currently selected script."""
+        if not self.scripts:
+            return
+
+        selected_index = self.script_selector.currentIndex()
+        if selected_index == 0:
+            # "All scripts (shared)" - show legacy single value
+            self.game_args_input.setEnabled(True)
+            shared_args = self._game_args_dict.get("ALL_SCRIPTS", "")
+            self.game_args_input.setText(shared_args if shared_args else "")
+        else:
+            # Specific script
+            script_path = self.script_selector.itemData(selected_index)
+            if script_path:
+                script_name = os.path.basename(script_path)
+                self.game_args_input.setEnabled(True)
+                self.game_args_input.setText(self._game_args_dict.get(script_name, ""))
+            else:
+                self.game_args_input.setEnabled(False)
+
     def get_config(self) -> dict[str, str]:
         """
         Returns the configured environment variables as a dictionary.
+        GAME_ARGS is stored as a dict keyed by script filename when
+        per-script configuration is available, otherwise as a single string.
         """
         config = {
             "PROTON_ENABLE_WAYLAND": "1" if self.wayland_checkbox.isChecked() else "0",
@@ -307,9 +377,27 @@ class InstallConfigDialog(QDialog):
 
         config["PROTONPATH"] = self.protonpath_input.text().strip()
 
-        game_args = self.game_args_input.text().strip()
-        if game_args:
-            config["GAME_ARGS"] = game_args
+        if self.scripts:
+            # Per-script GAME_ARGS dict
+            game_args = self.game_args_input.text().strip()
+            selected_index = self.script_selector.currentIndex()
+            if selected_index == 0:
+                # "All scripts (shared)" - store under special key
+                self._game_args_dict["ALL_SCRIPTS"] = game_args
+            else:
+                script_path = self.script_selector.itemData(selected_index)
+                if script_path:
+                    script_name = os.path.basename(script_path)
+                    self._game_args_dict[script_name] = game_args
+            # Only include GAME_ARGS if there are non-empty values
+            non_empty = {k: v for k, v in self._game_args_dict.items() if v}
+            if non_empty:
+                config["GAME_ARGS"] = non_empty
+        else:
+            # Legacy: single GAME_ARGS string
+            game_args = self.game_args_input.text().strip()
+            if game_args:
+                config["GAME_ARGS"] = game_args
 
         extra_vars_text = self.extra_vars_input.toPlainText().strip()
         if extra_vars_text:

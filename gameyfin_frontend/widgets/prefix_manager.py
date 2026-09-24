@@ -312,11 +312,19 @@ class PrefixItemWidget(QWidget):
         game_name = self.prefix_name.removesuffix("_pfx")
         initial_config, _ = prefix_service.load_config_from_scripts_dir(game_name)
 
+        # Collect available scripts for per-script configuration
+        scripts = []
+        for sd in self.scripts_dirs:
+            if os.path.exists(sd):
+                scripts.extend(glob.glob(os.path.join(sd, "*.sh")))
+        scripts.sort()
+
         dialog = InstallConfigDialog(
             umu_database=self.umu_database,
             parent=self,
             wine_prefix_path=self.prefix_path,
             initial_config=initial_config,
+            scripts=scripts,
         )
 
         if dialog.exec() == QDialog.DialogCode.Accepted:

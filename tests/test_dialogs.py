@@ -137,6 +137,97 @@ class TestInstallConfigDialog:
         qtbot.addWidget(dialog)
         assert dialog.game_args_input.text() == "-noaudio"
 
+    def test_per_script_game_args_dict_format(self, qtbot, mock_umu_database):
+        from gameyfin_frontend.dialogs import InstallConfigDialog
+        initial = {
+            "GAMEID": "UMU-TEST",
+            "GAME_ARGS": {"game.sh": "-windowed", "shortcut.sh": "-vulkan"},
+        }
+        scripts = ["/path/to/game.sh", "/path/to/shortcut.sh"]
+        dialog = InstallConfigDialog(
+            umu_database=mock_umu_database,
+            default_game_id="UMU-TEST",
+            default_store="none",
+            initial_config=initial,
+            scripts=scripts,
+        )
+        qtbot.addWidget(dialog)
+
+        # Script selector should have "All scripts" + 2 scripts
+        assert dialog.script_selector.count() == 3
+        assert dialog.script_selector.itemText(0) == "All scripts (shared)"
+        assert dialog.script_selector.itemText(1) == "game.sh"
+        assert dialog.script_selector.itemText(2) == "shortcut.sh"
+
+        # Default selection should be "All scripts"
+        assert dialog.script_selector.currentIndex() == 0
+
+        # Select first script and verify args
+        dialog.script_selector.setCurrentIndex(1)
+        assert dialog.game_args_input.text() == "-windowed"
+
+        # Select second script and verify args
+        dialog.script_selector.setCurrentIndex(2)
+        assert dialog.game_args_input.text() == "-vulkan"
+
+        # Modify args and save
+        dialog.game_args_input.setText("-newargs")
+        config = dialog.get_config()
+        assert config["GAME_ARGS"]["shortcut.sh"] == "-newargs"
+        assert config["GAME_ARGS"]["game.sh"] == "-windowed"  # unchanged
+
+    def test_per_script_game_args_all_scripts_shared(self, qtbot, mock_umu_database):
+        from gameyfin_frontend.dialogs import InstallConfigDialog
+        initial = {
+            "GAMEID": "UMU-TEST",
+            "GAME_ARGS": {"ALL_SCRIPTS": "-shared"},
+        }
+        scripts = ["/path/to/game.sh"]
+        dialog = InstallConfigDialog(
+            umu_database=mock_umu_database,
+            default_game_id="UMU-TEST",
+            default_store="none",
+            initial_config=initial,
+            scripts=scripts,
+        )
+        qtbot.addWidget(dialog)
+
+        # Default selection is "All scripts"
+        assert dialog.script_selector.currentIndex() == 0
+        assert dialog.game_args_input.text() == "-shared"
+
+        # Save with shared args
+        config = dialog.get_config()
+        assert config["GAME_ARGS"]["ALL_SCRIPTS"] == "-shared"
+
+    def test_legacy_game_args_migrated_to_dict(self, qtbot, mock_umu_database):
+        from gameyfin_frontend.dialogs import InstallConfigDialog
+        initial = {
+            "GAMEID": "UMU-TEST",
+            "GAME_ARGS": "-legacy-args",
+        }
+        scripts = ["/path/to/game.sh"]
+        dialog = InstallConfigDialog(
+            umu_database=mock_umu_database,
+            default_game_id="UMU-TEST",
+            default_store="none",
+            initial_config=initial,
+            scripts=scripts,
+        )
+        qtbot.addWidget(dialog)
+
+        # Legacy args should be under the first script's basename
+        assert dialog._game_args_dict["game.sh"] == "-legacy-args"
+
+        # Default selection is "All scripts" which shows ALL_SCRIPTS key
+        assert dialog.script_selector.currentIndex() == 0
+        # ALL_SCRIPTS is not set, so it shows empty
+        assert dialog.game_args_input.text() == ""
+
+        # Select the script to see legacy args
+        dialog.script_selector.setCurrentIndex(1)
+        assert dialog.game_args_input.text() == "-legacy-args"
+
 
 class TestSelectLauncherDialog:
     def test_dialog_initializes(self, qtbot):
