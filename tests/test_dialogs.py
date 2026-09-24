@@ -176,13 +176,19 @@ class TestInstallConfigDialog:
         assert config["GAME_ARGS"]["shortcut.sh"] == "-newargs"
         assert config["GAME_ARGS"]["game.sh"] == "-windowed"  # unchanged
 
-    def test_per_script_game_args_all_scripts_shared(self, qtbot, mock_umu_database):
+    def test_per_script_all_config_fields(self, qtbot, mock_umu_database):
         from gameyfin_frontend.dialogs import InstallConfigDialog
         initial = {
-            "GAMEID": "UMU-TEST",
-            "GAME_ARGS": {"ALL_SCRIPTS": "-shared"},
+            "GAMEID": "UMU-GAME",
+            "STORE": "steam",
+            "PROTONPATH": "Proton 9",
+            "PROTON_ENABLE_WAYLAND": "1",
+            "MANGOHUD": "0",
+            "PROTON_USE_WOW64": "1",
+            "EXTRA_KEY": "extra_val",
+            "GAME_ARGS": {"game.sh": "-windowed", "shortcut.sh": "-vulkan"},
         }
-        scripts = ["/path/to/game.sh"]
+        scripts = ["/path/to/game.sh", "/path/to/shortcut.sh"]
         dialog = InstallConfigDialog(
             umu_database=mock_umu_database,
             default_game_id="UMU-TEST",
@@ -192,13 +198,29 @@ class TestInstallConfigDialog:
         )
         qtbot.addWidget(dialog)
 
-        # Default selection is "All scripts"
+        # Default selection is "All scripts" - should show first script's values
         assert dialog.script_selector.currentIndex() == 0
-        assert dialog.game_args_input.text() == "-shared"
+        assert dialog.gameid_input.text() == "UMU-GAME"
+        assert dialog.store_combo.currentText() == "steam"
+        assert dialog.protonpath_input.text() == "Proton 9"
+        assert dialog.wayland_checkbox.isChecked()
+        assert not dialog.mangohud_checkbox.isChecked()
+        assert dialog.wow64_checkbox.isChecked()
+        assert dialog.extra_vars_input.toPlainText() == "EXTRA_KEY=extra_val"
 
-        # Save with shared args
+        # Select second script - should show its specific values
+        dialog.script_selector.setCurrentIndex(2)
+        assert dialog.game_args_input.text() == "-vulkan"
+
+        # Modify this script's GAMEID
+        dialog.gameid_input.setText("UMU-SHORTCUT")
         config = dialog.get_config()
-        assert config["GAME_ARGS"]["ALL_SCRIPTS"] == "-shared"
+
+        # GAMEID should be saved for shortcut.sh
+        assert config["GAMEID"] == "UMU-SHORTCUT"
+        # GAME_ARGS should have both scripts' values
+        assert config["GAME_ARGS"]["game.sh"] == "-windowed"
+        assert config["GAME_ARGS"]["shortcut.sh"] == "-vulkan"
 
     def test_legacy_game_args_migrated_to_dict(self, qtbot, mock_umu_database):
         from gameyfin_frontend.dialogs import InstallConfigDialog
@@ -217,16 +239,18 @@ class TestInstallConfigDialog:
         qtbot.addWidget(dialog)
 
         # Legacy args should be under the first script's basename
-        assert dialog._game_args_dict["game.sh"] == "-legacy-args"
+        assert dialog._per_script_config["game.sh"]["GAME_ARGS"] == "-legacy-args"
 
         # Default selection is "All scripts" which shows ALL_SCRIPTS key
         assert dialog.script_selector.currentIndex() == 0
-        # ALL_SCRIPTS is not set, so it shows empty
-        assert dialog.game_args_input.text() == ""
-
-        # Select the script to see legacy args
-        dialog.script_selector.setCurrentIndex(1)
+        # ALL_SCRIPTS should have the legacy args
+        assert dialog._per_script_config["ALL_SCRIPTS"]["GAME_ARGS"] == "-legacy-args"
         assert dialog.game_args_input.text() == "-legacy-args"
+
+        # Save - should produce GAME_ARGS dict
+        config = dialog.get_config()
+        assert isinstance(config["GAME_ARGS"], dict)
+        assert config["GAME_ARGS"]["game.sh"] == "-legacy-args"
 
 
 class TestSelectLauncherDialog:

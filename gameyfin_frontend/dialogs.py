@@ -69,18 +69,30 @@ class InstallConfigDialog(QDialog):
             wine_prefix_path: Optional WINE prefix path for wine tools.
             initial_config: Optional dict to pre-populate fields from a prior install.
             settings: SettingsManager instance providing app configuration.
-            scripts: Optional list of script file paths for per-script game arguments.
+            scripts: Optional list of script file paths for per-script configuration.
         """
         super().__init__(parent)
         self.umu_database = umu_database
         self.wine_prefix_path = wine_prefix_path
         self.settings = settings
         self.scripts = scripts or []
-        self._game_args_dict: dict[str, str] = {}
+        # Per-script config: maps script key ("ALL_SCRIPTS" or script basename)
+        # to a dict of field values
+        self._per_script_config: dict[str, dict[str, str]] = {}
         self.setWindowTitle("Installation Configuration")
         self.setMinimumWidth(400)
 
         main_layout = QVBoxLayout(self)
+
+        # Script selector at the very top (no label)
+        if self.scripts:
+            self.script_selector = QComboBox()
+            self.script_selector.addItem("All scripts (shared)")
+            for script_path in self.scripts:
+                self.script_selector.addItem(os.path.basename(script_path), script_path)
+            self.script_selector.currentIndexChanged.connect(self._on_script_selected)
+            main_layout.addWidget(self.script_selector)
+
         form_layout = QFormLayout()
 
         self.wayland_checkbox = QCheckBox("Enable Wayland")
@@ -129,64 +141,74 @@ class InstallConfigDialog(QDialog):
         self.game_args_input.setPlaceholderText("e.g. -windowed -memory=2048")
         ensure_field_height(self.game_args_input)
 
-        self.script_selector = QComboBox()
-        self.script_selector.setPlaceholderText("Select script…")
-        ensure_field_height(self.script_selector)
-        self.script_selector.currentIndexChanged.connect(self._on_script_selected)
-
         # Apply initial config if provided
         if initial_config:
-            if initial_config.get("PROTON_ENABLE_WAYLAND") == "1":
-                self.wayland_checkbox.setChecked(True)
-
-            if initial_config.get("MANGOHUD") == "1":
-                self.mangohud_checkbox.setChecked(True)
-
-            if initial_config.get("PROTON_USE_WOW64") == "1":
-                self.wow64_checkbox.setChecked(True)
-
-            if "GAMEID" in initial_config:
-                self.gameid_input.setText(initial_config["GAMEID"])
-
-            if "STORE" in initial_config:
-                self.store_combo.setCurrentText(initial_config["STORE"])
-
-            if "PROTONPATH" in initial_config:
-                self.protonpath_input.setText(initial_config["PROTONPATH"])
-
-            # Populate extra vars
-            extra_lines = []
-            for k, v in initial_config.items():
-                if k not in ["PROTON_ENABLE_WAYLAND", "MANGOHUD", "GAMEID", "STORE", "PROTON_USE_WOW64", "PROTONPATH", "GAME_ARGS"]:
-                    extra_lines.append(f"{k}={v}")
-            self.extra_vars_input.setPlainText("\n".join(extra_lines))
-
-            # Populate script selector and game arguments
-            game_args = initial_config.get("GAME_ARGS", "")
-            # Handle both legacy string format and new dict format
-            if isinstance(game_args, dict):
-                self._game_args_dict = dict(game_args)
-            elif isinstance(game_args, str):
-                # Legacy: migrate to dict format, key is the first script
-                self._game_args_dict = {}
-                if self.scripts:
-                    self._game_args_dict[os.path.basename(self.scripts[0])] = game_args
-                elif game_args:
-                    self._game_args_dict["main"] = game_args
-            else:
-                self._game_args_dict = {}
-
-            # Populate script selector
+            # Build per-script config from flat initial_config
             if self.scripts:
-                self.script_selector.addItem("All scripts (shared)")
-                for script_path in self.scripts:
-                    self.script_selector.addItem(os.path.basename(script_path), script_path)
+                # Extract GAME_ARGS - handle both dict and string formats
+                raw_game_args = initial_config.get("GAME_ARGS", "")
+                if isinstance(raw_game_args, dict):
+                    # If dict, use "ALL_SCRIPTS" value or first script's value
+                    all_args = raw_game_args.get("ALL_SCRIPTS", "")
+                    # If ALL_SCRIPTS is empty but other scripts have values, use first script's
+                    if not all_args:
+                        for sp in self.scripts:
+                            sn = os.path.basename(sp)
+                            if sn in raw_game_args and raw_game_args[sn]:
+                                all_args = raw_game_args[sn]
+                                break
+                elif isinstance(raw_game_args, str):
+                    all_args = raw_game_args
+                else:
+                    all_args = ""
+
+                # Create "ALL_SCRIPTS" entry from flat config
+                self._per_script_config["ALL_SCRIPTS"] = {
+                    "PROTON_ENABLE_WAYLAND": initial_config.get("PROTON_ENABLE_WAYLAND", "0"),
+                    "MANGOHUD": initial_config.get("MANGOHUD", "0"),
+                    "PROTON_USE_WOW64": initial_config.get("PROTON_USE_WOW64", "0"),
+                    "GAMEID": initial_config.get("GAMEID", default_game_id),
+                    "STORE": initial_config.get("STORE", default_store),
+                    "PROTONPATH": initial_config.get("PROTONPATH", ""),
+                    "GAME_ARGS": all_args,
+                    "EXTRA_VARS": self._extract_extra_vars(initial_config),
+                }
+                # Also create per-script entries if GAME_ARGS is already a dict
+                if isinstance(raw_game_args, dict):
+                    for script_path in self.scripts:
+                        script_name = os.path.basename(script_path)
+                        self._per_script_config[script_name] = dict(self._per_script_config["ALL_SCRIPTS"])
+                        self._per_script_config[script_name]["GAME_ARGS"] = raw_game_args.get(script_name, "")
+                # Legacy string GAME_ARGS: put under first script
+                elif isinstance(raw_game_args, str) and raw_game_args:
+                    if self.scripts:
+                        first_script = os.path.basename(self.scripts[0])
+                        self._per_script_config[first_script] = dict(self._per_script_config["ALL_SCRIPTS"])
+                        self._per_script_config[first_script]["GAME_ARGS"] = raw_game_args
+
                 self.script_selector.setCurrentIndex(0)  # Default to "All scripts"
-                # Show game args/input row when a script is selected
-                self._update_game_args_display()
-            elif game_args:
-                # No scripts available but legacy GAME_ARGS exists
-                self.game_args_input.setText(game_args)
+                self._load_script_config(0)
+            else:
+                # No scripts: populate fields directly (legacy behavior)
+                if initial_config.get("PROTON_ENABLE_WAYLAND") == "1":
+                    self.wayland_checkbox.setChecked(True)
+                if initial_config.get("MANGOHUD") == "1":
+                    self.mangohud_checkbox.setChecked(True)
+                if initial_config.get("PROTON_USE_WOW64") == "1":
+                    self.wow64_checkbox.setChecked(True)
+                if "GAMEID" in initial_config:
+                    self.gameid_input.setText(initial_config["GAMEID"])
+                if "STORE" in initial_config:
+                    self.store_combo.setCurrentText(initial_config["STORE"])
+                if "PROTONPATH" in initial_config:
+                    self.protonpath_input.setText(initial_config["PROTONPATH"])
+                extra_lines = []
+                for k, v in initial_config.items():
+                    if k not in ["PROTON_ENABLE_WAYLAND", "MANGOHUD", "GAMEID", "STORE", "PROTON_USE_WOW64", "PROTONPATH", "GAME_ARGS"]:
+                        extra_lines.append(f"{k}={v}")
+                self.extra_vars_input.setPlainText("\n".join(extra_lines))
+                if "GAME_ARGS" in initial_config and initial_config["GAME_ARGS"]:
+                    self.game_args_input.setText(initial_config["GAME_ARGS"])
 
             # Apply initial checked states
             if self.wayland_checkbox.isEnabled():
@@ -213,10 +235,6 @@ class InstallConfigDialog(QDialog):
 
         main_layout.addWidget(QLabel("Game Arguments:"))
         main_layout.addWidget(self.game_args_input)
-
-        if self.scripts:
-            main_layout.addWidget(QLabel("Script:"))
-            main_layout.addWidget(self.script_selector)
 
         main_layout.addWidget(button_box)
 
@@ -330,36 +348,55 @@ class InstallConfigDialog(QDialog):
         logger.info("Starting regedit with PROTONPATH=%s WINEPREFIX=%s", proton_path, self.wine_prefix_path)
         subprocess.Popen([UMU_RUN_CMD, "regedit"], env=proc_env, start_new_session=True)
 
-    def _on_script_selected(self, index: int) -> None:
-        """Update game arguments display when script selection changes."""
-        self._update_game_args_display()
+    def _extract_extra_vars(self, config: dict[str, Any]) -> str:
+        """Extract extra environment variables from a config dict as 'KEY=VALUE' lines."""
+        extra_lines = []
+        for k, v in config.items():
+            if k not in ["PROTON_ENABLE_WAYLAND", "MANGOHUD", "GAMEID", "STORE",
+                         "PROTON_USE_WOW64", "PROTONPATH", "GAME_ARGS"]:
+                extra_lines.append(f"{k}={v}")
+        return "\n".join(extra_lines)
 
-    def _update_game_args_display(self) -> None:
-        """Show game args for the currently selected script."""
+    def _on_script_selected(self, index: int) -> None:
+        """Load config for the selected script when selection changes."""
+        self._load_script_config(index)
+
+    def _load_script_config(self, index: int) -> None:
+        """Load config fields for the currently selected script."""
         if not self.scripts:
             return
 
-        selected_index = self.script_selector.currentIndex()
-        if selected_index == 0:
-            # "All scripts (shared)" - show legacy single value
-            self.game_args_input.setEnabled(True)
-            shared_args = self._game_args_dict.get("ALL_SCRIPTS", "")
-            self.game_args_input.setText(shared_args if shared_args else "")
+        if index == 0:
+            script_key = "ALL_SCRIPTS"
         else:
-            # Specific script
-            script_path = self.script_selector.itemData(selected_index)
-            if script_path:
-                script_name = os.path.basename(script_path)
-                self.game_args_input.setEnabled(True)
-                self.game_args_input.setText(self._game_args_dict.get(script_name, ""))
-            else:
-                self.game_args_input.setEnabled(False)
+            script_path = self.script_selector.itemData(index)
+            script_key = os.path.basename(script_path) if script_path else None
+        if not script_key:
+            return
+
+        script_cfg = self._per_script_config.get(script_key, {})
+
+        # Load all fields from the script's config
+        wayland_val = script_cfg.get("PROTON_ENABLE_WAYLAND", "0")
+        self.wayland_checkbox.setChecked(wayland_val == "1")
+
+        mangohud_val = script_cfg.get("MANGOHUD", "0")
+        self.mangohud_checkbox.setChecked(mangohud_val == "1")
+
+        wow64_val = script_cfg.get("PROTON_USE_WOW64", "0")
+        self.wow64_checkbox.setChecked(wow64_val == "1")
+
+        self.gameid_input.setText(script_cfg.get("GAMEID", ""))
+        self.store_combo.setCurrentText(script_cfg.get("STORE", "none"))
+        self.protonpath_input.setText(script_cfg.get("PROTONPATH", ""))
+        self.extra_vars_input.setPlainText(script_cfg.get("EXTRA_VARS", ""))
+        self.game_args_input.setText(script_cfg.get("GAME_ARGS", ""))
 
     def get_config(self) -> dict[str, str]:
         """
         Returns the configured environment variables as a dictionary.
-        GAME_ARGS is stored as a dict keyed by script filename when
-        per-script configuration is available, otherwise as a single string.
+        When scripts are available, GAME_ARGS is stored as a dict keyed by
+        script filename. Other fields are always stored as flat key-value pairs.
         """
         config = {
             "PROTON_ENABLE_WAYLAND": "1" if self.wayland_checkbox.isChecked() else "0",
@@ -377,37 +414,51 @@ class InstallConfigDialog(QDialog):
 
         config["PROTONPATH"] = self.protonpath_input.text().strip()
 
+        # Save extra vars back to _per_script_config
+        extra_text = self.extra_vars_input.toPlainText().strip()
+        extra_dict = {}
+        if extra_text:
+            for line in extra_text.splitlines():
+                if "=" in line:
+                    parts = line.split("=", 1)
+                    key = parts[0].strip()
+                    value = parts[1].strip()
+                    if key:
+                        extra_dict[key] = value
+        for k, v in extra_dict.items():
+            config[k] = v
+
         if self.scripts:
-            # Per-script GAME_ARGS dict
-            game_args = self.game_args_input.text().strip()
+            # Update current script's config in _per_script_config
             selected_index = self.script_selector.currentIndex()
             if selected_index == 0:
-                # "All scripts (shared)" - store under special key
-                self._game_args_dict["ALL_SCRIPTS"] = game_args
+                script_key = "ALL_SCRIPTS"
             else:
                 script_path = self.script_selector.itemData(selected_index)
-                if script_path:
-                    script_name = os.path.basename(script_path)
-                    self._game_args_dict[script_name] = game_args
-            # Only include GAME_ARGS if there are non-empty values
-            non_empty = {k: v for k, v in self._game_args_dict.items() if v}
-            if non_empty:
-                config["GAME_ARGS"] = non_empty
+                script_key = os.path.basename(script_path) if script_path else None
+            if script_key and script_key in self._per_script_config:
+                self._per_script_config[script_key]["PROTON_ENABLE_WAYLAND"] = config["PROTON_ENABLE_WAYLAND"]
+                self._per_script_config[script_key]["MANGOHUD"] = config["MANGOHUD"]
+                self._per_script_config[script_key]["PROTON_USE_WOW64"] = config["PROTON_USE_WOW64"]
+                self._per_script_config[script_key]["GAMEID"] = game_id
+                self._per_script_config[script_key]["STORE"] = store
+                self._per_script_config[script_key]["PROTONPATH"] = config["PROTONPATH"]
+                self._per_script_config[script_key]["EXTRA_VARS"] = extra_text
+                self._per_script_config[script_key]["GAME_ARGS"] = self.game_args_input.text().strip()
+
+            # Build GAME_ARGS dict from all scripts
+            game_args_dict = {}
+            for key, script_cfg in self._per_script_config.items():
+                args = script_cfg.get("GAME_ARGS", "")
+                if args:
+                    game_args_dict[key] = args
+            if game_args_dict:
+                config["GAME_ARGS"] = game_args_dict
         else:
             # Legacy: single GAME_ARGS string
             game_args = self.game_args_input.text().strip()
             if game_args:
                 config["GAME_ARGS"] = game_args
-
-        extra_vars_text = self.extra_vars_input.toPlainText().strip()
-        if extra_vars_text:
-            for line in extra_vars_text.splitlines():
-               if "=" in line:
-                    parts = line.split("=", 1)
-                    key = parts[0].strip()
-                    value = parts[1].strip()
-                    if key:
-                        config[key] = value
 
         return config
 
