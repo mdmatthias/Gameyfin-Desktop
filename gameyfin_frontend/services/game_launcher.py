@@ -7,7 +7,7 @@ import os
 import re
 from typing import Any
 
-from PyQt6.QtCore import QProcess
+from PyQt6.QtCore import QProcess, QProcessEnvironment
 
 from gameyfin_frontend.utils import build_umu_env_prefix
 from gameyfin_frontend.config import DEFAULT_PROTON
@@ -123,9 +123,9 @@ class GameLauncher:
             # wrapping in /bin/sh -c "VAR=val umu-run ...".  This avoids all
             # shell quoting issues — game args appear exactly as the user typed
             # them, with no single-quote wrapping.
-            env = QProcess.systemEnvironment()
+            env = QProcessEnvironment.systemEnvironment()
             for match in re.finditer(r'(\w+)="([^"]*)"', env_prefix):
-                env.append(f'{match.group(1)}={match.group(2)}')
+                env.insert(match.group(1), match.group(2))
             process.setProcessEnvironment(env)
 
             process.start("/bin/sh", ["-c", command])

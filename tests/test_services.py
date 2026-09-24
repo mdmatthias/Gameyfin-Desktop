@@ -262,6 +262,53 @@ class TestGameLauncher:
             assert '--exec="launch WoWF"' in command_str
 
     @pytest.mark.skipif(sys.platform == "win32", reason="Linux-only test")
+    def test_start_linux_setProcessEnvironment_receives_QProcessEnvironment(self):
+        """Regression: setProcessEnvironment must receive a QProcessEnvironment, not a list.
+
+        Previously the code called ``QProcess.systemEnvironment()`` which returns a
+        Python ``list``, then passed that list to ``setProcessEnvironment()`` which
+        expects a ``QProcessEnvironment`` instance — raising ``TypeError`` at launch time.
+        """
+        from PyQt6.QtCore import QProcessEnvironment
+
+        from gameyfin_frontend.services import GameLauncher
+
+        launcher = GameLauncher()
+
+        with patch("gameyfin_frontend.services.game_launcher.QProcess") as MockProcess:
+            mock_process = MagicMock()
+            mock_process.waitForStarted.return_value = True
+            MockProcess.return_value = mock_process
+
+            launcher.start_linux(
+                launcher_to_run="/tmp/game/game.exe",
+                target_dir="/tmp/game",
+                install_config={
+                    "GAMEID": "umu-test",
+                    "STORE": "steam",
+                    "PROTONPATH": "GE-Proton",
+                    "PROTON_ENABLE_WAYLAND": "1",
+                    "MANGOHUD": "0",
+                    "PROTON_USE_WOW64": "1",
+                    "EXTRA_KEY": "extra_val",
+                    "GAME_ARGS": "-windowed",
+                },
+                wine_prefix_path="/tmp/prefixes/my_game_pfx",
+            )
+
+            # Verify setProcessEnvironment was called with a QProcessEnvironment instance
+            env_arg = MockProcess.return_value.setProcessEnvironment.call_args[0][0]
+            assert isinstance(env_arg, QProcessEnvironment)
+
+            # Verify the environment carries the expected UMU variables
+            # (build_umu_env_prefix uses config keys directly, e.g. GAMEID not UMU_ID)
+            assert env_arg.value("GAMEID") == "umu-test"
+            assert env_arg.value("STORE") == "steam"
+            assert env_arg.value("PROTONPATH") == "GE-Proton"
+            assert env_arg.value("WINEPREFIX") == "/tmp/prefixes/my_game_pfx"
+            assert env_arg.value("EXTRA_KEY") == "extra_val"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="Linux-only test")
     def test_start_linux_missing_prefix(self, mock_settings):
         from gameyfin_frontend.services import GameLauncher
 

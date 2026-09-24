@@ -153,31 +153,27 @@ class TestInstallConfigDialog:
         )
         qtbot.addWidget(dialog)
 
-        # Script selector should have "All scripts" + 2 scripts
-        assert dialog.script_selector.count() == 3
-        assert dialog.script_selector.itemText(0) == "All scripts (shared)"
-        assert dialog.script_selector.itemText(1) == "game.sh"
-        assert dialog.script_selector.itemText(2) == "shortcut.sh"
+        # Script selector has 2 scripts (no "All scripts" option)
+        assert dialog.script_selector.count() == 2
+        assert dialog.script_selector.itemText(0) == "game.sh"
+        assert dialog.script_selector.itemText(1) == "shortcut.sh"
 
-        # Default selection should be "All scripts"
+        # Default selection is first script
         assert dialog.script_selector.currentIndex() == 0
-
-        # "All scripts" should NOT show first script's values
-        assert dialog.game_args_input.text() == ""
-
-        # Select first script and verify args
-        dialog.script_selector.setCurrentIndex(1)
         assert dialog.game_args_input.text() == "-windowed"
 
         # Select second script and verify args
-        dialog.script_selector.setCurrentIndex(2)
+        dialog.script_selector.setCurrentIndex(1)
         assert dialog.game_args_input.text() == "-vulkan"
 
         # Modify args and save
         dialog.game_args_input.setText("-newargs")
         config = dialog.get_config()
-        assert config["GAME_ARGS"]["shortcut.sh"] == "-newargs"
-        assert config["GAME_ARGS"]["game.sh"] == "-windowed"  # unchanged
+        # Each script has its full config
+        assert "game.sh" in config
+        assert "shortcut.sh" in config
+        assert config["shortcut.sh"]["GAME_ARGS"] == "-newargs"
+        assert config["game.sh"]["GAME_ARGS"] == "-windowed"  # unchanged
 
     def test_per_script_all_config_fields(self, qtbot, mock_umu_database):
         from gameyfin_frontend.dialogs import InstallConfigDialog
@@ -201,7 +197,7 @@ class TestInstallConfigDialog:
         )
         qtbot.addWidget(dialog)
 
-        # Default selection is "All scripts" - should show first script's values
+        # Default selection is first script with its full config
         assert dialog.script_selector.currentIndex() == 0
         assert dialog.gameid_input.text() == "UMU-GAME"
         assert dialog.store_combo.currentText() == "steam"
@@ -212,18 +208,20 @@ class TestInstallConfigDialog:
         assert dialog.extra_vars_input.toPlainText() == "EXTRA_KEY=extra_val"
 
         # Select second script - should show its specific values
-        dialog.script_selector.setCurrentIndex(2)
+        dialog.script_selector.setCurrentIndex(1)
         assert dialog.game_args_input.text() == "-vulkan"
 
         # Modify this script's GAMEID
         dialog.gameid_input.setText("UMU-SHORTCUT")
         config = dialog.get_config()
 
-        # GAMEID should be saved for shortcut.sh
-        assert config["GAMEID"] == "UMU-SHORTCUT"
-        # GAME_ARGS should have both scripts' values
-        assert config["GAME_ARGS"]["game.sh"] == "-windowed"
-        assert config["GAME_ARGS"]["shortcut.sh"] == "-vulkan"
+        # Each script has its full config (no ALL_SCRIPTS baseline)
+        assert "game.sh" in config
+        assert "shortcut.sh" in config
+        assert config["game.sh"]["GAMEID"] == "UMU-GAME"
+        assert config["shortcut.sh"]["GAMEID"] == "UMU-SHORTCUT"
+        assert config["game.sh"]["GAME_ARGS"] == "-windowed"
+        assert config["shortcut.sh"]["GAME_ARGS"] == "-vulkan"
 
     def test_legacy_game_args_migrated_to_dict(self, qtbot, mock_umu_database):
         from gameyfin_frontend.dialogs import InstallConfigDialog
@@ -244,16 +242,14 @@ class TestInstallConfigDialog:
         # Legacy args should be under the first script's basename
         assert dialog._per_script_config["game.sh"]["GAME_ARGS"] == "-legacy-args"
 
-        # Default selection is "All scripts" which shows ALL_SCRIPTS key
+        # Default selection is first script
         assert dialog.script_selector.currentIndex() == 0
-        # ALL_SCRIPTS should have the legacy args
-        assert dialog._per_script_config["ALL_SCRIPTS"]["GAME_ARGS"] == "-legacy-args"
         assert dialog.game_args_input.text() == "-legacy-args"
 
-        # Save - should produce GAME_ARGS dict
+        # Save - should produce new per-script format with each script's full config
         config = dialog.get_config()
-        assert isinstance(config["GAME_ARGS"], dict)
-        assert config["GAME_ARGS"]["game.sh"] == "-legacy-args"
+        assert "game.sh" in config
+        assert config["game.sh"]["GAME_ARGS"] == "-legacy-args"
 
 
 class TestSelectLauncherDialog:

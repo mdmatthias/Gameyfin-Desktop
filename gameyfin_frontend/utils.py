@@ -667,14 +667,38 @@ def create_shortcuts(
                 logger.info("Resolved %s to %s in %s", original_path, exe_name, working_dir)
 
             exe_path = os.path.join(working_dir, exe_name)
-            game_args = install_config.get("GAME_ARGS", "")
-            if game_args:
-                exe_part = f'umu-run {shell_dquote(exe_path)} {game_args}'
-            else:
-                exe_part = f'umu-run {shell_dquote(exe_path)}'
-            command_to_run = build_umu_command(proton_path, wine_prefix, install_config, exe_part)
-
             script_name = sanitize_name(os.path.splitext(os.path.basename(original_path))[0]) + ".sh"
+
+            # Determine per-script config values
+            has_per_script = "ALL_SCRIPTS" in install_config and isinstance(install_config["ALL_SCRIPTS"], dict)
+            if has_per_script:
+                # Merge ALL_SCRIPTS baseline with script-specific overrides
+                merged = dict(install_config["ALL_SCRIPTS"])
+                for key, value in install_config.items():
+                    if key == "ALL_SCRIPTS":
+                        continue
+                    if key == script_name and isinstance(value, dict):
+                        merged.update(value)
+                # Expand EXTRA_VARS into individual env vars
+                extra_text = merged.get("EXTRA_VARS", "")
+                if extra_text:
+                    for line in extra_text.splitlines():
+                        if "=" in line:
+                            k, v = line.split("=", 1)
+                            merged[k.strip()] = v.strip()
+                # Extract and remove internal keys from env prefix
+                game_args = merged.pop("GAME_ARGS", "") or ""
+                merged.pop("EXTRA_VARS", None)
+                proton_path = merged.get("PROTONPATH") or proton_path
+                command_to_run = build_umu_command(proton_path, wine_prefix, merged, f'umu-run {shell_dquote(exe_path)} {game_args}')
+            else:
+                # Legacy flat config
+                game_args = install_config.get("GAME_ARGS", "")
+                if game_args:
+                    exe_part = f'umu-run {shell_dquote(exe_path)} {game_args}'
+                else:
+                    exe_part = f'umu-run {shell_dquote(exe_path)}'
+                command_to_run = build_umu_command(proton_path, wine_prefix, install_config, exe_part)
             script_path = os.path.join(scripts_dir, script_name)
             script_content = (
                 f"#!/bin/sh\n\n"

@@ -54,6 +54,14 @@ class PrefixService:
         Checks both new and legacy locations for config.json. Falls back to parsing
         .sh scripts if no config.json is found.
 
+        Handles three input formats:
+        1. New per-script format: has ``ALL_SCRIPTS`` key with nested dict.
+        2. Old per-script GAME_ARGS: flat fields + GAME_ARGS dict.
+        3. Legacy flat format: all fields at top level.
+
+        For formats 2 and 3, the config is expanded to per-script format so that
+        every script gets a full copy of the flat values.
+
         Args:
             game_name: Name of the game (without _pfx suffix).
 
@@ -67,21 +75,7 @@ class PrefixService:
                 try:
                     with open(config_path, 'r') as f:
                         config = json.load(f)
-                    # Backward compat: migrate legacy string GAME_ARGS to dict
-                    if isinstance(config.get("GAME_ARGS"), str):
-                        legacy_args = config["GAME_ARGS"]
-                        config["GAME_ARGS"] = {}
-                        # Put legacy args under the primary script's basename
-                        primary_sh = os.path.join(sd, f"{game_name}.sh")
-                        if os.path.exists(primary_sh):
-                            config["GAME_ARGS"][os.path.basename(primary_sh)] = legacy_args
-                        else:
-                            # Fallback: use first .sh file found
-                            sh_files = glob.glob(os.path.join(sd, "*.sh"))
-                            if sh_files:
-                                config["GAME_ARGS"][os.path.basename(sh_files[0])] = legacy_args
-                            elif legacy_args:
-                                config["GAME_ARGS"]["main"] = legacy_args
+                    config = self._migrate_config_format(config)
                     return config, sd
                 except (json.JSONDecodeError, OSError) as e:
                     logger.error("Error loading config from %s: %s", config_path, e)
@@ -96,6 +90,59 @@ class PrefixService:
                     return config, sd
 
         return {}, None
+
+    def _migrate_config_format(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Migrate legacy config formats to the current per-script format.
+
+        The current format uses ``ALL_SCRIPTS`` as a baseline with per-script
+        overrides for fields that differ.  Legacy configs (flat keys, or flat
+        keys with a GAME_ARGS dict) are expanded so that every script gets a
+        full copy of the values.
+        """
+        # Already in new per-script format
+        if "ALL_SCRIPTS" in config and isinstance(config["ALL_SCRIPTS"], dict):
+            return config
+
+        # Old per-script GAME_ARGS dict + flat fields
+        raw_game_args = config.get("GAME_ARGS", "")
+        if isinstance(raw_game_args, dict):
+            baseline = {
+                "PROTON_ENABLE_WAYLAND": config.get("PROTON_ENABLE_WAYLAND", "0"),
+                "MANGOHUD": config.get("MANGOHUD", "0"),
+                "PROTON_USE_WOW64": config.get("PROTON_USE_WOW64", "0"),
+                "GAMEID": config.get("GAMEID", "umu-default"),
+                "STORE": config.get("STORE", "none"),
+                "PROTONPATH": config.get("PROTONPATH", ""),
+                "GAME_ARGS": raw_game_args.get("ALL_SCRIPTS", ""),
+                "EXTRA_VARS": self._extract_extra_vars_flat(config),
+            }
+            # Collect per-script overrides
+            overrides: dict[str, dict[str, str]] = {}
+            for key, value in raw_game_args.items():
+                if key == "ALL_SCRIPTS":
+                    continue
+                overrides[key] = {"GAME_ARGS": value}
+            # Build output
+            output: dict[str, Any] = {"ALL_SCRIPTS": baseline}
+            for script_name, override in overrides.items():
+                output[script_name] = override
+            return output
+
+        # Legacy flat format: expand to per-script with all scripts getting
+        # a full copy.  We don't know the script names here, so we return
+        # the flat config as-is and let the caller (e.g. update_scripts)
+        # handle it.
+        return config
+
+    @staticmethod
+    def _extract_extra_vars_flat(config: dict[str, Any]) -> str:
+        """Extract extra environment variables from a flat config dict."""
+        extra_lines = []
+        for k, v in config.items():
+            if k not in ["PROTON_ENABLE_WAYLAND", "MANGOHUD", "GAMEID", "STORE",
+                         "PROTON_USE_WOW64", "PROTONPATH", "GAME_ARGS"]:
+                extra_lines.append(f"{k}={v}")
+        return "\n".join(extra_lines)
 
     def save_config(self, game_name: str, config: dict[str, Any]) -> str:
         """Save install config to the primary (new) scripts directory.
@@ -121,8 +168,8 @@ class PrefixService:
         """Parse a .sh script to extract environment variables set before umu-run.
 
         Searches for the umu-run line, extracts ``KEY="VALUE"`` pairs, and detects
-        MangoHud usage. Game arguments are stored under the script's filename key
-        in the ``GAME_ARGS`` dict.
+        MangoHud usage.  All fields are returned in the new per-script format
+        with an ``ALL_SCRIPTS`` baseline.
 
         Args:
             script_path: Path to the .sh script file.
@@ -167,10 +214,7 @@ class PrefixService:
                 if match:
                     game_args = match.group(4).strip()
                     if game_args:
-                        # Store under the script's filename key
-                        if "GAME_ARGS" not in config:
-                            config["GAME_ARGS"] = {}
-                        config["GAME_ARGS"][os.path.basename(script_path)] = game_args
+                        config["GAME_ARGS"] = game_args
 
         except (OSError, IOError) as e:
             logger.error("Error extracting config from %s: %s", script_path, e)
@@ -187,6 +231,10 @@ class PrefixService:
 
         Scans all script directories (new + legacy), rebuilds the umu-run
         command with the new env prefix, and preserves the original executable path.
+
+        For per-script config (new format with ``ALL_SCRIPTS`` baseline), each
+        script is updated with its own set of values merged from the baseline
+        and any per-script overrides.
 
         Args:
             prefix_path: WINEPREFIX path.
@@ -216,8 +264,8 @@ class PrefixService:
             logger.info("No .sh scripts found to update.")
             return 0
 
-        proton_path = config.get("PROTONPATH") or self.settings.get("PROTONPATH") or DEFAULT_PROTON
-        env_part = build_umu_env_prefix(proton_path, prefix_path, config)
+        # Detect per-script format: has ALL_SCRIPTS key with nested dict
+        has_per_script = "ALL_SCRIPTS" in config and isinstance(config["ALL_SCRIPTS"], dict)
 
         count = 0
         for script_path in sh_files:
@@ -250,20 +298,44 @@ class PrefixService:
                         else:
                             exe_args = rest
 
-                        # Append GAME_ARGS from config if present
-                        game_args_config = config.get("GAME_ARGS", "")
-                        if isinstance(game_args_config, dict):
-                            # Per-script: look up by script filename
-                            script_name = os.path.basename(script_path)
-                            game_args = game_args_config.get(script_name, "")
-                            # Fall back to shared args if available
-                            if not game_args:
-                                game_args = game_args_config.get("ALL_SCRIPTS", "")
+                        # Determine per-script config values
+                        script_name = os.path.basename(script_path)
+                        if has_per_script:
+                            # Merge ALL_SCRIPTS baseline with script-specific overrides
+                            merged = dict(config["ALL_SCRIPTS"])
+                            for key, value in config.items():
+                                if key == "ALL_SCRIPTS":
+                                    continue
+                                if key == script_name and isinstance(value, dict):
+                                    merged.update(value)
+                            # Expand EXTRA_VARS into individual env vars
+                            extra_text = merged.get("EXTRA_VARS", "")
+                            if extra_text:
+                                for line in extra_text.splitlines():
+                                    if "=" in line:
+                                        k, v = line.split("=", 1)
+                                        merged[k.strip()] = v.strip()
+                            # Extract and remove internal keys from env prefix
+                            game_args = merged.pop("GAME_ARGS", "") or ""
+                            merged.pop("EXTRA_VARS", None)
+                            # Append GAME_ARGS to exe_args
+                            if game_args:
+                                exe_args = f"{exe_args} {game_args}"
+                            proton_path = merged.get("PROTONPATH", "") or self.settings.get("PROTONPATH") or DEFAULT_PROTON
+                            env_part = build_umu_env_prefix(proton_path, prefix_path, merged)
                         else:
-                            # Legacy: single string value
-                            game_args = game_args_config if game_args_config else ""
-                        if game_args:
-                            exe_args = f"{exe_args} {game_args}"
+                            # Legacy flat config
+                            proton_path = config.get("PROTONPATH") or self.settings.get("PROTONPATH") or DEFAULT_PROTON
+                            env_part = build_umu_env_prefix(proton_path, prefix_path, config)
+                            game_args_config = config.get("GAME_ARGS", "")
+                            if isinstance(game_args_config, dict):
+                                game_args = game_args_config.get(script_name, "")
+                                if not game_args:
+                                    game_args = game_args_config.get("ALL_SCRIPTS", "")
+                            else:
+                                game_args = game_args_config if game_args_config else ""
+                            if game_args:
+                                exe_args = f"{exe_args} {game_args}"
 
                         new_command = f"{env_part}umu-run {exe_args}"
 
