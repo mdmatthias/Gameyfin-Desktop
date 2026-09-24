@@ -148,15 +148,8 @@ class InstallConfigDialog(QDialog):
                 # Extract GAME_ARGS - handle both dict and string formats
                 raw_game_args = initial_config.get("GAME_ARGS", "")
                 if isinstance(raw_game_args, dict):
-                    # If dict, use "ALL_SCRIPTS" value or first script's value
+                    # ALL_SCRIPTS is only set if explicitly present in the dict
                     all_args = raw_game_args.get("ALL_SCRIPTS", "")
-                    # If ALL_SCRIPTS is empty but other scripts have values, use first script's
-                    if not all_args:
-                        for sp in self.scripts:
-                            sn = os.path.basename(sp)
-                            if sn in raw_game_args and raw_game_args[sn]:
-                                all_args = raw_game_args[sn]
-                                break
                 elif isinstance(raw_game_args, str):
                     all_args = raw_game_args
                 else:

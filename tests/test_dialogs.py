@@ -162,6 +162,9 @@ class TestInstallConfigDialog:
         # Default selection should be "All scripts"
         assert dialog.script_selector.currentIndex() == 0
 
+        # "All scripts" should NOT show first script's values
+        assert dialog.game_args_input.text() == ""
+
         # Select first script and verify args
         dialog.script_selector.setCurrentIndex(1)
         assert dialog.game_args_input.text() == "-windowed"
