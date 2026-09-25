@@ -334,6 +334,10 @@ class InstallConfigDialog(QDialog):
         # --- new per-script format (ALL_SCRIPTS baseline) ---
         if "ALL_SCRIPTS" in initial_config:
             baseline = dict(initial_config["ALL_SCRIPTS"])
+            # EXTRA_VARS must not live in the baseline — each script's
+            # extra environment variables are stored per-script and must
+            # not leak into other scripts' views.
+            baseline.pop("EXTRA_VARS", None)
             for script_path in self.scripts:
                 script_name = os.path.basename(script_path)
                 self._per_script_config[script_name] = dict(baseline)
