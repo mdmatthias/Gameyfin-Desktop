@@ -11,6 +11,8 @@ from gameyfin_frontend.utils import (
     build_flatpak_exec_command,
     get_xdg_user_dir,
     release_year,
+    resolve_script_config,
+    script_settings,
 )
 
 
@@ -249,3 +251,69 @@ class TestContrastingTextColor:
         from gameyfin_frontend.utils import contrasting_text_color
 
         assert contrasting_text_color(QColor("#3f51b5")).name() == "#ffffff"
+
+
+class TestResolveScriptConfig:
+    PER_SCRIPT = {
+        "A.sh": {"GAMEID": "umu-1", "STORE": "none", "PROTONPATH": "P1",
+                 "EXTRA_VARS": "FOO=a", "GAME_ARGS": "-a"},
+        "B.sh": {"GAMEID": "umu-1", "STORE": "steam", "PROTONPATH": "P1",
+                 "EXTRA_VARS": "FOO=b", "GAME_ARGS": ""},
+    }
+
+    def test_flat_config_applies_to_every_script(self):
+        config = {"GAMEID": "umu-1", "STORE": "steam", "FOO": "bar", "GAME_ARGS": "-x"}
+        assert resolve_script_config(config, "any.sh") == config
+
+    def test_flat_config_default_has_no_game_args(self):
+        config = {"GAMEID": "umu-1", "GAME_ARGS": "-x"}
+        assert resolve_script_config(config) == {"GAMEID": "umu-1"}
+
+    def test_flat_config_with_game_args_dict(self):
+        config = {"GAMEID": "umu-1", "GAME_ARGS": {"ALL_SCRIPTS": "-all", "A.sh": "-a"}}
+        assert resolve_script_config(config, "A.sh")["GAME_ARGS"] == "-a"
+        assert resolve_script_config(config, "B.sh")["GAME_ARGS"] == "-all"
+
+    def test_per_script_entries_stay_isolated(self):
+        a = resolve_script_config(self.PER_SCRIPT, "A.sh")
+        b = resolve_script_config(self.PER_SCRIPT, "B.sh")
+        assert a == {"GAMEID": "umu-1", "PROTONPATH": "P1", "FOO": "a", "GAME_ARGS": "-a"}
+        assert b == {"GAMEID": "umu-1", "STORE": "steam", "PROTONPATH": "P1", "FOO": "b"}
+
+    def test_unknown_script_gets_shared_settings_without_args(self):
+        new = resolve_script_config(self.PER_SCRIPT, "New.sh")
+        assert new["GAMEID"] == "umu-1"
+        assert new["PROTONPATH"] == "P1"
+        assert "GAME_ARGS" not in new
+
+    def test_all_scripts_baseline_with_overrides(self):
+        config = {
+            "ALL_SCRIPTS": {"GAMEID": "umu-1", "EXTRA_VARS": "FOO=base", "GAME_ARGS": "-all"},
+            "A.sh": {"GAME_ARGS": "-a"},
+        }
+        assert resolve_script_config(config, "A.sh") == {"GAMEID": "umu-1", "FOO": "base", "GAME_ARGS": "-a"}
+        assert resolve_script_config(config, "B.sh")["GAME_ARGS"] == "-all"
+
+    def test_env_prefix_never_contains_script_names(self):
+        result = build_umu_env_prefix("P", "/pfx", resolve_script_config(self.PER_SCRIPT, "A.sh"))
+        assert "A.sh" not in result and "B.sh" not in result and "EXTRA_VARS" not in result
+
+    def test_script_settings_keeps_dialog_shape(self):
+        fields = script_settings({"GAMEID": "umu-1", "FOO": "bar", "BAZ": "1"}, "A.sh")
+        assert fields["EXTRA_VARS"] == "FOO=bar\nBAZ=1"
+        assert fields["GAMEID"] == "umu-1"
+
+
+class TestXaliaToggle:
+    def test_on_by_default(self):
+        assert 'STEAM_COMPAT_CONFIG="xalia" ' in build_umu_env_prefix("P", "/pfx", {})
+
+    def test_disabled(self):
+        result = build_umu_env_prefix("P", "/pfx", {"ENABLE_XALIA": "0"})
+        assert "STEAM_COMPAT_CONFIG" not in result
+        assert "ENABLE_XALIA" not in result
+
+    def test_enabled_is_not_an_env_var(self):
+        result = build_umu_env_prefix("P", "/pfx", {"ENABLE_XALIA": "1"})
+        assert 'STEAM_COMPAT_CONFIG="xalia" ' in result
+        assert "ENABLE_XALIA" not in result

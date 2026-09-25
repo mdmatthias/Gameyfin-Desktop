@@ -12,7 +12,10 @@ from typing import Any
 
 from gameyfin_frontend.config import DEFAULT_PROTON, SCRIPT_PERMISSION
 from gameyfin_frontend.services.exe_icon import extract_exe_icon
-from gameyfin_frontend.utils import build_umu_env_prefix, create_shortcuts, sanitize_name, shell_dquote
+from gameyfin_frontend.utils import (
+    build_umu_env_prefix, create_shortcuts, is_per_script_config, resolve_script_config,
+    sanitize_name, script_settings, shell_dquote,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,13 +57,9 @@ class PrefixService:
         Checks both new and legacy locations for config.json. Falls back to parsing
         .sh scripts if no config.json is found.
 
-        Handles three input formats:
-        1. New per-script format: has ``ALL_SCRIPTS`` key with nested dict.
-        2. Old per-script GAME_ARGS: flat fields + GAME_ARGS dict.
-        3. Legacy flat format: all fields at top level.
-
-        For formats 2 and 3, the config is expanded to per-script format so that
-        every script gets a full copy of the flat values.
+        The config is returned as stored (flat or per-script); use
+        :func:`~gameyfin_frontend.utils.resolve_script_config` to get the
+        settings a given script runs with.
 
         Args:
             game_name: Name of the game (without _pfx suffix).
@@ -75,7 +74,6 @@ class PrefixService:
                 try:
                     with open(config_path, 'r') as f:
                         config = json.load(f)
-                    config = self._migrate_config_format(config)
                     return config, sd
                 except (json.JSONDecodeError, OSError) as e:
                     logger.error("Error loading config from %s: %s", config_path, e)
@@ -90,59 +88,6 @@ class PrefixService:
                     return config, sd
 
         return {}, None
-
-    def _migrate_config_format(self, config: dict[str, Any]) -> dict[str, Any]:
-        """Migrate legacy config formats to the current per-script format.
-
-        The current format uses ``ALL_SCRIPTS`` as a baseline with per-script
-        overrides for fields that differ.  Legacy configs (flat keys, or flat
-        keys with a GAME_ARGS dict) are expanded so that every script gets a
-        full copy of the values.
-        """
-        # Already in new per-script format
-        if "ALL_SCRIPTS" in config and isinstance(config["ALL_SCRIPTS"], dict):
-            return config
-
-        # Old per-script GAME_ARGS dict + flat fields
-        raw_game_args = config.get("GAME_ARGS", "")
-        if isinstance(raw_game_args, dict):
-            baseline = {
-                "PROTON_ENABLE_WAYLAND": config.get("PROTON_ENABLE_WAYLAND", "0"),
-                "MANGOHUD": config.get("MANGOHUD", "0"),
-                "PROTON_USE_WOW64": config.get("PROTON_USE_WOW64", "0"),
-                "GAMEID": config.get("GAMEID", "umu-default"),
-                "STORE": config.get("STORE", "none"),
-                "PROTONPATH": config.get("PROTONPATH", ""),
-                "GAME_ARGS": raw_game_args.get("ALL_SCRIPTS", ""),
-                "EXTRA_VARS": self._extract_extra_vars_flat(config),
-            }
-            # Collect per-script overrides
-            overrides: dict[str, dict[str, str]] = {}
-            for key, value in raw_game_args.items():
-                if key == "ALL_SCRIPTS":
-                    continue
-                overrides[key] = {"GAME_ARGS": value}
-            # Build output
-            output: dict[str, Any] = {"ALL_SCRIPTS": baseline}
-            for script_name, override in overrides.items():
-                output[script_name] = override
-            return output
-
-        # Legacy flat format: expand to per-script with all scripts getting
-        # a full copy.  We don't know the script names here, so we return
-        # the flat config as-is and let the caller (e.g. update_scripts)
-        # handle it.
-        return config
-
-    @staticmethod
-    def _extract_extra_vars_flat(config: dict[str, Any]) -> str:
-        """Extract extra environment variables from a flat config dict."""
-        extra_lines = []
-        for k, v in config.items():
-            if k not in ["PROTON_ENABLE_WAYLAND", "MANGOHUD", "GAMEID", "STORE",
-                         "PROTON_USE_WOW64", "PROTONPATH", "GAME_ARGS"]:
-                extra_lines.append(f"{k}={v}")
-        return "\n".join(extra_lines)
 
     def save_config(self, game_name: str, config: dict[str, Any]) -> str:
         """Save install config to the primary (new) scripts directory.
@@ -168,8 +113,7 @@ class PrefixService:
         """Parse a .sh script to extract environment variables set before umu-run.
 
         Searches for the umu-run line, extracts ``KEY="VALUE"`` pairs, and detects
-        MangoHud usage.  All fields are returned in the new per-script format
-        with an ``ALL_SCRIPTS`` baseline.
+        MangoHud usage.
 
         Args:
             script_path: Path to the .sh script file.
@@ -204,8 +148,11 @@ class PrefixService:
                 matches = re.findall(r'(\w+)="(.*?)"', env_part)
 
                 for key, value in matches:
-                    if key not in ["WINEPREFIX"]:
-                        config[key] = value
+                    # STEAM_COMPAT_CONFIG="xalia" is what ENABLE_XALIA (on by
+                    # default) writes; keeping it would override that checkbox.
+                    if key == "WINEPREFIX" or (key == "STEAM_COMPAT_CONFIG" and value == "xalia"):
+                        continue
+                    config[key] = value
 
                 # Extract game arguments from the part after umu-run
                 after_umu = umu_run_line.split("umu-run", 1)[1].strip()
@@ -232,9 +179,8 @@ class PrefixService:
         Scans all script directories (new + legacy), rebuilds the umu-run
         command with the new env prefix, and preserves the original executable path.
 
-        For per-script config (new format with ``ALL_SCRIPTS`` baseline), each
-        script is updated with its own set of values merged from the baseline
-        and any per-script overrides.
+        Each script gets its own settings from ``config`` (see
+        :func:`~gameyfin_frontend.utils.resolve_script_config`).
 
         Args:
             prefix_path: WINEPREFIX path.
@@ -263,9 +209,6 @@ class PrefixService:
         if not sh_files:
             logger.info("No .sh scripts found to update.")
             return 0
-
-        # Detect per-script format: has ALL_SCRIPTS key with nested dict
-        has_per_script = "ALL_SCRIPTS" in config and isinstance(config["ALL_SCRIPTS"], dict)
 
         count = 0
         for script_path in sh_files:
@@ -298,44 +241,12 @@ class PrefixService:
                         else:
                             exe_args = rest
 
-                        # Determine per-script config values
-                        script_name = os.path.basename(script_path)
-                        if has_per_script:
-                            # Merge ALL_SCRIPTS baseline with script-specific overrides
-                            merged = dict(config["ALL_SCRIPTS"])
-                            for key, value in config.items():
-                                if key == "ALL_SCRIPTS":
-                                    continue
-                                if key == script_name and isinstance(value, dict):
-                                    merged.update(value)
-                            # Expand EXTRA_VARS into individual env vars
-                            extra_text = merged.get("EXTRA_VARS", "")
-                            if extra_text:
-                                for line in extra_text.splitlines():
-                                    if "=" in line:
-                                        k, v = line.split("=", 1)
-                                        merged[k.strip()] = v.strip()
-                            # Extract and remove internal keys from env prefix
-                            game_args = merged.pop("GAME_ARGS", "") or ""
-                            merged.pop("EXTRA_VARS", None)
-                            # Append GAME_ARGS to exe_args
-                            if game_args:
-                                exe_args = f"{exe_args} {game_args}"
-                            proton_path = merged.get("PROTONPATH", "") or self.settings.get("PROTONPATH") or DEFAULT_PROTON
-                            env_part = build_umu_env_prefix(proton_path, prefix_path, merged)
-                        else:
-                            # Legacy flat config
-                            proton_path = config.get("PROTONPATH") or self.settings.get("PROTONPATH") or DEFAULT_PROTON
-                            env_part = build_umu_env_prefix(proton_path, prefix_path, config)
-                            game_args_config = config.get("GAME_ARGS", "")
-                            if isinstance(game_args_config, dict):
-                                game_args = game_args_config.get(script_name, "")
-                                if not game_args:
-                                    game_args = game_args_config.get("ALL_SCRIPTS", "")
-                            else:
-                                game_args = game_args_config if game_args_config else ""
-                            if game_args:
-                                exe_args = f"{exe_args} {game_args}"
+                        script_config = resolve_script_config(config, os.path.basename(script_path))
+                        game_args = script_config.get("GAME_ARGS", "")
+                        if game_args:
+                            exe_args = f"{exe_args} {game_args}"
+                        proton_path = script_config.get("PROTONPATH") or self.settings.get("PROTONPATH") or DEFAULT_PROTON
+                        env_part = build_umu_env_prefix(proton_path, prefix_path, script_config)
 
                         new_command = f"{env_part}umu-run {exe_args}"
 
@@ -432,7 +343,23 @@ class PrefixService:
         logger.info("Created proton shortcut %s for %s", desktop_path, exe_path)
 
         scripts_dir = self.settings.get_shortcuts_dir(game_name)
-        proton_path = config.get("PROTONPATH") or self.settings.get("PROTONPATH") or DEFAULT_PROTON
+        script_name = f"{base}.sh"
+
+        # A new executable starts from the game's shared settings (protonfix,
+        # store, Proton path, ...) but not another script's game arguments.
+        # Re-adding a name that already has settings keeps them.
+        if is_per_script_config(config) and script_name in config:
+            new_settings = script_settings(config, script_name)
+        else:
+            new_settings = script_settings(config)
+            if is_per_script_config(config):
+                # Record it, so Config shows this script with the values it
+                # was generated with rather than empty fields.
+                self.save_config(game_name, {**config, script_name: new_settings})
+        install_config = {script_name: new_settings}
+
+        script_config = resolve_script_config(install_config, script_name)
+        proton_path = script_config.get("PROTONPATH") or self.settings.get("PROTONPATH") or DEFAULT_PROTON
 
         # Only this .desktop is passed in: the other shortcuts' scripts are left
         # exactly as they are, the same way Config → Update scripts leaves
@@ -441,11 +368,11 @@ class PrefixService:
             all_desktop_files=[desktop_path],
             scripts_dir=scripts_dir,
             wine_prefix=prefix_path,
-            install_config=config,
+            install_config=install_config,
             proton_path=proton_path,
         )
 
-        return desktop_path, os.path.join(scripts_dir, f"{base}.sh")
+        return desktop_path, os.path.join(scripts_dir, script_name)
 
     def delete_prefix(self, prefix_path: str, game_name: str) -> None:
         """Delete a prefix directory and its associated shortcut scripts.

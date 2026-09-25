@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.settings import SettingsManager
-from gameyfin_frontend.utils import parse_desktop_file, format_size
+from gameyfin_frontend.utils import parse_desktop_file, format_size, script_settings
 from gameyfin_frontend.config import DEFAULT_PROTON, UMU_RUN_CMD
 from gameyfin_frontend.services.update_service import (
     can_auto_update,
@@ -99,6 +99,8 @@ class InstallConfigDialog(QDialog):
         self.wayland_checkbox = QCheckBox("Enable Wayland")
         self.mangohud_checkbox = QCheckBox("Enable MangoHud")
         self.wow64_checkbox = QCheckBox("Enable WOW64")
+        self.xalia_checkbox = QCheckBox("Enable Xalia (gamepad navigation in installers)")
+        self.xalia_checkbox.setChecked(True)
 
         self.gameid_input = QLineEdit()
         self.gameid_input.setText(default_game_id)
@@ -142,34 +144,22 @@ class InstallConfigDialog(QDialog):
         self.game_args_input.setPlaceholderText("e.g. -windowed -memory=2048")
         ensure_field_height(self.game_args_input)
 
+        # Every script needs an entry, even without a stored config — otherwise
+        # get_config() would come back empty and wipe the scripts' settings.
+        if self.scripts:
+            self._build_per_script_config(initial_config or {}, default_game_id, default_store)
+            self.script_selector.setCurrentIndex(0)  # Default to first script
+            self._load_script_config(0)
+
         # Apply initial config if provided
         if initial_config:
-            # Build per-script config from flat initial_config
-            if self.scripts:
-                self._build_per_script_config(initial_config, default_game_id, default_store)
-                self.script_selector.setCurrentIndex(0)  # Default to first script
-                self._load_script_config(0)
-            else:
-                # No scripts: populate fields directly (legacy behavior)
-                if initial_config.get("PROTON_ENABLE_WAYLAND") == "1":
-                    self.wayland_checkbox.setChecked(True)
-                if initial_config.get("MANGOHUD") == "1":
-                    self.mangohud_checkbox.setChecked(True)
-                if initial_config.get("PROTON_USE_WOW64") == "1":
-                    self.wow64_checkbox.setChecked(True)
-                if "GAMEID" in initial_config:
-                    self.gameid_input.setText(initial_config["GAMEID"])
-                if "STORE" in initial_config:
-                    self.store_combo.setCurrentText(initial_config["STORE"])
-                if "PROTONPATH" in initial_config:
-                    self.protonpath_input.setText(initial_config["PROTONPATH"])
-                extra_lines = []
-                for k, v in initial_config.items():
-                    if k not in ["PROTON_ENABLE_WAYLAND", "MANGOHUD", "GAMEID", "STORE", "PROTON_USE_WOW64", "PROTONPATH", "GAME_ARGS"]:
-                        extra_lines.append(f"{k}={v}")
-                self.extra_vars_input.setPlainText("\n".join(extra_lines))
-                if "GAME_ARGS" in initial_config and initial_config["GAME_ARGS"]:
-                    self.game_args_input.setText(initial_config["GAME_ARGS"])
+            if not self.scripts:
+                # No scripts yet: show the settings a new script would get.
+                fields = script_settings(initial_config)
+                game_args = initial_config.get("GAME_ARGS")
+                if isinstance(game_args, str):
+                    fields["GAME_ARGS"] = game_args
+                self._apply_fields(fields)
 
             # Apply initial checked states
             if self.wayland_checkbox.isEnabled():
@@ -185,6 +175,7 @@ class InstallConfigDialog(QDialog):
         main_layout.addWidget(self.wayland_checkbox)
         main_layout.addWidget(self.mangohud_checkbox)
         main_layout.addWidget(self.wow64_checkbox)
+        main_layout.addWidget(self.xalia_checkbox)
 
         form_layout.addRow("Umu protonfix:", self.gameid_widget)
         form_layout.addRow("Proton Path:", self.protonpath_input)
@@ -309,92 +300,24 @@ class InstallConfigDialog(QDialog):
         logger.info("Starting regedit with PROTONPATH=%s WINEPREFIX=%s", proton_path, self.wine_prefix_path)
         subprocess.Popen([UMU_RUN_CMD, "regedit"], env=proc_env, start_new_session=True)
 
-    def _extract_extra_vars(self, config: dict[str, Any]) -> str:
-        """Extract extra environment variables from a config dict as 'KEY=VALUE' lines."""
-        extra_lines = []
-        for k, v in config.items():
-            if k not in ["PROTON_ENABLE_WAYLAND", "MANGOHUD", "GAMEID", "STORE",
-                         "PROTON_USE_WOW64", "PROTONPATH", "GAME_ARGS"]:
-                extra_lines.append(f"{k}={v}")
-        return "\n".join(extra_lines)
-
     def _build_per_script_config(
         self,
         initial_config: dict[str, Any],
         default_game_id: str,
         default_store: str,
     ) -> None:
-        """Build _per_script_config from an initial config dict.
+        """Fill ``_per_script_config`` with each script's settings from *initial_config*.
 
-        Handles three input formats:
-        1. New per-script format: has ``ALL_SCRIPTS`` key with nested dict.
-        2. Old per-script GAME_ARGS: flat fields + GAME_ARGS dict.
-        3. Legacy flat format: all fields at top level.
+        Any stored format is accepted (see :func:`script_settings`); a script
+        without its own entry gets the game's shared settings.
         """
-        # --- new per-script format (ALL_SCRIPTS baseline) ---
-        if "ALL_SCRIPTS" in initial_config:
-            baseline = dict(initial_config["ALL_SCRIPTS"])
-            # EXTRA_VARS must not live in the baseline — each script's
-            # extra environment variables are stored per-script and must
-            # not leak into other scripts' views.
-            baseline.pop("EXTRA_VARS", None)
-            for script_path in self.scripts:
-                script_name = os.path.basename(script_path)
-                self._per_script_config[script_name] = dict(baseline)
-            # Apply per-script overrides
-            for key, value in initial_config.items():
-                if key == "ALL_SCRIPTS":
-                    continue
-                if key in self._per_script_config:
-                    self._per_script_config[key].update(value)
-            return
-
-        # --- per-script format without ALL_SCRIPTS ---
-        # Saved by get_config() as { "script.sh": { ...full config... }, ... }
-        # Check if any top-level key matches a known script and has a dict value.
-        per_script_found = False
         for script_path in self.scripts:
             script_name = os.path.basename(script_path)
-            if script_name in initial_config and isinstance(initial_config[script_name], dict):
-                self._per_script_config[script_name] = dict(initial_config[script_name])
-                per_script_found = True
-        if per_script_found:
-            return
-
-        # --- old per-script GAME_ARGS dict + flat fields ---
-        raw_game_args = initial_config.get("GAME_ARGS", "")
-        if isinstance(raw_game_args, dict):
-            # Old format: flat fields + GAME_ARGS dict
-            baseline = {
-                "PROTON_ENABLE_WAYLAND": initial_config.get("PROTON_ENABLE_WAYLAND", "0"),
-                "MANGOHUD": initial_config.get("MANGOHUD", "0"),
-                "PROTON_USE_WOW64": initial_config.get("PROTON_USE_WOW64", "0"),
-                "GAMEID": initial_config.get("GAMEID", default_game_id),
-                "STORE": initial_config.get("STORE", default_store),
-                "PROTONPATH": initial_config.get("PROTONPATH", ""),
-                "GAME_ARGS": raw_game_args.get("ALL_SCRIPTS", ""),
-                "EXTRA_VARS": self._extract_extra_vars(initial_config),
-            }
-            for script_path in self.scripts:
-                script_name = os.path.basename(script_path)
-                self._per_script_config[script_name] = dict(baseline)
-                self._per_script_config[script_name]["GAME_ARGS"] = raw_game_args.get(script_name, "")
-            return
-
-        # --- legacy flat format ---
-        baseline = {
-            "PROTON_ENABLE_WAYLAND": initial_config.get("PROTON_ENABLE_WAYLAND", "0"),
-            "MANGOHUD": initial_config.get("MANGOHUD", "0"),
-            "PROTON_USE_WOW64": initial_config.get("PROTON_USE_WOW64", "0"),
-            "GAMEID": initial_config.get("GAMEID", default_game_id),
-            "STORE": initial_config.get("STORE", default_store),
-            "PROTONPATH": initial_config.get("PROTONPATH", ""),
-            "GAME_ARGS": raw_game_args if isinstance(raw_game_args, str) else "",
-            "EXTRA_VARS": self._extract_extra_vars(initial_config),
-        }
-        for script_path in self.scripts:
-            script_name = os.path.basename(script_path)
-            self._per_script_config[script_name] = dict(baseline)
+            fields = script_settings(initial_config, script_name)
+            fields.setdefault("GAMEID", default_game_id)
+            fields.setdefault("STORE", default_store)
+            fields.setdefault("PROTONPATH", self.protonpath_input.text())
+            self._per_script_config[script_name] = fields
 
     def _on_script_selected(self, index: int) -> None:
         """Save the previous script's config, then load the selected script."""
@@ -424,6 +347,7 @@ class InstallConfigDialog(QDialog):
             "PROTON_ENABLE_WAYLAND": "1" if self.wayland_checkbox.isChecked() else "0",
             "MANGOHUD": "1" if self.mangohud_checkbox.isChecked() else "0",
             "PROTON_USE_WOW64": "1" if self.wow64_checkbox.isChecked() else "0",
+            "ENABLE_XALIA": "1" if self.xalia_checkbox.isChecked() else "0",
             "GAMEID": self.gameid_input.text().strip(),
             "STORE": self.store_combo.currentText(),
             "PROTONPATH": self.protonpath_input.text().strip(),
@@ -440,23 +364,22 @@ class InstallConfigDialog(QDialog):
         script_key = os.path.basename(script_path) if script_path else None
         if not script_key:
             return
-        baseline = self._per_script_config.get(script_key, {})
+        self._apply_fields(self._per_script_config.get(script_key, {}))
 
-        # Load all fields from the script's config
-        wayland_val = baseline.get("PROTON_ENABLE_WAYLAND", "0")
-        self.wayland_checkbox.setChecked(wayland_val == "1")
-
-        mangohud_val = baseline.get("MANGOHUD", "0")
-        self.mangohud_checkbox.setChecked(mangohud_val == "1")
-
-        wow64_val = baseline.get("PROTON_USE_WOW64", "0")
-        self.wow64_checkbox.setChecked(wow64_val == "1")
-
-        self.gameid_input.setText(baseline.get("GAMEID", ""))
-        self.store_combo.setCurrentText(baseline.get("STORE", "none"))
-        self.protonpath_input.setText(baseline.get("PROTONPATH", ""))
-        self.extra_vars_input.setPlainText(baseline.get("EXTRA_VARS", ""))
-        self.game_args_input.setText(baseline.get("GAME_ARGS", ""))
+    def _apply_fields(self, fields: dict[str, str]) -> None:
+        """Show one script's settings (in :func:`script_settings` shape) in the form."""
+        self.wayland_checkbox.setChecked(fields.get("PROTON_ENABLE_WAYLAND", "0") == "1")
+        self.mangohud_checkbox.setChecked(fields.get("MANGOHUD", "0") == "1")
+        self.wow64_checkbox.setChecked(fields.get("PROTON_USE_WOW64", "0") == "1")
+        self.xalia_checkbox.setChecked(fields.get("ENABLE_XALIA", "1") != "0")
+        if "GAMEID" in fields:
+            self.gameid_input.setText(fields["GAMEID"])
+        if "STORE" in fields:
+            self.store_combo.setCurrentText(fields["STORE"])
+        if "PROTONPATH" in fields:
+            self.protonpath_input.setText(fields["PROTONPATH"])
+        self.extra_vars_input.setPlainText(fields.get("EXTRA_VARS", ""))
+        self.game_args_input.setText(fields.get("GAME_ARGS", ""))
 
     def get_config(self) -> dict[str, str]:
         """
@@ -484,6 +407,7 @@ class InstallConfigDialog(QDialog):
                 "PROTON_ENABLE_WAYLAND": "1" if self.wayland_checkbox.isChecked() else "0",
                 "MANGOHUD": "1" if self.mangohud_checkbox.isChecked() else "0",
                 "PROTON_USE_WOW64": "1" if self.wow64_checkbox.isChecked() else "0",
+                "ENABLE_XALIA": "1" if self.xalia_checkbox.isChecked() else "0",
             }
 
             game_id = self.gameid_input.text().strip()

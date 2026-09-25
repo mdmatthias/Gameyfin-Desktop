@@ -339,6 +339,75 @@ class TestInstallConfigDialog:
         assert dialog2.extra_vars_input.toPlainText() == "WOW_VAR=world\nANOTHER=var"
 
 
+    def test_script_without_entry_gets_shared_settings(self, qtbot, mock_umu_database):
+        """A script added after the config was saved (e.g. via "Run exe on
+        prefix") shows the game's protonfix and Proton path, not blank fields."""
+        from gameyfin_frontend.dialogs import InstallConfigDialog
+
+        initial = {
+            "Game.sh": {"GAMEID": "umu-367500", "STORE": "steam", "PROTONPATH": "Proton-Custom",
+                        "EXTRA_VARS": "", "GAME_ARGS": "-game-only"},
+        }
+        dialog = InstallConfigDialog(
+            umu_database=mock_umu_database,
+            initial_config=initial,
+            scripts=["/p/Game.sh", "/p/tool.sh"],
+        )
+        qtbot.addWidget(dialog)
+
+        dialog.script_selector.setCurrentIndex(1)
+        assert dialog.gameid_input.text() == "umu-367500"
+        assert dialog.protonpath_input.text() == "Proton-Custom"
+        assert dialog.store_combo.currentText() == "steam"
+        assert dialog.game_args_input.text() == ""
+
+        config = dialog.get_config()
+        assert config["tool.sh"]["GAMEID"] == "umu-367500"
+        assert config["Game.sh"]["GAME_ARGS"] == "-game-only"
+
+    def test_scripts_without_stored_config_still_produce_a_config(self, qtbot, mock_umu_database):
+        """Without config.json, OK must not return {} and wipe every script's env."""
+        from gameyfin_frontend.dialogs import InstallConfigDialog
+
+        dialog = InstallConfigDialog(
+            umu_database=mock_umu_database,
+            default_game_id="umu-42",
+            initial_config={},
+            scripts=["/p/Game.sh"],
+        )
+        qtbot.addWidget(dialog)
+
+        config = dialog.get_config()
+        assert config["Game.sh"]["GAMEID"] == "umu-42"
+        assert config["Game.sh"]["PROTONPATH"] == "GE-Proton"
+
+
+    def test_xalia_checkbox_defaults_on(self, qtbot, mock_umu_database):
+        from gameyfin_frontend.dialogs import InstallConfigDialog
+        dialog = InstallConfigDialog(umu_database=mock_umu_database)
+        qtbot.addWidget(dialog)
+        assert dialog.xalia_checkbox.isChecked()
+        assert dialog.get_config()["ENABLE_XALIA"] == "1"
+
+    def test_xalia_checkbox_per_script(self, qtbot, mock_umu_database):
+        from gameyfin_frontend.dialogs import InstallConfigDialog
+        initial = {
+            "A.sh": {"GAMEID": "umu-1", "ENABLE_XALIA": "0"},
+            "B.sh": {"GAMEID": "umu-1"},  # saved before the checkbox existed
+        }
+        dialog = InstallConfigDialog(
+            umu_database=mock_umu_database, initial_config=initial,
+            scripts=["/p/A.sh", "/p/B.sh"],
+        )
+        qtbot.addWidget(dialog)
+        assert not dialog.xalia_checkbox.isChecked()
+        dialog.script_selector.setCurrentIndex(1)
+        assert dialog.xalia_checkbox.isChecked()
+        config = dialog.get_config()
+        assert config["A.sh"]["ENABLE_XALIA"] == "0"
+        assert config["B.sh"]["ENABLE_XALIA"] == "1"
+
+
 class TestSelectLauncherDialog:
     def test_dialog_initializes(self, qtbot):
         from gameyfin_frontend.dialogs import SelectLauncherDialog

@@ -210,13 +210,14 @@ def build_umu_env_prefix(proton_path: str, wine_prefix: str, config: dict) -> st
     Args:
         proton_path: Proton version (e.g. "GE-Proton").
         wine_prefix: WINEPREFIX path.
-        config: Dict of additional environment variables.
+        config: Dict of additional environment variables. ``ENABLE_XALIA="0"``
+            turns off the default ``STEAM_COMPAT_CONFIG="xalia"``.
 
     Returns:
         Environment prefix string.
     """
     env_prefix = f'PROTONPATH="{proton_path}" WINEPREFIX="{wine_prefix}" '
-    if "STEAM_COMPAT_CONFIG" not in config:
+    if "STEAM_COMPAT_CONFIG" not in config and config.get("ENABLE_XALIA", "1") != "0":
         # Proton restricts its bundled gamepad-accessibility tool (xalia) to a
         # whitelist of "supported" dialog patterns unless "xalia" is present
         # in STEAM_COMPAT_CONFIG. Without it, xalia drives simple Yes/No
@@ -225,9 +226,108 @@ def build_umu_env_prefix(proton_path: str, wine_prefix: str, config: dict) -> st
         # appears.
         env_prefix += 'STEAM_COMPAT_CONFIG="xalia" '
     for key, value in config.items():
-        if key not in ("PROTONPATH", "WINEPREFIX", "GAME_ARGS"):
+        if key not in ("PROTONPATH", "WINEPREFIX", "GAME_ARGS", "ENABLE_XALIA"):
             env_prefix += f'{key}="{value}" '
     return env_prefix
+
+
+# Keys the config dialog edits directly; everything else in a flat config is
+# an extra environment variable.
+SCRIPT_CONFIG_KEYS = ("PROTON_ENABLE_WAYLAND", "MANGOHUD", "PROTON_USE_WOW64", "ENABLE_XALIA",
+                      "GAMEID", "STORE", "PROTONPATH", "GAME_ARGS")
+
+
+def is_per_script_config(config: dict[str, Any]) -> bool:
+    """Return True if *config* stores settings per script.
+
+    A per-script config maps script names (``"Game.sh"``) — and optionally an
+    ``ALL_SCRIPTS`` baseline — to dicts of settings.  A flat config holds the
+    settings at the top level and applies them to every script.
+    """
+    return any(isinstance(v, dict) and k != "GAME_ARGS" for k, v in config.items())
+
+
+def script_settings(config: dict[str, Any], script_name: str | None = None) -> dict[str, str]:
+    """Return the stored settings for one script, in the config dialog's shape.
+
+    Every stored config format ends up here, so callers never need to know
+    which one they were handed:
+
+    * flat: settings at the top level, extra variables as extra keys, and
+      ``GAME_ARGS`` either a string or a ``{script: args, "ALL_SCRIPTS": args}`` dict;
+    * per-script: ``{"Game.sh": {...}, ...}``, optionally with an
+      ``ALL_SCRIPTS`` baseline that each script's entry is merged over.
+
+    A script without its own entry gets the baseline — ``ALL_SCRIPTS`` if
+    there is one, otherwise the first script's settings minus its game
+    arguments — so a newly added script starts with the game's protonfix and
+    Proton path instead of nothing.
+
+    Args:
+        config: The stored config, in any format.
+        script_name: Script basename (e.g. ``"Game.sh"``), or None for the
+            settings a new script should start with (never carries game args).
+
+    Returns:
+        Dict with the :data:`SCRIPT_CONFIG_KEYS` that are set, plus
+        ``EXTRA_VARS`` as ``KEY=VALUE`` lines.
+    """
+    if not is_per_script_config(config):
+        settings = {k: v for k, v in config.items() if k in SCRIPT_CONFIG_KEYS}
+        game_args = config.get("GAME_ARGS", "")
+        if isinstance(game_args, dict):
+            game_args = (game_args.get(script_name) if script_name else None) or game_args.get("ALL_SCRIPTS", "")
+        settings["GAME_ARGS"] = game_args if script_name else ""
+        settings["EXTRA_VARS"] = "\n".join(
+            f"{k}={v}" for k, v in config.items()
+            if k not in SCRIPT_CONFIG_KEYS and k != "EXTRA_VARS" and not isinstance(v, dict)
+        )
+        return settings
+
+    baseline = config.get("ALL_SCRIPTS")
+    entry = config.get(script_name) if script_name else None
+    if isinstance(baseline, dict):
+        # Entries only hold what differs from ALL_SCRIPTS.
+        settings = dict(baseline)
+        if isinstance(entry, dict):
+            settings.update(entry)
+    elif isinstance(entry, dict):
+        # Without a baseline, an entry is the script's complete settings.
+        settings = dict(entry)
+    else:
+        first = next((config[k] for k in sorted(config) if isinstance(config[k], dict)), {})
+        settings = dict(first)
+        settings["GAME_ARGS"] = ""
+    if not script_name:
+        settings["GAME_ARGS"] = ""
+    settings.setdefault("EXTRA_VARS", "")
+    return settings
+
+
+def resolve_script_config(config: dict[str, Any], script_name: str | None = None) -> dict[str, str]:
+    """Return the flat config one script runs with.
+
+    Like :func:`script_settings`, but with ``EXTRA_VARS`` expanded into
+    individual keys and unset fields dropped, ready for
+    :func:`build_umu_env_prefix`.  ``PROTONPATH`` and ``GAME_ARGS`` stay in
+    the result for the caller to use.
+    """
+    settings = script_settings(config, script_name)
+    extra_text = settings.pop("EXTRA_VARS", "") or ""
+
+    resolved: dict[str, str] = {}
+    for key, value in settings.items():
+        # The dialog stores "" for an empty field and "none" for no store;
+        # neither should end up in the environment.
+        if value in ("", None) or (key == "STORE" and value == "none"):
+            continue
+        resolved[key] = value
+    for line in extra_text.splitlines():
+        if "=" in line:
+            k, v = line.split("=", 1)
+            if k.strip():
+                resolved[k.strip()] = v.strip()
+    return resolved
 
 
 def parse_desktop_file(path: str) -> configparser.ConfigParser | None:
@@ -669,36 +769,14 @@ def create_shortcuts(
             exe_path = os.path.join(working_dir, exe_name)
             script_name = sanitize_name(os.path.splitext(os.path.basename(original_path))[0]) + ".sh"
 
-            # Determine per-script config values
-            has_per_script = "ALL_SCRIPTS" in install_config and isinstance(install_config["ALL_SCRIPTS"], dict)
-            if has_per_script:
-                # Merge ALL_SCRIPTS baseline with script-specific overrides
-                merged = dict(install_config["ALL_SCRIPTS"])
-                for key, value in install_config.items():
-                    if key == "ALL_SCRIPTS":
-                        continue
-                    if key == script_name and isinstance(value, dict):
-                        merged.update(value)
-                # Expand EXTRA_VARS into individual env vars
-                extra_text = merged.get("EXTRA_VARS", "")
-                if extra_text:
-                    for line in extra_text.splitlines():
-                        if "=" in line:
-                            k, v = line.split("=", 1)
-                            merged[k.strip()] = v.strip()
-                # Extract and remove internal keys from env prefix
-                game_args = merged.pop("GAME_ARGS", "") or ""
-                merged.pop("EXTRA_VARS", None)
-                proton_path = merged.get("PROTONPATH") or proton_path
-                command_to_run = build_umu_command(proton_path, wine_prefix, merged, f'umu-run {shell_dquote(exe_path)} {game_args}')
-            else:
-                # Legacy flat config
-                game_args = install_config.get("GAME_ARGS", "")
-                if game_args:
-                    exe_part = f'umu-run {shell_dquote(exe_path)} {game_args}'
-                else:
-                    exe_part = f'umu-run {shell_dquote(exe_path)}'
-                command_to_run = build_umu_command(proton_path, wine_prefix, install_config, exe_part)
+            script_config = resolve_script_config(install_config, script_name)
+            exe_part = f'umu-run {shell_dquote(exe_path)}'
+            game_args = script_config.get("GAME_ARGS", "")
+            if game_args:
+                exe_part = f'{exe_part} {game_args}'
+            command_to_run = build_umu_command(
+                script_config.get("PROTONPATH") or proton_path, wine_prefix, script_config, exe_part,
+            )
             script_path = os.path.join(scripts_dir, script_name)
             script_content = (
                 f"#!/bin/sh\n\n"

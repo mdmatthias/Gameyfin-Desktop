@@ -14,7 +14,7 @@ from gameyfin_frontend.settings import SettingsManager
 from gameyfin_frontend.services import PrefixService, ShortcutService, SteamIntegrationService
 from gameyfin_frontend.services.game_launcher import log_output_as_it_arrives
 from gameyfin_frontend.config import DEFAULT_PROTON
-from gameyfin_frontend.utils import build_umu_env_prefix, shell_dquote
+from gameyfin_frontend.utils import build_umu_env_prefix, resolve_script_config, shell_dquote
 
 logger = logging.getLogger(__name__)
 
@@ -160,9 +160,11 @@ class PrefixItemWidget(QWidget):
 
         config: dict[str, Any] = {}
         if self.settings:
-            config, _ = PrefixService(self.settings).load_config_from_scripts_dir(
+            stored, _ = PrefixService(self.settings).load_config_from_scripts_dir(
                 self.prefix_name.removesuffix("_pfx")
             )
+            # Not any one script's settings: the game's shared ones, without game args.
+            config = resolve_script_config(stored)
 
         proton_path = config.get("PROTONPATH") or (self.settings.get("PROTONPATH") if self.settings else "") or DEFAULT_PROTON
         env_prefix = build_umu_env_prefix(proton_path, self.prefix_path, config)
