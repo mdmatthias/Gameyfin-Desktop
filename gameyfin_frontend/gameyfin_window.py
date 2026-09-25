@@ -293,6 +293,9 @@ class GameyfinWindow(QMainWindow):
         system_index = self.tab_widget.addTab(self.system_tab, "System")
         self.tab_widget.tabBar().setTabButton(system_index, QTabBar.ButtonPosition.RightSide, None)
 
+        # Refresh the prefixes list whenever the prefixes tab is shown.
+        self.tab_widget.currentChanged.connect(self._on_tab_changed)
+
         # Gamepad button hints live under the tabs and only appear once a
         # controller is actually connected.
         self.gamepad_hint_bar = GamepadHintBar()
@@ -411,6 +414,12 @@ class GameyfinWindow(QMainWindow):
         if widget:
             widget.deleteLater()
             self.tab_widget.removeTab(index)
+
+    def _on_tab_changed(self, index: int) -> None:
+        """Refresh the prefixes list when the prefixes tab is selected."""
+        widget = self.tab_widget.widget(index)
+        if widget is self.prefix_manager:
+            self.prefix_manager.refresh_prefixes()
 
     def _setup_new_view(self) -> QWebEngineView:
         """Create a new browser view with a CustomWebEnginePage and connect tab signals."""
