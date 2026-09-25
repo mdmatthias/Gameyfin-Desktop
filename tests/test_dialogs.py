@@ -251,6 +251,93 @@ class TestInstallConfigDialog:
         assert "game.sh" in config
         assert config["game.sh"]["GAME_ARGS"] == "-legacy-args"
 
+    def test_per_script_format_round_trip_preserves_isolation(self, qtbot, mock_umu_database):
+        """Verify that reloading a saved per-script config keeps each script's
+        EXTRA_VARS isolated — selecting one script must not show another's vars.
+
+        This is the format that get_config() produces when scripts are present:
+        { "script.sh": { ...full config... }, ... }  (no ALL_SCRIPTS key).
+        """
+        from gameyfin_frontend.dialogs import InstallConfigDialog
+
+        # Simulate a saved config (the exact format get_config() produces)
+        initial = {
+            "Battlenet.sh": {
+                "PROTON_ENABLE_WAYLAND": "1",
+                "MANGOHUD": "0",
+                "PROTON_USE_WOW64": "0",
+                "GAMEID": "umu-battle",
+                "STORE": "battlenet",
+                "PROTONPATH": "GE-Proton",
+                "EXTRA_VARS": "BATTLE_VAR=hello",
+                "GAME_ARGS": "",
+            },
+            "World of Warcraft Forever.sh": {
+                "PROTON_ENABLE_WAYLAND": "0",
+                "MANGOHUD": "1",
+                "PROTON_USE_WOW64": "0",
+                "GAMEID": "umu-wow",
+                "STORE": "none",
+                "PROTONPATH": "GE-Proton",
+                "EXTRA_VARS": "WOW_VAR=world\nANOTHER=var",
+                "GAME_ARGS": "-windowed",
+            },
+        }
+        scripts = [
+            "/path/to/Battlenet.sh",
+            "/path/to/World of Warcraft Forever.sh",
+        ]
+        dialog = InstallConfigDialog(
+            umu_database=mock_umu_database,
+            default_game_id="umu-default",
+            default_store="none",
+            initial_config=initial,
+            scripts=scripts,
+        )
+        qtbot.addWidget(dialog)
+
+        # First script (Battlenet.sh) should show its own vars only
+        assert dialog.script_selector.currentIndex() == 0
+        assert dialog.extra_vars_input.toPlainText() == "BATTLE_VAR=hello"
+        assert dialog.gameid_input.text() == "umu-battle"
+        assert dialog.store_combo.currentText() == "battlenet"
+
+        # Second script (WoW) should show only its own vars
+        dialog.script_selector.setCurrentIndex(1)
+        assert dialog.extra_vars_input.toPlainText() == "WOW_VAR=world\nANOTHER=var"
+        assert dialog.gameid_input.text() == "umu-wow"
+        assert dialog.game_args_input.text() == "-windowed"
+
+        # Switch back to first — still only its own vars
+        dialog.script_selector.setCurrentIndex(0)
+        assert dialog.extra_vars_input.toPlainText() == "BATTLE_VAR=hello"
+        assert dialog.mangohud_checkbox.isChecked() is False
+
+        # Modify first script's vars and save — round trip should preserve isolation
+        dialog.gameid_input.setText("umu-battle-updated")
+        dialog.extra_vars_input.setPlainText("BATTLE_VAR=updated\nNEW_BATTLE=yes")
+        config = dialog.get_config()
+
+        # Reload with the saved config
+        dialog2 = InstallConfigDialog(
+            umu_database=mock_umu_database,
+            default_game_id="umu-default",
+            default_store="none",
+            initial_config=config,
+            scripts=scripts,
+        )
+        qtbot.addWidget(dialog2)
+
+        # First script should show updated vars only
+        dialog2.script_selector.setCurrentIndex(0)
+        expected = "BATTLE_VAR=updated\nNEW_BATTLE=yes"
+        assert dialog2.extra_vars_input.toPlainText() == expected
+        assert dialog2.gameid_input.text() == "umu-battle-updated"
+
+        # Second script should still show its original vars (unchanged)
+        dialog2.script_selector.setCurrentIndex(1)
+        assert dialog2.extra_vars_input.toPlainText() == "WOW_VAR=world\nANOTHER=var"
+
 
 class TestSelectLauncherDialog:
     def test_dialog_initializes(self, qtbot):

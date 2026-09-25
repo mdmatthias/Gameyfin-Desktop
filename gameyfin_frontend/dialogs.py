@@ -349,6 +349,18 @@ class InstallConfigDialog(QDialog):
                     self._per_script_config[key].update(value)
             return
 
+        # --- per-script format without ALL_SCRIPTS ---
+        # Saved by get_config() as { "script.sh": { ...full config... }, ... }
+        # Check if any top-level key matches a known script and has a dict value.
+        per_script_found = False
+        for script_path in self.scripts:
+            script_name = os.path.basename(script_path)
+            if script_name in initial_config and isinstance(initial_config[script_name], dict):
+                self._per_script_config[script_name] = dict(initial_config[script_name])
+                per_script_found = True
+        if per_script_found:
+            return
+
         # --- old per-script GAME_ARGS dict + flat fields ---
         raw_game_args = initial_config.get("GAME_ARGS", "")
         if isinstance(raw_game_args, dict):
