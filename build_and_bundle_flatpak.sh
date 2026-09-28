@@ -15,7 +15,7 @@ fi
 
 echo "Building Flatpak app..."
 
-flatpak-builder --force-clean --repo="$REPO_DIR" "$BUILD_DIR" "$MANIFEST"
+flatpak run org.flatpak.Builder --force-clean --repo="$REPO_DIR" "$BUILD_DIR" "$MANIFEST"
 
 echo "Creating Flatpak bundle: $OUTPUT_BUNDLE"
 

@@ -66,6 +66,8 @@ class SettingsManager:
             "GF_GAMEPAD_REPEAT_MS": 140,
             # Right-stick scroll speed and virtual-mouse speed, in pixels
             "GF_GAMEPAD_SCROLL_SPEED": 60,
+            # Don't offer to install missing 32-bit GL drivers (Flatpak) at startup
+            "GF_SKIP_GL32_CHECK": 0,
         }
         
         self.settings = self.defaults.copy()

@@ -19,6 +19,9 @@ SCRIPT_PERMISSION = 0o755
 # Flatpak application ID
 FLATPAK_ID = "org.gameyfin.Gameyfin-Desktop"
 
+# Freedesktop runtime the Flatpak's KDE runtime is based on (see the manifest)
+FDO_RUNTIME_VERSION = "25.08"
+
 # Number of fixed tabs (Main, Downloads, Prefixes, Settings, System)
 FIXED_TAB_COUNT = 5
 

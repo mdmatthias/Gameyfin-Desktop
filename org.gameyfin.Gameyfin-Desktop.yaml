@@ -70,12 +70,6 @@ add-extensions:
     no-autodownload: false
     autodelete: false
 
-  # 32-bit runtime compat libraries (glibc, etc.)
-  org.freedesktop.Platform.Compat.i386:
-    directory: lib/i386-linux-gnu
-    version: '25.08'
-    add-ld-path: lib
-
   # 32-bit GL drivers - version should match runtime, not legacy '1.4'
   org.freedesktop.Platform.GL32:
     directory: lib/i386-linux-gnu/GL
@@ -100,8 +94,12 @@ modules:
       - mkdir -p /app/lib/python3.13/site-packages
       - mkdir -p /app/etc
       - mkdir -p /app/lib/extensions/vulkan/MangoHud
+      # Register the 32-bit lib dirs with ldconfig (same as the Steam flatpak)
+      - printf '/app/lib32\n/app/lib/i386-linux-gnu\n' > /app/etc/ld.so.conf
 
-      # for 32 bit games
+      # 32-bit runtime libs (glibc, etc.) for 32-bit games, vendored from the
+      # SDK compat extension. No org.freedesktop.Platform.Compat.i386
+      # add-extension: mounted over this dir it would hide these copies.
       - find /usr/lib/i386-linux-gnu/ -mindepth 1 -maxdepth 1 ! -name GL ! -name extensions -exec cp -a {} /app/lib/i386-linux-gnu/ \;
       # Vendor MangoHud (both x86_64 and i386 libs ship together in this one
       - cp -a /usr/lib/extensions/vulkan/MangoHud/bin /usr/lib/extensions/vulkan/MangoHud/lib /usr/lib/extensions/vulkan/MangoHud/share /app/lib/extensions/vulkan/MangoHud/

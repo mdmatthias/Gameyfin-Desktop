@@ -53,6 +53,8 @@ class LibraryBrowserWidget(QWidget):
         self._worker: ApiCallWorker | None = None
         # Set when a refresh is asked for while one is still in flight
         self._refresh_pending = False
+        # True while an in-page fetch waits in its nested event loop
+        self._in_page_refresh = False
         # image id -> grid item still waiting for its cover
         self._pending_covers: dict[int, QListWidgetItem] = {}
 
@@ -207,7 +209,7 @@ class LibraryBrowserWidget(QWidget):
         they only block the renderer, so the interface stays responsive. The direct
         HTTP fallback would block, so that one goes to a worker thread.
         """
-        if self._worker is not None and self._worker.isRunning():
+        if self._in_page_refresh or (self._worker is not None and self._worker.isRunning()):
             # Queue it instead of dropping it: the request that arrives while a
             # fetch is winding down is usually the one made right after login.
             self._refresh_pending = True
@@ -245,7 +247,23 @@ class LibraryBrowserWidget(QWidget):
             QTimer.singleShot(0, self.refresh)
 
     def _refresh_in_page(self) -> None:
-        """Fetch through the web view on this thread and populate the grid."""
+        """Fetch through the web view on this thread and populate the grid.
+
+        The fetch waits in a nested event loop, so timers and signals can ask
+        for another refresh meanwhile. Those are queued rather than started
+        inside it: a nested fetch would finish first, and the outer, older one
+        would then overwrite its result.
+        """
+        self._in_page_refresh = True
+        try:
+            self._do_refresh_in_page()
+        finally:
+            self._in_page_refresh = False
+        if self._refresh_pending:
+            self._refresh_pending = False
+            QTimer.singleShot(0, self.refresh)
+
+    def _do_refresh_in_page(self) -> None:
         try:
             result = self._fetch_bundle()
         except GameyfinAuthError as e:

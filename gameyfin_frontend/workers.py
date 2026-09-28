@@ -8,6 +8,7 @@ from stream_unzip import stream_unzip
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QThread
 
 from .config import DOWNLOAD_CHUNK_SIZE, PROGRESS_SIGNAL_INTERVAL
+from .services.gl32_service import install_gl32_drivers
 from .services.update_service import check_latest_release, install_flatpak
 from .utils import sanitize_name
 
@@ -370,6 +371,25 @@ class FlatpakInstallWorker(QThread):
 
     def run(self) -> None:
         success, output = install_flatpak(self.flatpak_path)
+        self.finished.emit(success, output)
+
+
+class Gl32InstallWorker(QThread):
+    """Installs the missing 32-bit GL driver extensions off the GUI thread."""
+
+    finished = pyqtSignal(bool, str)  # (success, output)
+
+    def __init__(self, drivers: list[str]) -> None:
+        """Initialize the installer.
+
+        Args:
+            drivers: GL driver names (e.g. ``default``) to install GL32 for.
+        """
+        super().__init__()
+        self.drivers = drivers
+
+    def run(self) -> None:
+        success, output = install_gl32_drivers(self.drivers)
         self.finished.emit(success, output)
 
 

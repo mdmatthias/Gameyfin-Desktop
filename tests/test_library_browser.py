@@ -266,6 +266,25 @@ class TestLibraryBrowser:
         qtbot.waitUntil(lambda: browser.grid.count() == 2, timeout=5000)
         assert not browser._refresh_pending
 
+    def test_refresh_during_an_in_page_fetch_is_queued(self, qtbot, browser, mock_api, sample_libraries):
+        """A refresh fired from the fetch's nested event loop must not run inside it."""
+        depth = {"now": 0, "max": 0}
+
+        def get_libraries():
+            depth["now"] += 1
+            depth["max"] = max(depth["max"], depth["now"])
+            if mock_api.get_libraries.call_count == 1:
+                browser.refresh()  # e.g. the probe timer firing mid-call
+            depth["now"] -= 1
+            return sample_libraries
+
+        mock_api.get_libraries.side_effect = get_libraries
+        browser.refresh()
+
+        qtbot.waitUntil(lambda: mock_api.get_libraries.call_count == 2, timeout=5000)
+        assert depth["max"] == 1
+        assert not browser._refresh_pending
+
     def test_grid_items_carry_the_game_id(self, qtbot, browser):
         browser.refresh()
         qtbot.waitUntil(lambda: browser.grid.count() == 2, timeout=5000)

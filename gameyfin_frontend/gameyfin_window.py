@@ -19,8 +19,9 @@ from gameyfin_frontend.widgets.prefix_manager import PrefixManagerWidget
 from gameyfin_frontend.widgets.loading_overlay import LoadingOverlay
 from gameyfin_frontend.widgets.gamepad_hud import GamepadHintBar
 from gameyfin_frontend.widgets.system_tab import SystemTabWidget
-from gameyfin_frontend.dialogs import UpdateDialog
+from gameyfin_frontend.dialogs import Gl32DriverDialog, UpdateDialog
 from gameyfin_frontend.workers import StreamDownloadWorker, UpdateCheckWorker
+from gameyfin_frontend.services.gl32_service import missing_gl32_drivers
 from gameyfin_frontend.services.update_service import compare_versions, get_current_version
 from gameyfin_frontend.services.gameyfin_api import GameyfinApiClient
 from gameyfin_frontend.services.image_cache import ImageCache
@@ -547,6 +548,7 @@ class GameyfinWindow(QMainWindow):
             self._initial_load_complete = True
             self._loading_overlay.hide_overlay()
             self._check_for_updates_on_startup()
+            QTimer.singleShot(0, self._check_gl32_drivers_on_startup)
 
         if success:
             self._maybe_activate_native_ui()
@@ -573,7 +575,14 @@ class GameyfinWindow(QMainWindow):
         if self._native_ui_active():
             return
 
-        path = self.browser.url().path()
+        url = self.browser.url()
+        if url.host() != self.custom_page.main_host:
+            # Mid SSO redirect: API calls run in the page, so they would go to
+            # the identity provider's host instead of Gameyfin
+            self._native_probe_timer.start()
+            return
+
+        path = url.path()
         if path.startswith("/login") or path.startswith("/setup"):
             # Still on the login page — keep polling, the redirect may be client-side
             self._native_probe_timer.start()
@@ -652,6 +661,20 @@ class GameyfinWindow(QMainWindow):
         self._update_check_worker.finished.connect(self._on_startup_update_check)
         self._update_check_worker.start()
 
+    def _check_gl32_drivers_on_startup(self) -> None:
+        """Offer to install missing 32-bit GL drivers (Flatpak bundle installs).
+
+        Flatpak doesn't fetch the GL32 extension for an app installed from a
+        ``.flatpak`` bundle, which breaks 32-bit games unless WOW64 is on.
+        """
+        if int(self.settings.get("GF_SKIP_GL32_CHECK", 0) or 0) or not self.isVisible():
+            return
+        missing = missing_gl32_drivers()
+        if not missing:
+            return
+        logger.warning("Missing 32-bit GL drivers: %s", ", ".join(missing))
+        self._open_startup_dialog(Gl32DriverDialog(missing, self, self.settings))
+
     @pyqtSlot(object, str)
     def _on_startup_update_check(self, release, error: str) -> None:
         """Open the update dialog when the startup check found a newer release."""
@@ -665,8 +688,17 @@ class GameyfinWindow(QMainWindow):
         latest = release.get("tag_name", "").lstrip("vV")
         if compare_versions(latest, get_current_version()) <= 0:
             return
-        dialog = UpdateDialog(self, self.settings, release=release)
-        dialog.exec()
+        self._open_startup_dialog(UpdateDialog(self, self.settings, release=release))
+
+    def _open_startup_dialog(self, dialog: Any) -> None:
+        """Show a dialog window-modally without blocking in ``exec()``.
+
+        Startup dialogs can pop up while an in-page API call waits in its
+        nested event loop; ``exec()`` would pin that call under the dialog's
+        own loop until it closes, and its stale result would land afterwards.
+        """
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialog.open()
 
     def _release_update_check_worker(self) -> None:
         """Drop the update-check thread once it has actually stopped.

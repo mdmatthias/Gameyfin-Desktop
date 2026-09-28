@@ -40,6 +40,14 @@ flatpak run org.gameyfin.Gameyfin-Desktop
 
 Everything (including `umu-launcher`) is bundled, and no root password is needed.
 
+32-bit games and launchers (e.g. Battle.net) also need the 32-bit graphics drivers, which Flatpak doesn't install for a `.flatpak` bundle. The app offers to install them on first start; to do it by hand:
+
+```bash
+flatpak install --user flathub org.freedesktop.Platform.GL32.default
+```
+
+(NVIDIA users: `org.freedesktop.Platform.GL32.nvidia-<driver-version>`; see `flatpak --gl-drivers`.)
+
 #### 🪟 Windows
 
 Download and run the latest `Gameyfin-Desktop-vX.X.X.exe` from [Releases](https://github.com/mdmatthias/Gameyfin-Desktop/releases).

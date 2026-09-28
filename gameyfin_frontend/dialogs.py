@@ -28,7 +28,7 @@ from gameyfin_frontend.services.update_service import (
     is_running_in_flatpak,
 )
 from gameyfin_frontend.workers import (
-    FlatpakInstallWorker, UpdateCheckWorker, UpdateDownloadWorker
+    FlatpakInstallWorker, Gl32InstallWorker, UpdateCheckWorker, UpdateDownloadWorker
 )
 
 logger = logging.getLogger(__name__)
@@ -1290,3 +1290,108 @@ class UpdateDialog(QDialog):
             self._download_worker.stop()
         self._cleanup_workers()
         super().closeEvent(event)
+
+
+class Gl32DriverDialog(QDialog):
+    """Offer to install the missing 32-bit GL drivers (Flatpak only).
+
+    Flow: prompt → installing → done / error. "Don't ask again" sets
+    ``GF_SKIP_GL32_CHECK`` so the startup check stays quiet.
+    """
+
+    def __init__(self, drivers: list[str], parent: QWidget | None = None,
+                 settings: SettingsManager | None = None):
+        """Show the prompt for *drivers* (GL driver names such as ``default``)."""
+        super().__init__(parent)
+        self.settings = settings
+        self.drivers = drivers
+        self.setWindowTitle("32-bit Graphics Drivers Missing")
+        self.setMinimumWidth(440)
+
+        self._state = "prompt"
+        self._install_worker = None
+
+        main_layout = QVBoxLayout(self)
+
+        self.status_label = QLabel(
+            "The 32-bit graphics drivers for this Flatpak are not installed "
+            f"({', '.join(drivers)}).\n\n"
+            "32-bit games and launchers, such as Battle.net, need them unless "
+            "WOW64 is enabled. Install them from Flathub now?"
+        )
+        self.status_label.setWordWrap(True)
+        self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        main_layout.addWidget(self.status_label)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)  # busy indicator
+        self.progress_bar.setVisible(False)
+        main_layout.addWidget(self.progress_bar)
+
+        self.button_box = QDialogButtonBox()
+        self.install_button = self.button_box.addButton(
+            "Install", QDialogButtonBox.ButtonRole.AcceptRole)
+        self.later_button = self.button_box.addButton(
+            "Not Now", QDialogButtonBox.ButtonRole.RejectRole)
+        self.never_button = self.button_box.addButton(
+            "Don't Ask Again", QDialogButtonBox.ButtonRole.DestructiveRole)
+        self.install_button.setDefault(True)
+        self.install_button.clicked.connect(self._on_install_clicked)
+        self.later_button.clicked.connect(self.reject)
+        self.never_button.clicked.connect(self._on_never_clicked)
+        main_layout.addWidget(self.button_box)
+
+    @pyqtSlot()
+    def _on_install_clicked(self) -> None:
+        if self._state != "prompt":
+            self.accept()
+            return
+        self._state = "installing"
+        self.status_label.setText("Installing 32-bit graphics drivers from Flathub…")
+        self.progress_bar.setVisible(True)
+        self.install_button.setEnabled(False)
+        self.later_button.setVisible(False)
+        self.never_button.setVisible(False)
+        self._install_worker = Gl32InstallWorker(self.drivers)
+        self._install_worker.finished.connect(self._on_install_finished)
+        self._install_worker.start()
+
+    @pyqtSlot(bool, str)
+    def _on_install_finished(self, success: bool, output: str) -> None:
+        self._state = "done" if success else "error"
+        self.progress_bar.setVisible(False)
+        if success:
+            self.status_label.setText(
+                "32-bit graphics drivers installed.\n\n"
+                "Restart the app for them to take effect."
+            )
+        else:
+            self.status_label.setText(
+                "Installation failed:\n\n"
+                f"{output or 'Unknown error'}\n\n"
+                "You can install them manually with:\n"
+                + "\n".join(
+                    f"flatpak install --user flathub org.freedesktop.Platform.GL32.{d}"
+                    for d in self.drivers
+                )
+            )
+        self.install_button.setText("OK")
+        self.install_button.setEnabled(True)
+
+    @pyqtSlot()
+    def _on_never_clicked(self) -> None:
+        if self.settings:
+            self.settings.set("GF_SKIP_GL32_CHECK", 1)
+        self.reject()
+
+    def closeEvent(self, event) -> None:  # noqa: ANN001
+        # The install runs on the host and can't be cancelled; wait for it
+        # rather than destroy a running QThread
+        if self._install_worker is not None:
+            self._install_worker.wait()
+        super().closeEvent(event)
+
+    def reject(self) -> None:
+        if self._state == "installing":
+            return
+        super().reject()

@@ -394,7 +394,7 @@ class TestGameyfinWindow:
                 window._on_load_finished(True)
                 instances[0].finished.emit(release, "")
         mock_dialog_cls.assert_called_once_with(window, window.settings, release=release)
-        mock_dialog_cls.return_value.exec.assert_called_once()
+        mock_dialog_cls.return_value.open.assert_called_once()
 
     def test_startup_update_check_silent_when_up_to_date(self, qtbot, mock_umu_database, mock_settings):
         window = self._make_window(qtbot, mock_umu_database, mock_settings)
@@ -622,6 +622,18 @@ class TestNativeLibraryUI:
             window._probe_native_ui()
 
         assert window.main_stack.currentWidget() is window.browser
+        mock_refresh.assert_not_called()
+        assert window._native_probe_timer.isActive()
+
+    def test_foreign_host_is_not_probed_but_keeps_polling(self, qtbot, mock_umu_database, native_settings):
+        """Mid SSO redirect the in-page call would hit the identity provider."""
+        from PyQt6.QtCore import QUrl
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+
+        with patch.object(type(window.browser), "url", return_value=QUrl("https://sso.example.com/if/flow/")), \
+             patch.object(window.library_browser, "refresh") as mock_refresh:
+            window._probe_native_ui()
+
         mock_refresh.assert_not_called()
         assert window._native_probe_timer.isActive()
 
