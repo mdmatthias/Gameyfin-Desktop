@@ -122,6 +122,18 @@
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="2.12.0" date="2026-09-28">
+            <description>
+                <ul>
+                    <li>(Linux) Fix 32-bit games and launchers (e.g. Battle.net) only working with WOW64 enabled: the bundled 32-bit libraries are now found, and the app offers to install the missing 32-bit graphics drivers from Flathub on startup.</li>
+                    <li>(Linux) Prefix configuration is now per launch script: pick a script at the top of the Config dialog and every setting applies to that script only. Existing configs keep working.</li>
+                    <li>(Linux) Add game arguments to the prefix configuration, passed to the game by its launch script and when launching from the app.</li>
+                    <li>(Linux) Add an "Enable Xalia" checkbox (on by default) to turn off Proton's gamepad navigation for installers.</li>
+                    <li>(Linux) Refresh the prefixes list when its tab is opened.</li>
+                    <li>Fix the native library showing an error after logging in through an SSO redirect.</li>
+                </ul>
+            </description>
+        </release>
         <release version="2.11.0" date="2026-09-17">
             <description>
                 <ul>

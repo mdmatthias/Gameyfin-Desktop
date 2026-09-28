@@ -1,10 +1,10 @@
-pyqt6-sip~=13.11
-PyQt6~=6.10
-PyQt6-WebEngine~=6.0
-requests~=2.0
-python-dotenv~=1.0
+pyqt6-sip~=13.12
+PyQt6~=6.11
+PyQt6-WebEngine~=6.11
+requests~=2.34
+python-dotenv~=1.2
 qt-material~=2.17
-qt-themes~=0.4
+qt-themes~=0.4.1
 qtpy~=2.4
 stream-unzip~=0.0.101
 vdf~=3.4
