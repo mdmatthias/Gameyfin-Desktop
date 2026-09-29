@@ -4,10 +4,10 @@ import time
 from typing import Any
 
 import requests
-from stream_unzip import stream_unzip
+from stream_unzip import TruncatedDataError, stream_unzip
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QThread
 
-from .config import DOWNLOAD_CHUNK_SIZE, PROGRESS_SIGNAL_INTERVAL
+from .config import DOWNLOAD_CHUNK_SIZE, DOWNLOAD_TIMEOUT, PROGRESS_SIGNAL_INTERVAL
 from .services.gl32_service import install_gl32_drivers
 from .services.update_service import check_latest_release, install_flatpak
 from .utils import sanitize_name
@@ -54,7 +54,7 @@ class StreamDownloadWorker(QObject):
             os.makedirs(self.target_dir, exist_ok=True)
 
             self._response = self._session.get(
-                self.url, stream=True, cookies=self.cookies, timeout=30
+                self.url, stream=True, cookies=self.cookies, timeout=DOWNLOAD_TIMEOUT
             )
             self._response.raise_for_status()
 
@@ -137,8 +137,14 @@ class StreamDownloadWorker(QObject):
                 self.error.emit("Download cancelled by user.")
             else:
                 self.error.emit(f"Network error: {e}")
+        except TruncatedDataError:
+            logger.error("Download ended before the archive was complete (connection closed by server or proxy)")
+            if self._cancelled:
+                self.error.emit("Download cancelled by user.")
+            else:
+                self.error.emit("Download was cut off by the server or proxy before it finished.")
         except (OSError, ValueError, RuntimeError) as e:
-            logger.error("Unexpected error during download: %s", e)
+            logger.error("Unexpected error during download: %r", e)
             if self._cancelled:
                 self.error.emit("Download cancelled by user.")
             else:

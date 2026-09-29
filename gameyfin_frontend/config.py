@@ -28,6 +28,10 @@ FIXED_TAB_COUNT = 5
 # Download chunk size for streaming (128 KB)
 DOWNLOAD_CHUNK_SIZE = 131072
 
+# Game download timeouts (seconds): (connect, read). The read timeout is the
+# longest gap between received bytes; big games behind a proxy can stall for a while.
+DOWNLOAD_TIMEOUT = (15, 300)
+
 # Progress signal interval (seconds)
 PROGRESS_SIGNAL_INTERVAL = 0.1
 
