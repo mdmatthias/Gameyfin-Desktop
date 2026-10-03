@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.settings import SettingsManager
 from gameyfin_frontend.utils import parse_desktop_file, format_size, script_settings
+from gameyfin_frontend.proton_combo import ProtonComboBox
 from gameyfin_frontend.config import DEFAULT_PROTON, UMU_RUN_CMD
 from gameyfin_frontend.services.update_service import (
     can_auto_update,
@@ -120,11 +121,12 @@ class InstallConfigDialog(QDialog):
         self.gameid_widget = QWidget()
         self.gameid_widget.setLayout(self.gameid_layout)
 
-        self.protonpath_input = QLineEdit()
-        if self.settings:
-            self.protonpath_input.setText(self.settings.get("PROTONPATH", DEFAULT_PROTON))
-        else:
-            self.protonpath_input.setText(DEFAULT_PROTON)
+        default_proton = self.settings.get("PROTONPATH", DEFAULT_PROTON) if self.settings else DEFAULT_PROTON
+        self.protonpath_input = ProtonComboBox(value=default_proton)
+        self.protonpath_input.setToolTip(
+            "Proton build to run this game with. Download more versions in "
+            "Settings \u2192 Proton Versions."
+        )
         ensure_field_height(self.protonpath_input)
 
         self.store_combo = QComboBox()
@@ -178,7 +180,7 @@ class InstallConfigDialog(QDialog):
         main_layout.addWidget(self.xalia_checkbox)
 
         form_layout.addRow("Umu protonfix:", self.gameid_widget)
-        form_layout.addRow("Proton Path:", self.protonpath_input)
+        form_layout.addRow("Proton Version:", self.protonpath_input)
         form_layout.addRow("Store:", self.store_combo)
         main_layout.addLayout(form_layout)
 
@@ -257,7 +259,7 @@ class InstallConfigDialog(QDialog):
 
         os.makedirs(self.wine_prefix_path, exist_ok=True)
 
-        proton_path = self.settings.get("PROTONPATH", DEFAULT_PROTON) if self.settings else DEFAULT_PROTON
+        proton_path = self.protonpath_input.value()
 
         proc_env = os.environ.copy()
         proc_env["PROTONPATH"] = proton_path
@@ -274,7 +276,7 @@ class InstallConfigDialog(QDialog):
 
         os.makedirs(self.wine_prefix_path, exist_ok=True)
 
-        proton_path = self.settings.get("PROTONPATH", DEFAULT_PROTON) if self.settings else DEFAULT_PROTON
+        proton_path = self.protonpath_input.value()
 
         proc_env = os.environ.copy()
         proc_env["PROTONPATH"] = proton_path
@@ -291,7 +293,7 @@ class InstallConfigDialog(QDialog):
 
         os.makedirs(self.wine_prefix_path, exist_ok=True)
 
-        proton_path = self.settings.get("PROTONPATH", DEFAULT_PROTON) if self.settings else DEFAULT_PROTON
+        proton_path = self.protonpath_input.value()
 
         proc_env = os.environ.copy()
         proc_env["PROTONPATH"] = proton_path
@@ -316,7 +318,7 @@ class InstallConfigDialog(QDialog):
             fields = script_settings(initial_config, script_name)
             fields.setdefault("GAMEID", default_game_id)
             fields.setdefault("STORE", default_store)
-            fields.setdefault("PROTONPATH", self.protonpath_input.text())
+            fields.setdefault("PROTONPATH", self.protonpath_input.value())
             self._per_script_config[script_name] = fields
 
     def _on_script_selected(self, index: int) -> None:
@@ -350,7 +352,7 @@ class InstallConfigDialog(QDialog):
             "ENABLE_XALIA": "1" if self.xalia_checkbox.isChecked() else "0",
             "GAMEID": self.gameid_input.text().strip(),
             "STORE": self.store_combo.currentText(),
-            "PROTONPATH": self.protonpath_input.text().strip(),
+            "PROTONPATH": self.protonpath_input.value(),
             "EXTRA_VARS": self.extra_vars_input.toPlainText().strip(),
             "GAME_ARGS": self.game_args_input.text().strip(),
         })
@@ -377,7 +379,7 @@ class InstallConfigDialog(QDialog):
         if "STORE" in fields:
             self.store_combo.setCurrentText(fields["STORE"])
         if "PROTONPATH" in fields:
-            self.protonpath_input.setText(fields["PROTONPATH"])
+            self.protonpath_input.set_value(fields["PROTONPATH"])
         self.extra_vars_input.setPlainText(fields.get("EXTRA_VARS", ""))
         self.game_args_input.setText(fields.get("GAME_ARGS", ""))
 
@@ -418,7 +420,7 @@ class InstallConfigDialog(QDialog):
             if store and store != "none":
                 config["STORE"] = store
 
-            config["PROTONPATH"] = self.protonpath_input.text().strip()
+            config["PROTONPATH"] = self.protonpath_input.value()
 
             extra_text = self.extra_vars_input.toPlainText().strip()
             extra_dict = {}

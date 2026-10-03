@@ -16,6 +16,7 @@ from gameyfin_frontend.theming import apply_theme
 from gameyfin_frontend.widgets.download_manager import DownloadManagerWidget
 from gameyfin_frontend.widgets.library_browser import LibraryBrowserWidget
 from gameyfin_frontend.widgets.prefix_manager import PrefixManagerWidget
+from gameyfin_frontend.widgets.proton_manager import ProtonManagerWidget
 from gameyfin_frontend.widgets.loading_overlay import LoadingOverlay
 from gameyfin_frontend.widgets.gamepad_hud import GamepadHintBar
 from gameyfin_frontend.widgets.system_tab import SystemTabWidget
@@ -169,8 +170,15 @@ class GameyfinWindow(QMainWindow):
         self.prefix_manager = PrefixManagerWidget(self.umu_database, self, self.settings)
         self.download_manager.prefix_manager = self.prefix_manager
 
+        # --- Proton version manager (Linux only) ---
+        self.proton_manager: ProtonManagerWidget | None = None
+        if sys.platform == "linux":
+            self.proton_manager = ProtonManagerWidget(self)
+
         # --- Settings Setup ---
         self.settings_widget = SettingsWidget(self, self.settings)
+        if self.proton_manager is not None:
+            self.proton_manager.installed_changed.connect(self.settings_widget.refresh_proton_versions)
 
         # --- System tab (info + exit) ---
         self.system_tab = SystemTabWidget(self, self.settings)
@@ -287,6 +295,10 @@ class GameyfinWindow(QMainWindow):
 
         prefixes_index = self.tab_widget.addTab(self.prefix_manager, "Prefixes")
         self.tab_widget.tabBar().setTabButton(prefixes_index, QTabBar.ButtonPosition.RightSide, None)
+
+        if self.proton_manager is not None:
+            proton_index = self.tab_widget.addTab(self.proton_manager, "Proton")
+            self.tab_widget.tabBar().setTabButton(proton_index, QTabBar.ButtonPosition.RightSide, None)
 
         settings_index = self.tab_widget.addTab(self.settings_widget, "Settings")
         self.tab_widget.tabBar().setTabButton(settings_index, QTabBar.ButtonPosition.RightSide, None)
@@ -407,7 +419,7 @@ class GameyfinWindow(QMainWindow):
 
     def close_tab(self, index: int) -> None:
         """Close an external browser tab, preventing closure of the fixed tabs."""
-        # Prevent closing the fixed tabs (Main, Downloads, Prefixes, Settings, System)
+        # Prevent closing the fixed tabs (Main, Downloads, Prefixes, [Proton,] Settings, System)
         if index < FIXED_TAB_COUNT:
             return
 
@@ -741,6 +753,8 @@ class GameyfinWindow(QMainWindow):
         if self.library_browser is not None:
             self.library_browser.refresh_theme_colors()
         self.settings_widget.refresh_theme_colors()
+        if self.proton_manager is not None:
+            self.proton_manager.refresh_theme_colors()
         if hasattr(self, "gamepad_hint_bar"):
             self.gamepad_hint_bar.refresh_theme_colors()
         if getattr(self, "gamepad_navigator", None) is not None:
@@ -796,6 +810,9 @@ class GameyfinWindow(QMainWindow):
                 # to shut SDL down from its exit hook, after Qt is gone.
                 gamepad.shutdown()
             self._release_update_check_worker()
+            if self.proton_manager is not None:
+                # Cancels a running Proton install; it removes its partial files
+                self.proton_manager.shutdown()
             self.download_manager.close()
             if self.library_browser is not None:
                 self._native_probe_timer.stop()

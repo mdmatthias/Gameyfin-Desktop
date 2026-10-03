@@ -326,6 +326,7 @@ class PrefixItemWidget(QWidget):
             parent=self,
             wine_prefix_path=self.prefix_path,
             initial_config=initial_config,
+            settings=self.settings,
             scripts=scripts,
         )
 

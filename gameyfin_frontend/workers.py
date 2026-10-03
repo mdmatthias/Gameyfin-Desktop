@@ -1,5 +1,6 @@
 import logging
 import os
+import tarfile
 import time
 from typing import Any
 
@@ -8,6 +9,7 @@ from stream_unzip import TruncatedDataError, stream_unzip
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QThread
 
 from .config import DOWNLOAD_CHUNK_SIZE, DOWNLOAD_TIMEOUT, PROGRESS_SIGNAL_INTERVAL
+from .services import proton_manager
 from .services.gl32_service import install_gl32_drivers
 from .services.update_service import check_latest_release, install_flatpak
 from .utils import sanitize_name
@@ -432,3 +434,56 @@ class ApiCallWorker(QThread):
             self.result_ready.emit(None, str(e))
             return
         self.result_ready.emit(result, "")
+
+
+class ProtonReleasesWorker(QThread):
+    """Fetch the release list of a Proton source off the GUI thread."""
+
+    result_ready = pyqtSignal(object, str)  # (list[ProtonRelease] or None, error message)
+
+    def __init__(self, source: "proton_manager.ProtonSource") -> None:
+        super().__init__()
+        self.source = source
+
+    def run(self) -> None:
+        try:
+            self.result_ready.emit(proton_manager.fetch_releases(self.source), "")
+        except (requests.exceptions.RequestException, ValueError) as e:
+            logger.error("Fetching %s releases failed: %s", self.source.name, e)
+            self.result_ready.emit(None, str(e))
+
+
+class ProtonInstallWorker(QThread):
+    """Download and extract a Proton build into compatibilitytools.d."""
+
+    # (stage, done bytes, total bytes); stage is "download" or "extract"
+    progress = pyqtSignal(str, "long long", "long long")
+    result_ready = pyqtSignal(str, str)  # (installed path, error message)
+
+    def __init__(self, release: "proton_manager.ProtonRelease") -> None:
+        super().__init__()
+        self.release = release
+        self._cancelled = False
+        self._last_signal = 0.0
+
+    def _report(self, stage: str, done: int, total: int) -> None:
+        now = time.monotonic()
+        if now - self._last_signal >= PROGRESS_SIGNAL_INTERVAL or (total and done >= total):
+            self._last_signal = now
+            self.progress.emit(stage, done, total)
+
+    def run(self) -> None:
+        try:
+            path = proton_manager.install_release(
+                self.release, progress=self._report, is_cancelled=lambda: self._cancelled,
+            )
+            self.result_ready.emit(path, "")
+        except proton_manager.InstallCancelled:
+            self.result_ready.emit("", "Installation cancelled.")
+        except (requests.exceptions.RequestException, ValueError, OSError, tarfile.TarError) as e:
+            logger.error("Installing %s failed: %s", self.release.name, e)
+            self.result_ready.emit("", str(e))
+
+    def stop(self) -> None:
+        """Ask the install to stop; partial files are removed by the worker."""
+        self._cancelled = True

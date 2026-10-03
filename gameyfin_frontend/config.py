@@ -1,5 +1,7 @@
 """Centralized constants for the Gameyfin application."""
 
+import sys
+
 # Application version — bump on each release
 APP_VERSION = "2.12.1"
 
@@ -22,8 +24,9 @@ FLATPAK_ID = "org.gameyfin.Gameyfin-Desktop"
 # Freedesktop runtime the Flatpak's KDE runtime is based on (see the manifest)
 FDO_RUNTIME_VERSION = "25.08"
 
-# Number of fixed tabs (Main, Downloads, Prefixes, Settings, System)
-FIXED_TAB_COUNT = 5
+# Number of fixed tabs (Main, Downloads, Prefixes, Proton, Settings, System);
+# the Proton tab only exists on Linux
+FIXED_TAB_COUNT = 6 if sys.platform == "linux" else 5
 
 # Download chunk size for streaming (128 KB)
 DOWNLOAD_CHUNK_SIZE = 131072

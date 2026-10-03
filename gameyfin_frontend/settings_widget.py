@@ -7,6 +7,8 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QFormLayout, QL
 from PyQt6.QtCore import Qt
 from gameyfin_frontend.theming import list_all_themes
 from .settings import SettingsManager
+from .config import DEFAULT_PROTON
+from .proton_combo import ProtonComboBox
 from .utils import muted_text_color
 
 
@@ -170,9 +172,11 @@ class SettingsWidget(QWidget):
     def _build_umu_section(self) -> QGroupBox:
         box, form = self._section("UMU")
 
-        self.proton_edit = QLineEdit()
-        self.proton_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.proton_edit.setText(self.settings.get("PROTONPATH") if self.settings else "")
+        self.proton_combo = ProtonComboBox(
+            value=self.settings.get("PROTONPATH") if self.settings else DEFAULT_PROTON)
+        self.proton_combo.setToolTip(
+            "Proton version new installs use by default. Games can override it "
+            "in their install/prefix configuration.")
 
         self.umu_api_edit = QLineEdit()
         self.umu_api_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -183,7 +187,7 @@ class SettingsWidget(QWidget):
         self.stores_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.stores_edit.setText(json.dumps(stores))
 
-        form.addRow("Proton Path:", self.proton_edit)
+        form.addRow("Default Proton:", self.proton_combo)
         form.addRow("UMU API URL:", self.umu_api_edit)
         form.addRow("UMU Stores (JSON):", self.stores_edit)
 
@@ -317,7 +321,7 @@ class SettingsWidget(QWidget):
             self.settings.set("GF_URL", self.url_edit.text())
             self.settings.set("GF_WINDOW_WIDTH", self.width_spin.value())
             self.settings.set("GF_WINDOW_HEIGHT", self.height_spin.value())
-            self.settings.set("PROTONPATH", self.proton_edit.text())
+            self.settings.set("PROTONPATH", self.proton_combo.value())
             self.settings.set("GF_UMU_API_URL", self.umu_api_edit.text())
             self.settings.set("GF_UMU_DB_STORES", stores)
             self.settings.set("GF_START_MINIMIZED", 1 if self.minimized_check.isChecked() else 0)
@@ -360,6 +364,10 @@ class SettingsWidget(QWidget):
         """Re-apply palette-derived colours after the theme changed."""
         self.gamepad_status_label.setStyleSheet(
             f"font-size: 11px; color: {muted_text_color(self)};")
+
+    def refresh_proton_versions(self) -> None:
+        """Offer newly installed (and drop removed) builds in the default drop-down."""
+        self.proton_combo.refresh()
 
     def set_gamepad_status(self, text: str) -> None:
         """Display the currently detected controller (set by the main window)."""

@@ -228,9 +228,22 @@ class TestGameyfinWindow:
                             qtbot.addWidget(window)
                             return window
 
-    def test_window_has_five_fixed_tabs(self, qtbot, mock_umu_database, mock_settings):
+    def test_window_has_fixed_tabs(self, qtbot, mock_umu_database, mock_settings):
+        from gameyfin_frontend.config import FIXED_TAB_COUNT
         window = self._make_window(qtbot, mock_umu_database, mock_settings)
-        assert window.tab_widget.count() == 5
+        assert window.tab_widget.count() == FIXED_TAB_COUNT
+
+    def test_proton_tab_follows_prefixes_on_linux(self, qtbot, mock_umu_database, mock_settings):
+        import sys
+        from PyQt6.QtWidgets import QTabBar
+        window = self._make_window(qtbot, mock_umu_database, mock_settings)
+        if sys.platform != "linux":
+            assert window.proton_manager is None
+            return
+        index = window.tab_widget.indexOf(window.proton_manager)
+        assert index == window.tab_widget.indexOf(window.prefix_manager) + 1
+        assert window.tab_widget.tabText(index) == "Proton"
+        assert window.tab_widget.tabBar().tabButton(index, QTabBar.ButtonPosition.RightSide) is None
 
     def test_main_tab_has_no_close_button(self, qtbot, mock_umu_database, mock_settings):
         from PyQt6.QtWidgets import QTabBar
@@ -241,7 +254,7 @@ class TestGameyfinWindow:
     def test_close_tab_prevents_closing_fixed_tabs(self, qtbot, mock_umu_database, mock_settings):
         window = self._make_window(qtbot, mock_umu_database, mock_settings)
         initial_count = window.tab_widget.count()
-        for i in range(5):
+        for i in range(initial_count):
             window.close_tab(i)
         assert window.tab_widget.count() == initial_count
 
@@ -323,10 +336,11 @@ class TestGameyfinWindow:
         from PyQt6.QtWebEngineWidgets import QWebEngineView
         window = self._make_window(qtbot, mock_umu_database, mock_settings)
         external_view = QWebEngineView()
+        from gameyfin_frontend.config import FIXED_TAB_COUNT
         window.tab_widget.addTab(external_view, "External")
-        assert window.tab_widget.count() == 6
+        assert window.tab_widget.count() == FIXED_TAB_COUNT + 1
         window.handle_logout(QUrl("http://localhost/logout"))
-        assert window.tab_widget.count() == 5
+        assert window.tab_widget.count() == FIXED_TAB_COUNT
         assert window.tab_widget.currentIndex() == 0
 
     def test_redirect_to_main_tab(self, qtbot, mock_umu_database, mock_settings):
@@ -561,8 +575,9 @@ class TestNativeLibraryUI:
         assert window.library_browser is not None
         assert window.api_client is not None
         assert window.main_stack.count() == 2
-        # The five fixed tabs are unchanged — the stack lives inside tab 0
-        assert window.tab_widget.count() == 5
+        # The fixed tabs are unchanged — the stack lives inside tab 0
+        from gameyfin_frontend.config import FIXED_TAB_COUNT
+        assert window.tab_widget.count() == FIXED_TAB_COUNT
         assert window.tab_widget.widget(0) is window.main_stack
 
     def test_toggling_the_flag_on_at_runtime_adds_the_browser_to_the_stack(

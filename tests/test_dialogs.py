@@ -44,7 +44,7 @@ class TestInstallConfigDialog:
         dialog = InstallConfigDialog(umu_database=mock_umu_database)
         qtbot.addWidget(dialog)
         assert dialog.gameid_input.text() == "umu-default"
-        assert dialog.protonpath_input.text() == "GE-Proton"
+        assert dialog.protonpath_input.value() == "GE-Proton"
 
     def test_initial_config_populates_fields(self, qtbot, mock_umu_database):
         from gameyfin_frontend.dialogs import InstallConfigDialog
@@ -66,7 +66,7 @@ class TestInstallConfigDialog:
         assert dialog.mangohud_checkbox.isChecked()
         assert dialog.gameid_input.text() == "UMU-TEST"
         assert dialog.store_combo.currentText() == "steam"
-        assert dialog.protonpath_input.text() == "Custom-Proton"
+        assert dialog.protonpath_input.value() == "Custom-Proton"
 
     def test_get_config_returns_dict(self, qtbot, mock_umu_database):
         from gameyfin_frontend.dialogs import InstallConfigDialog
@@ -201,7 +201,7 @@ class TestInstallConfigDialog:
         assert dialog.script_selector.currentIndex() == 0
         assert dialog.gameid_input.text() == "UMU-GAME"
         assert dialog.store_combo.currentText() == "steam"
-        assert dialog.protonpath_input.text() == "Proton 9"
+        assert dialog.protonpath_input.value() == "Proton 9"
         assert dialog.wayland_checkbox.isChecked()
         assert not dialog.mangohud_checkbox.isChecked()
         assert dialog.wow64_checkbox.isChecked()
@@ -357,7 +357,7 @@ class TestInstallConfigDialog:
 
         dialog.script_selector.setCurrentIndex(1)
         assert dialog.gameid_input.text() == "umu-367500"
-        assert dialog.protonpath_input.text() == "Proton-Custom"
+        assert dialog.protonpath_input.value() == "Proton-Custom"
         assert dialog.store_combo.currentText() == "steam"
         assert dialog.game_args_input.text() == ""
 
