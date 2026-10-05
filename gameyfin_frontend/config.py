@@ -35,6 +35,9 @@ DOWNLOAD_CHUNK_SIZE = 131072
 # longest gap between received bytes; big games behind a proxy can stall for a while.
 DOWNLOAD_TIMEOUT = (15, 300)
 
+# How long a stopped game gets to exit after SIGTERM before it is SIGKILLed (ms)
+STOP_GAME_GRACE_MS = 5000
+
 # Progress signal interval (seconds)
 PROGRESS_SIGNAL_INTERVAL = 0.1
 

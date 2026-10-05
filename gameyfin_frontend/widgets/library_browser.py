@@ -8,19 +8,21 @@ renders what a game library actually needs. Enabled by ``GF_NATIVE_UI``.
 import logging
 import math
 import os
+import signal
 import sys
 
-from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QProcess, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QFontMetrics, QIcon, QKeyEvent, QPixmap
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel,
                              QLineEdit, QListWidget, QListWidgetItem,
                              QMessageBox, QPushButton, QStackedWidget,
                              QVBoxLayout, QWidget)
 
-from ..config import COVER_TILE_HEIGHT, COVER_TILE_WIDTH, LIBRARY_PAGE_SIZE
+from ..config import (COVER_TILE_HEIGHT, COVER_TILE_WIDTH, LIBRARY_PAGE_SIZE,
+                      STOP_GAME_GRACE_MS)
 from ..services.gameyfin_api import (DownloadProvider, Game, GameyfinApiClient,
                                      GameyfinApiError, GameyfinAuthError, Library)
-from ..services.game_launcher import launch_script
+from ..services.game_launcher import launch_script, stop_game
 from ..services.image_cache import ImageCache
 from ..services.installed_games import InstalledGame, InstalledGamesService
 from ..settings import SettingsManager
@@ -67,6 +69,8 @@ class LibraryBrowserWidget(QWidget):
         self._installed_service = InstalledGamesService(settings)
         # Launched games' process + loading dialog, kept alive while running
         self._launch_refs: list[tuple[object, object]] = []
+        # Gameyfin game id -> launch script process of the games running now
+        self._running: dict[int, QProcess] = {}
 
         # Client-side paging. The server returns every game in one call, so the
         # grid slices the filtered result set into pages of this size.
@@ -176,6 +180,7 @@ class LibraryBrowserWidget(QWidget):
         self.detail.back_requested.connect(self.show_grid)
         self.detail.download_requested.connect(self.download_requested.emit)
         self.detail.play_requested.connect(self._play)
+        self.detail.stop_requested.connect(self._stop_shown_game)
         self.detail.script_selected.connect(self._remember_script)
         self.stack.addWidget(self.detail)
 
@@ -358,7 +363,7 @@ class LibraryBrowserWidget(QWidget):
                              item.data(GAME_ID_ROLE) in self.installed)
         game = self.detail.game
         if self.stack.currentWidget() is self.detail and game is not None:
-            self.detail.set_installed(self.installed.get(game.id))
+            self._show_installed(game.id)
 
     def _installed_for_script(self, script_path: str) -> InstalledGame | None:
         for info in self.installed.values():
@@ -374,8 +379,16 @@ class LibraryBrowserWidget(QWidget):
         info.last_script = os.path.basename(script_path)
         self._installed_service.set_last_script(info.game_name, script_path)
 
+    def _show_installed(self, game_id: int) -> None:
+        """Update the detail page's Play/Stop row for *game_id*."""
+        self.detail.set_installed(self.installed.get(game_id))
+        self.detail.set_running(game_id in self._running)
+
     def _play(self, script_path: str) -> None:
         """Launch an installed game's script."""
+        info = self._installed_for_script(script_path)
+        if info is not None and info.game_id in self._running:
+            return  # Already running: don't start a second copy
         self._remember_script(script_path)
         try:
             process, dialog = launch_script(script_path, self)
@@ -388,6 +401,49 @@ class LibraryBrowserWidget(QWidget):
         process.finished.connect(dialog.close)
         process.finished.connect(lambda *_: self._launch_refs.remove(refs)
                                  if refs in self._launch_refs else None)
+        if info is not None:
+            game_id = info.game_id
+            self._running[game_id] = process
+            process.finished.connect(lambda *_: self._on_game_exited(game_id, process))
+            if self.detail.game is not None and self.detail.game.id == game_id:
+                self.detail.set_running(True)
+
+    def _on_game_exited(self, game_id: int, process: QProcess) -> None:
+        """Forget a game whose launch script finished and reset its Play button."""
+        if self._running.get(game_id) is not process:
+            return
+        del self._running[game_id]
+        if self.detail.game is not None and self.detail.game.id == game_id:
+            self.detail.set_running(False)
+
+    def _stop_shown_game(self) -> None:
+        """Stop the game shown on the detail page."""
+        if self.detail.game is not None:
+            self.stop(self.detail.game.id)
+
+    def stop(self, game_id: int) -> None:
+        """Ask a running game to quit, and kill whatever is left after a grace period.
+
+        Both passes cover the launch script's process tree and every process
+        running in the game's prefix, so a launcher that handed off to the game
+        (or a lingering wineserver) is stopped too.
+        """
+        process = self._running.get(game_id)
+        if process is None:
+            return
+        info = self.installed.get(game_id)
+        prefix = info.prefix_path if info else None
+        if sys.platform == "win32":
+            process.kill()
+            return
+        stop_game(process.processId() or None, prefix, signal.SIGTERM)
+
+        def _kill_leftovers() -> None:
+            # Only follow the script's tree while it is still ours to signal
+            alive = self._running.get(game_id) is process
+            stop_game(process.processId() if alive else None, prefix, signal.SIGKILL)
+
+        QTimer.singleShot(STOP_GAME_GRACE_MS, _kill_leftovers)
 
     # ------------------------------------------------------------------
     # Filtering / grid
@@ -556,7 +612,7 @@ class LibraryBrowserWidget(QWidget):
         if game is None:
             return
         self.detail.show_game(game)
-        self.detail.set_installed(self.installed.get(game.id))
+        self._show_installed(game.id)
         self.stack.setCurrentWidget(self.detail)
         target = (self.detail.play_button if self.detail.play_button.isEnabled()
                   and self.detail.installed is not None else self.detail.download_button)

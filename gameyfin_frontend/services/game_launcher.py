@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import signal
 from typing import Any
 
 from PyQt6.QtCore import QProcess, QProcessEnvironment
@@ -73,6 +74,94 @@ def launch_script(script_path: str, parent: Any = None) -> tuple[QProcess, Any]:
         raise OSError(f"Failed to start {script_path}")
     log_output_as_it_arrives(process)
     return process, loading_dialog
+
+
+def _process_table(proc_dir: str = "/proc") -> dict[int, int]:
+    """Return every visible process as ``pid -> parent pid``."""
+    table: dict[int, int] = {}
+    try:
+        entries = os.listdir(proc_dir)
+    except OSError:
+        return table
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            with open(os.path.join(proc_dir, entry, "stat"), "rb") as f:
+                stat = f.read()
+            # The command name is in parentheses and may itself contain spaces
+            # or parentheses, so the fields are counted from the last ")"
+            fields = stat[stat.rindex(b")") + 2:].split()
+            table[int(entry)] = int(fields[1])
+        except (OSError, ValueError, IndexError):
+            continue
+    return table
+
+
+def _uses_prefix(pid: int, wine_prefix: str, proc_dir: str = "/proc") -> bool:
+    """Return True when *pid* runs with ``WINEPREFIX`` set to *wine_prefix*."""
+    try:
+        with open(os.path.join(proc_dir, str(pid), "environ"), "rb") as f:
+            environ = f.read().split(b"\0")
+    except OSError:
+        return False
+    for var in environ:
+        if var.startswith(b"WINEPREFIX="):
+            value = os.fsdecode(var[len(b"WINEPREFIX="):])
+            return os.path.normpath(value) == wine_prefix
+    return False
+
+
+def find_game_processes(root_pid: int | None, wine_prefix: str | None,
+                        proc_dir: str = "/proc") -> set[int]:
+    """Return the processes that belong to a running game.
+
+    That is the launch script (*root_pid*) with all its descendants, plus every
+    process using *wine_prefix* — wineserver and the game itself are not always
+    children of the script (a launcher can hand off to the game, and wineserver
+    daemonizes), but they all inherit the prefix's ``WINEPREFIX``.
+    """
+    table = _process_table(proc_dir)
+    # Never signal ourselves or the processes we run under
+    protected: set[int] = set()
+    pid = os.getpid()
+    while pid > 1 and pid not in protected:
+        protected.add(pid)
+        pid = table.get(pid, 0)
+
+    found: set[int] = set()
+    if root_pid and root_pid in table:
+        children: dict[int, list[int]] = {}
+        for child, parent in table.items():
+            children.setdefault(parent, []).append(child)
+        stack = [root_pid]
+        while stack:
+            pid = stack.pop()
+            if pid not in found:
+                found.add(pid)
+                stack.extend(children.get(pid, []))
+
+    if wine_prefix:
+        prefix = os.path.normpath(wine_prefix)
+        found.update(pid for pid in table if pid not in found and _uses_prefix(pid, prefix, proc_dir))
+
+    return found - protected
+
+
+def stop_game(root_pid: int | None, wine_prefix: str | None,
+              sig: int = signal.SIGTERM) -> set[int]:
+    """Send *sig* to every process of a running game and return their pids.
+
+    See :func:`find_game_processes` for what counts as the game's processes.
+    """
+    pids = find_game_processes(root_pid, wine_prefix)
+    for pid in pids:
+        try:
+            os.kill(pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+    logger.info("Sent signal %s to %d game process(es) (prefix %s)", sig, len(pids), wine_prefix)
+    return pids
 
 
 class GameLauncher:

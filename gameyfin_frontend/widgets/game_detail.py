@@ -100,6 +100,7 @@ class GameDetailWidget(QWidget):
     back_requested = pyqtSignal()
     download_requested = pyqtSignal(object, str)  # (Game, provider key)
     play_requested = pyqtSignal(str)  # launch script path
+    stop_requested = pyqtSignal()  # stop the running installed game
     # The user picked another launch script (path), so it can be remembered
     script_selected = pyqtSignal(str)
 
@@ -110,6 +111,7 @@ class GameDetailWidget(QWidget):
         self.settings = settings
         self.game: Game | None = None
         self.installed: InstalledGame | None = None
+        self.running = False
         self.providers: list[DownloadProvider] = []
         # image id -> (label, width, height) for artwork still being fetched
         self._pending_images: dict[int, tuple[QLabel, int, int]] = {}
@@ -216,6 +218,13 @@ class GameDetailWidget(QWidget):
         self.play_button.clicked.connect(self._emit_play)
         self.play_button.hide()
         download_row.addWidget(self.play_button)
+
+        self.stop_button = QPushButton("Stop")
+        self.stop_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.stop_button.setToolTip("Close the game and everything running in its prefix")
+        self.stop_button.clicked.connect(self.stop_requested.emit)
+        self.stop_button.hide()
+        download_row.addWidget(self.stop_button)
 
         self.script_combo = QComboBox()
         self.script_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -473,9 +482,11 @@ class GameDetailWidget(QWidget):
     def set_installed(self, info: InstalledGame | None) -> None:
         """Show the Play button (and script picker) for an installed game."""
         self.installed = info
+        self.running = False
         self.script_combo.clear()
         if info is None:
             self.play_button.hide()
+            self.stop_button.hide()
             self.script_combo.hide()
             return
 
@@ -489,9 +500,31 @@ class GameDetailWidget(QWidget):
         self.script_combo.setVisible(len(info.scripts) > 1)
 
         self.play_button.show()
-        self.play_button.setEnabled(bool(info.scripts))
+        self._update_play_state()
+
+    def set_running(self, running: bool) -> None:
+        """Switch Play to its "Running…" state and show Stop while the game runs."""
+        if self.installed is None:
+            return
+        # The focused button is about to be disabled or hidden: hand the focus
+        # (and with it the gamepad) to its counterpart
+        play_focused = self.play_button.hasFocus()
+        stop_focused = self.stop_button.hasFocus()
+        self.running = running
+        self._update_play_state()
+        if running and play_focused:
+            self.stop_button.setFocus(Qt.FocusReason.OtherFocusReason)
+        elif not running and stop_focused:
+            self.play_button.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _update_play_state(self) -> None:
+        scripts = bool(self.installed and self.installed.scripts)
+        self.play_button.setText("Running…" if self.running else "Play")
+        self.play_button.setEnabled(scripts and not self.running)
+        self.script_combo.setEnabled(not self.running)
+        self.stop_button.setVisible(self.running)
         self.play_button.setToolTip(
-            "" if info.scripts
+            "" if scripts
             else "No launch scripts — create shortcuts in the Prefixes tab"
         )
 

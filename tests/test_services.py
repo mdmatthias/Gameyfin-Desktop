@@ -788,3 +788,69 @@ class TestPrefixServiceUpdateScripts:
         assert 'MANGOHUD="1"' in content2  # MANGOHUD=1 expands to env var
         assert '--exec launch' in content2
         assert 'World of Warcraft Forever.sh=' not in content2  # no raw dict as env var
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="reads /proc")
+class TestStopGame:
+    """Stopping a game signals the launch script's tree and its prefix's processes."""
+
+    @staticmethod
+    def _fake_proc(root, pid, ppid, env=None, name="proc"):
+        proc = root / str(pid)
+        proc.mkdir()
+        (proc / "stat").write_bytes(f"{pid} ({name}) S {ppid} 0 0".encode())
+        environ = b"\0".join(f"{k}={v}".encode() for k, v in (env or {}).items())
+        (proc / "environ").write_bytes(environ)
+
+    def test_finds_tree_and_prefix_processes(self, tmp_path):
+        from gameyfin_frontend.services.game_launcher import find_game_processes
+
+        proc = tmp_path / "proc"
+        proc.mkdir()
+        self._fake_proc(proc, 100, 1, name="sh")                    # launch script
+        self._fake_proc(proc, 101, 100, name="umu run (x)")          # its child, odd name
+        self._fake_proc(proc, 102, 101)                              # grandchild
+        self._fake_proc(proc, 200, 1, {"WINEPREFIX": "/pfx/game/"})  # daemonized wineserver
+        self._fake_proc(proc, 300, 1, {"WINEPREFIX": "/pfx/other"})  # another game
+        self._fake_proc(proc, 400, 1)                                # unrelated
+
+        assert find_game_processes(100, "/pfx/game", str(proc)) == {100, 101, 102, 200}
+
+    def test_finished_script_still_finds_prefix_processes(self, tmp_path):
+        from gameyfin_frontend.services.game_launcher import find_game_processes
+
+        proc = tmp_path / "proc"
+        proc.mkdir()
+        self._fake_proc(proc, 200, 1, {"WINEPREFIX": "/pfx/game"})
+
+        assert find_game_processes(None, "/pfx/game", str(proc)) == {200}
+        assert find_game_processes(None, None, str(proc)) == set()
+
+    def test_never_signals_own_process(self, tmp_path, monkeypatch):
+        from gameyfin_frontend.services import game_launcher
+
+        proc = tmp_path / "proc"
+        proc.mkdir()
+        self._fake_proc(proc, 50, 1, {"WINEPREFIX": "/pfx/game"})   # our parent
+        self._fake_proc(proc, 60, 50, {"WINEPREFIX": "/pfx/game"})  # us
+        monkeypatch.setattr(game_launcher.os, "getpid", lambda: 60)
+
+        assert game_launcher.find_game_processes(50, "/pfx/game", str(proc)) == set()
+
+    def test_stop_game_terminates_real_processes(self, tmp_path):
+        import subprocess
+
+        from gameyfin_frontend.services.game_launcher import stop_game
+
+        prefix = str(tmp_path / "pfx")
+        script = subprocess.Popen(["sh", "-c", "sleep 30 & wait"])
+        stray = subprocess.Popen(["sleep", "30"], env={**os.environ, "WINEPREFIX": prefix})
+        try:
+            pids = stop_game(script.pid, prefix)
+            assert {script.pid, stray.pid} <= pids
+            assert script.wait(timeout=5) != 0
+            assert stray.wait(timeout=5) != 0
+        finally:
+            for p in (script, stray):
+                if p.poll() is None:
+                    p.kill()

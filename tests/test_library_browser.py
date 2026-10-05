@@ -4,6 +4,7 @@ import os
 from unittest.mock import MagicMock
 
 import pytest
+from PyQt6.QtCore import QObject, QProcess, pyqtSignal
 
 from gameyfin_frontend.services.gameyfin_api import (DownloadProvider, Game,
                                                      GameImage,
@@ -294,6 +295,18 @@ class TestLibraryBrowser:
         assert browser.grid.item(0).data(GAME_ID_ROLE) == 1
 
 
+class _FakeProcess(QObject):
+    """Stands in for a launch script's QProcess."""
+
+    finished = pyqtSignal(int, QProcess.ExitStatus)
+
+    def processId(self):
+        return 4321
+
+    def exit(self):
+        self.finished.emit(0, QProcess.ExitStatus.NormalExit)
+
+
 class TestInstalledGames:
     """Prefixes linked to a server game show up as installed in the library."""
 
@@ -405,6 +418,82 @@ class TestInstalledGames:
 
         assert not browser.detail.play_button.isHidden()
         assert not browser.detail.play_button.isEnabled()
+
+    def _launch(self, qtbot, browser, fresh_settings, monkeypatch):
+        """Open Beta's detail page and press Play; return the fake process."""
+        self._install(fresh_settings, "beta", 2)
+        self._load(qtbot, browser)
+        browser._open_item(browser.grid.item(1))
+        process = _FakeProcess()
+        launches = []
+        monkeypatch.setattr("gameyfin_frontend.widgets.library_browser.launch_script",
+                            lambda path, parent: launches.append(path) or (process, MagicMock()))
+        browser.detail.play_button.click()
+        return process, launches
+
+    def test_running_game_shows_stop_instead_of_play(self, qtbot, browser, fresh_settings, monkeypatch):
+        process, _ = self._launch(qtbot, browser, fresh_settings, monkeypatch)
+
+        detail = browser.detail
+        assert detail.play_button.text() == "Running…"
+        assert not detail.play_button.isEnabled()
+        assert not detail.stop_button.isHidden()
+
+        process.exit()
+
+        assert detail.play_button.text() == "Play"
+        assert detail.play_button.isEnabled()
+        assert detail.stop_button.isHidden()
+        assert browser._running == {}
+
+    def test_running_state_survives_reopening_the_game(self, qtbot, browser, fresh_settings, monkeypatch):
+        self._launch(qtbot, browser, fresh_settings, monkeypatch)
+
+        browser.show_grid()
+        browser._open_item(browser.grid.item(0))
+        assert browser.detail.stop_button.isHidden()
+        browser._open_item(browser.grid.item(1))
+
+        assert not browser.detail.stop_button.isHidden()
+        assert browser.detail.play_button.text() == "Running…"
+
+    def test_play_does_not_start_a_second_copy(self, qtbot, browser, fresh_settings, monkeypatch):
+        _, launches = self._launch(qtbot, browser, fresh_settings, monkeypatch)
+
+        browser._play(launches[0])
+
+        assert len(launches) == 1
+
+    def test_stop_terminates_then_kills_the_game(self, qtbot, browser, fresh_settings, monkeypatch):
+        import signal
+
+        monkeypatch.setattr("gameyfin_frontend.widgets.library_browser.STOP_GAME_GRACE_MS", 10)
+        calls = []
+        monkeypatch.setattr("gameyfin_frontend.widgets.library_browser.stop_game",
+                            lambda pid, prefix, sig: calls.append((pid, prefix, sig)))
+        self._launch(qtbot, browser, fresh_settings, monkeypatch)
+        prefix = browser.installed[2].prefix_path
+
+        browser.detail.stop_button.click()
+
+        assert calls == [(4321, prefix, signal.SIGTERM)]
+        qtbot.waitUntil(lambda: len(calls) == 2, timeout=1000)
+        assert calls[1] == (4321, prefix, signal.SIGKILL)
+
+    def test_kill_pass_skips_the_script_once_it_exited(self, qtbot, browser, fresh_settings, monkeypatch):
+        import signal
+
+        monkeypatch.setattr("gameyfin_frontend.widgets.library_browser.STOP_GAME_GRACE_MS", 10)
+        calls = []
+        monkeypatch.setattr("gameyfin_frontend.widgets.library_browser.stop_game",
+                            lambda pid, prefix, sig: calls.append((pid, prefix, sig)))
+        process, _ = self._launch(qtbot, browser, fresh_settings, monkeypatch)
+
+        browser.detail.stop_button.click()
+        process.exit()
+
+        qtbot.waitUntil(lambda: len(calls) == 2, timeout=1000)
+        assert calls[1] == (None, browser.installed[2].prefix_path, signal.SIGKILL)
 
 
 class TestLibraryBrowserPaging:
