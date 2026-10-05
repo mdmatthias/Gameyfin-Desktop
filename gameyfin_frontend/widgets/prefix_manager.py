@@ -12,7 +12,7 @@ from gameyfin_frontend.dialogs import InstallConfigDialog, LaunchLoadingDialog, 
 from gameyfin_frontend.umu_database import UmuDatabase
 from gameyfin_frontend.settings import SettingsManager
 from gameyfin_frontend.services import PrefixService, ShortcutService, SteamIntegrationService
-from gameyfin_frontend.services.game_launcher import log_output_as_it_arrives
+from gameyfin_frontend.services.game_launcher import launch_script, log_output_as_it_arrives
 from gameyfin_frontend.config import DEFAULT_PROTON
 from gameyfin_frontend.utils import build_umu_env_prefix, resolve_script_config, shell_dquote
 
@@ -117,22 +117,7 @@ class PrefixItemWidget(QWidget):
         script_path = self.script_combo.itemData(index)
         if script_path:
             try:
-                # Use the script filename (without .sh) as the display name
-                script_name = os.path.splitext(os.path.basename(script_path))[0]
-
-                # Show loading dialog before launching (keep reference to prevent GC)
-                self._loading_dialog = LaunchLoadingDialog(script_name, parent=self)
-                self._loading_dialog.show()
-
-                process = QProcess(self)
-                process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
-                process.setWorkingDirectory(os.path.dirname(script_path))
-                process.start(script_path, [])
-                if not process.waitForStarted():
-                    raise OSError(f"Failed to start {script_path}")
-                log_output_as_it_arrives(process)
-                self._script_process = process
-
+                self._script_process, self._loading_dialog = launch_script(script_path, self)
                 # Reset to placeholder
                 self.script_combo.setCurrentIndex(0)
             except OSError as e:

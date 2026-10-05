@@ -29,6 +29,7 @@ from gameyfin_frontend.utils import (
 from gameyfin_frontend.config import COLOR_STATUS_DOWNLOADING, COLOR_STATUS_INSTALLING, DEFAULT_PROTON
 from gameyfin_frontend.workers import StreamDownloadWorker
 from gameyfin_frontend.services import LauncherResolver, GameInstaller, GameLauncher, SteamIntegrationService
+from gameyfin_frontend.services.installed_games import InstalledGamesService, game_id_from_url
 from gameyfin_frontend.services.prefix_service import PrefixService
 from gameyfin_frontend.services.shortcut_service import ShortcutService
 from gameyfin_frontend.settings import SettingsManager
@@ -585,6 +586,16 @@ class DownloadItemWidget(QWidget):
             PrefixService(self.settings).save_config(game_name, install_config)
         except OSError as e:
             logger.error("Could not save install config for '%s': %s", game_name, e)
+
+        game_id = self.record.get("game_id")
+        if not isinstance(game_id, int):
+            game_id = game_id_from_url(self.record.get("url"))
+        if game_id is not None:
+            title = os.path.splitext(self.record.get("filename") or "")[0]
+            try:
+                InstalledGamesService(self.settings).link(game_name, game_id, title)
+            except OSError as e:
+                logger.error("Could not link '%s' to its Gameyfin game: %s", game_name, e)
 
     @pyqtSlot()
     @pyqtSlot(int, QProcess.ExitStatus)

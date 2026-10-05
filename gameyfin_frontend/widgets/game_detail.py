@@ -2,12 +2,14 @@
 
 Shows everything the server reports for a game — header art, cover, summary,
 release date, ratings, genres/themes, platforms, developers/publishers, file
-size and screenshots — plus the download button. Nothing here talks to the
+size and screenshots — plus the download button and, for installed games,
+a Play button. Nothing here talks to the
 network directly: metadata arrives as a :class:`Game` and artwork through the
 shared :class:`ImageCache`.
 """
 
 import logging
+import os
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QKeyEvent, QMouseEvent, QPixmap
@@ -19,6 +21,7 @@ from ..config import (COVER_TILE_HEIGHT, COVER_TILE_WIDTH,
                       HEADER_BANNER_HEIGHT, SCREENSHOT_THUMB_HEIGHT)
 from ..services.gameyfin_api import DownloadProvider, Game, GameImage
 from ..services.image_cache import ImageCache
+from ..services.installed_games import InstalledGame
 from ..settings import SettingsManager
 from ..utils import format_size, muted_text_color
 
@@ -96,6 +99,9 @@ class GameDetailWidget(QWidget):
 
     back_requested = pyqtSignal()
     download_requested = pyqtSignal(object, str)  # (Game, provider key)
+    play_requested = pyqtSignal(str)  # launch script path
+    # The user picked another launch script (path), so it can be remembered
+    script_selected = pyqtSignal(str)
 
     def __init__(self, image_cache: ImageCache, settings: SettingsManager,
                  parent: QWidget | None = None) -> None:
@@ -103,6 +109,7 @@ class GameDetailWidget(QWidget):
         self.image_cache = image_cache
         self.settings = settings
         self.game: Game | None = None
+        self.installed: InstalledGame | None = None
         self.providers: list[DownloadProvider] = []
         # image id -> (label, width, height) for artwork still being fetched
         self._pending_images: dict[int, tuple[QLabel, int, int]] = {}
@@ -204,6 +211,18 @@ class GameDetailWidget(QWidget):
             self._muted_labels.append(name)
 
         download_row = QHBoxLayout()
+        self.play_button = QPushButton("Play")
+        self.play_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.play_button.clicked.connect(self._emit_play)
+        self.play_button.hide()
+        download_row.addWidget(self.play_button)
+
+        self.script_combo = QComboBox()
+        self.script_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.script_combo.activated.connect(self._on_script_activated)
+        self.script_combo.hide()
+        download_row.addWidget(self.script_combo)
+
         self.download_button = QPushButton("Download")
         self.download_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.download_button.clicked.connect(self._emit_download)
@@ -279,6 +298,7 @@ class GameDetailWidget(QWidget):
     def show_game(self, game: Game) -> None:
         """Populate the view with *game* and start loading its artwork."""
         self.game = game
+        self.set_installed(None)
         self._pending_images.clear()
 
         self.title_label.setText(game.title)
@@ -449,6 +469,47 @@ class GameDetailWidget(QWidget):
             logger.warning("Download requested but no provider is available")
             return
         self.download_requested.emit(self.game, provider_key)
+
+    def set_installed(self, info: InstalledGame | None) -> None:
+        """Show the Play button (and script picker) for an installed game."""
+        self.installed = info
+        self.script_combo.clear()
+        if info is None:
+            self.play_button.hide()
+            self.script_combo.hide()
+            return
+
+        for script in info.scripts:
+            self.script_combo.addItem(os.path.splitext(os.path.basename(script))[0], script)
+        if info.last_script:
+            for row, script in enumerate(info.scripts):
+                if os.path.basename(script) == info.last_script:
+                    self.script_combo.setCurrentIndex(row)
+                    break
+        self.script_combo.setVisible(len(info.scripts) > 1)
+
+        self.play_button.show()
+        self.play_button.setEnabled(bool(info.scripts))
+        self.play_button.setToolTip(
+            "" if info.scripts
+            else "No launch scripts — create shortcuts in the Prefixes tab"
+        )
+
+    def selected_script(self) -> str:
+        """Return the launch script Play would run, or an empty string."""
+        data = self.script_combo.currentData()
+        return str(data) if data else ""
+
+    def _on_script_activated(self, _index: int) -> None:
+        script = self.selected_script()
+        if script:
+            self.script_selected.emit(script)
+
+    def _emit_play(self) -> None:
+        """Ask the parent to launch the selected script of the installed game."""
+        script = self.selected_script()
+        if script:
+            self.play_requested.emit(script)
 
     def _open_screenshot(self, image: GameImage) -> None:
         """Show *image* in a full-size viewer dialog."""

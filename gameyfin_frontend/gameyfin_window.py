@@ -24,6 +24,7 @@ from gameyfin_frontend.dialogs import Gl32DriverDialog, UpdateDialog
 from gameyfin_frontend.workers import StreamDownloadWorker, UpdateCheckWorker
 from gameyfin_frontend.services.gl32_service import missing_gl32_drivers
 from gameyfin_frontend.services.update_service import compare_versions, get_current_version
+from gameyfin_frontend.services.installed_games import game_id_from_url
 from gameyfin_frontend.services.gameyfin_api import GameyfinApiClient
 from gameyfin_frontend.services.image_cache import ImageCache
 from gameyfin_frontend.services.webview_rpc import WebViewRpc
@@ -236,6 +237,8 @@ class GameyfinWindow(QMainWindow):
         self.library_browser.download_requested.connect(self._on_native_download_requested)
         self.library_browser.login_required.connect(self._on_native_login_required)
         self.library_browser.library_loaded.connect(self._on_native_library_loaded)
+        self.download_manager.installation_finished.connect(
+            lambda _name: self.library_browser.refresh_installed())
 
         # When the flag is turned on at runtime the stack already exists, so the
         # browser has to be added here; otherwise _setup_tabs adds it below.
@@ -909,6 +912,10 @@ class GameyfinWindow(QMainWindow):
             "status": "Downloading",
             "total_bytes": total_bytes,
         }
+        # Lets the install be linked back to the server game later on
+        game_id = game_id_from_url(url)
+        if game_id is not None:
+            record["game_id"] = game_id
         bandwidth_limit = self.settings.get("GF_BANDWIDTH_LIMIT") or 0
         worker = StreamDownloadWorker(
             url, target_dir, dict(self._cookies),

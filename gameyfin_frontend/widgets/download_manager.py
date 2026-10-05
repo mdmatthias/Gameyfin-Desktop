@@ -3,7 +3,7 @@ import logging
 import os
 from typing import Any
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QCloseEvent, QKeyEvent
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QScrollArea,
                              QListWidget, QListWidgetItem, QPushButton,
@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 
 class DownloadManagerWidget(QWidget):
+    # Re-emitted from the download rows so the library can refresh installed state
+    installation_finished = pyqtSignal(str)
 
     def __init__(self, umu_database: UmuDatabase, parent: QWidget | None = None, settings: SettingsManager | None = None):
         """Create the download manager widget with a scrollable list of download items.
@@ -155,6 +157,7 @@ class DownloadManagerWidget(QWidget):
         """
         if self.prefix_manager:
             self.prefix_manager.refresh_prefixes()
+        self.installation_finished.emit(game_name)
 
     def load_history(self) -> None:
         """Load persisted download history from JSON and recreate widgets for each record."""
@@ -165,6 +168,7 @@ class DownloadManagerWidget(QWidget):
                 for record in reversed(self.download_records):
                     controller = DownloadItemWidget(self.umu_database, record=record, settings=self.settings)
                     controller.remove_requested.connect(self.remove_download_item)
+                    controller.installation_finished.connect(self.on_installation_finished)
                     self.add_download_to_list(controller)
 
         except (json.JSONDecodeError, OSError) as e:

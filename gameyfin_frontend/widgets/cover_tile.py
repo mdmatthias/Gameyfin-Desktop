@@ -30,6 +30,10 @@ TITLE_LINES = 2
 
 META_POINT_DELTA = -1  # metadata sits one step smaller
 
+# Inset of the "Installed" badge from the cover corner, and its text padding
+BADGE_MARGIN = 6
+BADGE_PADDING = 7
+
 
 def _title_font(base: QFont) -> QFont:
     """Return the font used for a tile's title."""
@@ -63,6 +67,8 @@ class CoverTileDelegate(QStyledItemDelegate):
 
     #: Item data role holding the muted line under the title
     META_ROLE = Qt.ItemDataRole.UserRole + 90
+    #: Item data role flagging a game that is installed locally
+    INSTALLED_ROLE = Qt.ItemDataRole.UserRole + 91
 
     def sizeHint(self, option, index) -> QSize:  # type: ignore[override]
         return tile_size_hint(option.font)
@@ -91,6 +97,8 @@ class CoverTileDelegate(QStyledItemDelegate):
             COVER_TILE_WIDTH, COVER_TILE_HEIGHT,
         )
         self._paint_cover(painter, cover_rect, opt, index, text_colour)
+        if index.data(self.INSTALLED_ROLE):
+            self._paint_badge(painter, cover_rect, opt.font, accent)
 
         text_left = opt.rect.left() + TILE_PADDING
         text_width = opt.rect.width() - 2 * TILE_PADDING
@@ -193,6 +201,24 @@ class CoverTileDelegate(QStyledItemDelegate):
         # Hairline edge to keep dark covers from bleeding into the card
         painter.setPen(QPen(self._alpha(text_colour, 40), 1.0))
         painter.drawPath(art_path)
+
+    def _paint_badge(self, painter: QPainter, box: QRect, base: QFont,
+                     accent: QColor) -> None:
+        """Draw an accent "Installed" pill in the top-left corner of the cover."""
+        font = _meta_font(base)
+        font.setWeight(QFont.Weight.DemiBold)
+        metrics = QFontMetrics(font)
+        text = "Installed"
+        pill = QRectF(box.left() + BADGE_MARGIN, box.top() + BADGE_MARGIN,
+                      metrics.horizontalAdvance(text) + 2 * BADGE_PADDING,
+                      metrics.height() + 2)
+        path = QPainterPath()
+        path.addRoundedRect(pill, pill.height() / 2, pill.height() / 2)
+        painter.fillPath(path, self._alpha(accent, 235))
+        # Dark text on light accents, white on dark ones
+        painter.setPen(QColor(0, 0, 0) if accent.lightnessF() > 0.6 else QColor(255, 255, 255))
+        painter.setFont(font)
+        painter.drawText(pill, Qt.AlignmentFlag.AlignCenter, text)
 
     @staticmethod
     def _wrap(text: str, metrics: QFontMetrics, width: int) -> list[str]:

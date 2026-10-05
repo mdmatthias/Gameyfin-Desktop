@@ -70,12 +70,13 @@ class TestTitleWrapping:
 class TestPainting:
     """The delegate paints every tile itself, with or without a cover."""
 
-    def _paint(self, qtbot, *, icon: QIcon | None, state) -> QPixmap:
+    def _paint(self, qtbot, *, icon: QIcon | None, state, installed: bool = False) -> QPixmap:
         view = QListWidget()
         qtbot.addWidget(view)
         delegate = CoverTileDelegate(view)
         item = QListWidgetItem("Alan Wake's American Nightmare")
         item.setData(CoverTileDelegate.META_ROLE, "2011 · 8.90 GB")
+        item.setData(CoverTileDelegate.INSTALLED_ROLE, installed)
         if icon is not None:
             item.setIcon(icon)
         view.addItem(item)
@@ -127,6 +128,12 @@ class TestPainting:
         green = self._paint(qtbot, icon=None, state=selected_state)
 
         assert warm.toImage() != green.toImage()
+
+    def test_installed_badge_is_painted_on_the_cover(self, qtbot):
+        state = QStyleOptionViewItem().state
+        plain = self._paint(qtbot, icon=None, state=state)
+        installed = self._paint(qtbot, icon=None, state=state, installed=True)
+        assert plain.toImage() != installed.toImage()
 
     def test_size_hint_matches_the_tile_metrics(self, qtbot):
         view = QListWidget()

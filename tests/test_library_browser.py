@@ -1,5 +1,6 @@
 """Tests for the native library UI: image cache, cover grid and detail view."""
 
+import os
 from unittest.mock import MagicMock
 
 import pytest
@@ -9,6 +10,7 @@ from gameyfin_frontend.services.gameyfin_api import (DownloadProvider, Game,
                                                      GameyfinApiError, Library)
 from gameyfin_frontend.services.image_cache import ImageCache
 from gameyfin_frontend.utils import format_size
+from gameyfin_frontend.widgets.cover_tile import CoverTileDelegate
 from gameyfin_frontend.widgets.game_detail import GameDetailWidget
 from gameyfin_frontend.widgets.library_browser import (ALL_LIBRARIES,
                                                        GAME_ID_ROLE,
@@ -290,6 +292,119 @@ class TestLibraryBrowser:
         qtbot.waitUntil(lambda: browser.grid.count() == 2, timeout=5000)
 
         assert browser.grid.item(0).data(GAME_ID_ROLE) == 1
+
+
+class TestInstalledGames:
+    """Prefixes linked to a server game show up as installed in the library."""
+
+    @pytest.fixture()
+    def browser(self, qtbot, mock_api, mock_cache, fresh_settings):
+        widget = LibraryBrowserWidget(mock_api, mock_cache, fresh_settings)
+        qtbot.addWidget(widget)
+        return widget
+
+    @staticmethod
+    def _install(settings, game_name, game_id, scripts=("Run.sh",), last_script=None):
+        from gameyfin_frontend.services.installed_games import InstalledGamesService
+
+        os.makedirs(os.path.join(settings.get_prefixes_dir(), f"{game_name}_pfx"))
+        scripts_dir = settings.get_shortcuts_dir(game_name)
+        os.makedirs(scripts_dir, exist_ok=True)
+        for script in scripts:
+            with open(os.path.join(scripts_dir, script), "w") as f:
+                f.write("#!/bin/sh\n")
+        service = InstalledGamesService(settings)
+        service.link(game_name, game_id)
+        if last_script:
+            service.set_last_script(game_name, last_script)
+        return scripts_dir
+
+    def _load(self, qtbot, browser):
+        browser.refresh()
+        qtbot.waitUntil(lambda: browser.grid.count() == 2, timeout=5000)
+
+    def test_installed_role_marks_installed_games(self, qtbot, browser, fresh_settings):
+        self._install(fresh_settings, "beta", 2)
+        self._load(qtbot, browser)
+
+        assert browser.grid.item(0).data(CoverTileDelegate.INSTALLED_ROLE) is False
+        assert browser.grid.item(1).data(CoverTileDelegate.INSTALLED_ROLE) is True
+
+    def test_installed_only_filter(self, qtbot, browser, fresh_settings):
+        self._install(fresh_settings, "beta", 2)
+        self._load(qtbot, browser)
+
+        browser.installed_check.setChecked(True)
+
+        assert [browser.grid.item(i).text() for i in range(browser.grid.count())] == ["Beta"]
+        browser.search_edit.setText("Alpha")
+        assert browser.grid.count() == 0
+        assert browser.status_label.text() == "No installed games match."
+
+    def test_refresh_installed_picks_up_new_installs(self, qtbot, browser, fresh_settings):
+        self._load(qtbot, browser)
+        assert browser.grid.item(0).data(CoverTileDelegate.INSTALLED_ROLE) is False
+
+        self._install(fresh_settings, "alpha", 1)
+        browser.refresh_installed()
+
+        assert browser.grid.item(0).data(CoverTileDelegate.INSTALLED_ROLE) is True
+
+    def test_detail_shows_play_with_remembered_script(self, qtbot, browser, fresh_settings):
+        scripts_dir = self._install(fresh_settings, "beta", 2, ("A.sh", "B.sh"), last_script="B.sh")
+        self._load(qtbot, browser)
+
+        browser._open_item(browser.grid.item(1))
+
+        detail = browser.detail
+        assert not detail.play_button.isHidden()
+        assert not detail.script_combo.isHidden()
+        assert detail.selected_script() == os.path.join(scripts_dir, "B.sh")
+
+    def test_not_installed_game_has_no_play_button(self, qtbot, browser):
+        self._load(qtbot, browser)
+
+        browser._open_item(browser.grid.item(0))
+
+        assert browser.detail.play_button.isHidden()
+
+    def test_play_launches_and_remembers_the_script(self, qtbot, browser, fresh_settings, monkeypatch):
+        from gameyfin_frontend.services.installed_games import InstalledGamesService
+
+        scripts_dir = self._install(fresh_settings, "beta", 2, ("A.sh", "B.sh"))
+        self._load(qtbot, browser)
+        browser._open_item(browser.grid.item(1))
+        launched = []
+        process, dialog = MagicMock(), MagicMock()
+        monkeypatch.setattr("gameyfin_frontend.widgets.library_browser.launch_script",
+                            lambda path, parent: launched.append(path) or (process, dialog))
+
+        browser.detail.script_combo.setCurrentIndex(1)
+        browser.detail.play_button.click()
+
+        assert launched == [os.path.join(scripts_dir, "B.sh")]
+        assert InstalledGamesService(fresh_settings).read_link("beta")["last_script"] == "B.sh"
+
+    def test_picking_a_script_is_remembered(self, qtbot, browser, fresh_settings):
+        from gameyfin_frontend.services.installed_games import InstalledGamesService
+
+        self._install(fresh_settings, "beta", 2, ("A.sh", "B.sh"))
+        self._load(qtbot, browser)
+        browser._open_item(browser.grid.item(1))
+
+        browser.detail.script_combo.setCurrentIndex(1)
+        browser.detail.script_combo.activated.emit(1)
+
+        assert InstalledGamesService(fresh_settings).read_link("beta")["last_script"] == "B.sh"
+
+    def test_installed_game_without_scripts_disables_play(self, qtbot, browser, fresh_settings):
+        self._install(fresh_settings, "beta", 2, scripts=())
+        self._load(qtbot, browser)
+
+        browser._open_item(browser.grid.item(1))
+
+        assert not browser.detail.play_button.isHidden()
+        assert not browser.detail.play_button.isEnabled()
 
 
 class TestLibraryBrowserPaging:

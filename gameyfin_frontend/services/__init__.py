@@ -19,6 +19,7 @@ __all__ = [
     "GameyfinApiClient",
     "ImageCache",
     "WebViewRpc",
+    "InstalledGamesService",
 ]
 
 
@@ -56,4 +57,7 @@ def __getattr__(name):
     if name == "WebViewRpc":
         from .webview_rpc import WebViewRpc
         return WebViewRpc
+    if name == "InstalledGamesService":
+        from .installed_games import InstalledGamesService
+        return InstalledGamesService
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

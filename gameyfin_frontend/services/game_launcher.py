@@ -42,6 +42,39 @@ def log_output_as_it_arrives(process: QProcess) -> None:
     process.finished.connect(_on_finished)
 
 
+def launch_script(script_path: str, parent: Any = None) -> tuple[QProcess, Any]:
+    """Run a generated launch script, showing a loading dialog while Proton starts.
+
+    Args:
+        script_path: Full path to the ``.sh`` launch script.
+        parent: Parent widget for the process and the dialog.
+
+    Returns:
+        The started process and the loading dialog. Callers keep both
+        referenced so neither is garbage-collected while the game runs.
+
+    Raises:
+        OSError: If the script could not be started.
+    """
+    # Imported here: dialogs pulls in services at import time (circular import)
+    from gameyfin_frontend.dialogs import LaunchLoadingDialog
+
+    # Use the script filename (without .sh) as the display name
+    script_name = os.path.splitext(os.path.basename(script_path))[0]
+    loading_dialog = LaunchLoadingDialog(script_name, parent=parent)
+    loading_dialog.show()
+
+    process = QProcess(parent)
+    process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+    process.setWorkingDirectory(os.path.dirname(script_path))
+    process.start(script_path, [])
+    if not process.waitForStarted():
+        loading_dialog.close()
+        raise OSError(f"Failed to start {script_path}")
+    log_output_as_it_arrives(process)
+    return process, loading_dialog
+
+
 class GameLauncher:
     """Launches games via QProcess — Windows direct exec, Linux via UMU."""
 

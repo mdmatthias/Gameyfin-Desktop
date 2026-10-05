@@ -744,6 +744,18 @@ class TestNativeLibraryUI:
         # The extraction folder name is sanitized, the display name is not
         assert ":" not in os.path.basename(kwargs["target_dir"])
 
+    def test_download_record_carries_the_game_id(self, qtbot, mock_umu_database, native_settings):
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+
+        with patch.object(window.download_manager, "add_download"), \
+             patch("gameyfin_frontend.gameyfin_window.StreamDownloadWorker"):
+            _, record = window._start_download(
+                "http://localhost:8080/download/7?provider=fs", "/tmp/x", "X.zip")
+            _, other = window._start_download("http://elsewhere/file.zip", "/tmp/y", "Y.zip")
+
+        assert record["game_id"] == 7
+        assert "game_id" not in other
+
     def test_download_target_defaults_to_a_per_game_subfolder(self, qtbot, mock_umu_database, native_settings):
         window = self._make_native_window(qtbot, mock_umu_database, native_settings)
 

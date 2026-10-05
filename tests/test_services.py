@@ -370,6 +370,27 @@ class TestInstallConfigPersistence:
         with open(tmp_path / "scripts" / "my game" / "config.json") as f:
             assert json.load(f) == config
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="Linux-only test")
+    def test_install_links_the_prefix_to_its_gameyfin_game(self, qtbot, tmp_path, mock_umu_database):
+        from gameyfin_frontend.widgets.download_item import DownloadItemWidget
+
+        scripts_dir = tmp_path / "scripts" / "my game"
+        settings = MagicMock()
+        settings.get.return_value = "GE-Proton"
+        settings.get_shortcuts_dir.return_value = str(scripts_dir)
+        settings.get_shortcuts_dirs.return_value = [str(scripts_dir)]
+
+        record = {"filename": "My Game.zip", "path": str(tmp_path / "my game"), "status": "Completed",
+                  "url": "http://srv/download/7?provider=fs"}
+        widget = DownloadItemWidget(umu_database=mock_umu_database, record=record, settings=settings)
+        qtbot.addWidget(widget)
+        widget.current_wine_prefix = str(tmp_path / "prefixes" / "my game_pfx")
+
+        widget._save_install_config({"GAMEID": "umu-default"})
+
+        with open(scripts_dir / "gameyfin.json") as f:
+            assert json.load(f) == {"game_id": 7, "title": "My Game"}
+
     def test_recreating_shortcuts_keeps_the_installed_env(self, tmp_path):
         """Without a config.json the env is read back out of the .sh scripts."""
         from gameyfin_frontend.services.shortcut_service import ShortcutService

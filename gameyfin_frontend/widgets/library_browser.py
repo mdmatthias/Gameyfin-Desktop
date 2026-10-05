@@ -7,17 +7,22 @@ renders what a game library actually needs. Enabled by ``GF_NATIVE_UI``.
 
 import logging
 import math
+import os
+import sys
 
 from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QFontMetrics, QIcon, QKeyEvent, QPixmap
-from PyQt6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit,
-                             QListWidget, QListWidgetItem, QPushButton,
-                             QStackedWidget, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel,
+                             QLineEdit, QListWidget, QListWidgetItem,
+                             QMessageBox, QPushButton, QStackedWidget,
+                             QVBoxLayout, QWidget)
 
 from ..config import COVER_TILE_HEIGHT, COVER_TILE_WIDTH, LIBRARY_PAGE_SIZE
 from ..services.gameyfin_api import (DownloadProvider, Game, GameyfinApiClient,
                                      GameyfinApiError, GameyfinAuthError, Library)
+from ..services.game_launcher import launch_script
 from ..services.image_cache import ImageCache
+from ..services.installed_games import InstalledGame, InstalledGamesService
 from ..settings import SettingsManager
 from ..utils import format_size, muted_text_color, release_year
 from ..workers import ApiCallWorker
@@ -57,6 +62,11 @@ class LibraryBrowserWidget(QWidget):
         self._in_page_refresh = False
         # image id -> grid item still waiting for its cover
         self._pending_covers: dict[int, QListWidgetItem] = {}
+        # Gameyfin game id -> local install, refreshed from the prefixes on disk
+        self.installed: dict[int, InstalledGame] = {}
+        self._installed_service = InstalledGamesService(settings)
+        # Launched games' process + loading dialog, kept alive while running
+        self._launch_refs: list[tuple[object, object]] = []
 
         # Client-side paging. The server returns every game in one call, so the
         # grid slices the filtered result set into pages of this size.
@@ -100,6 +110,13 @@ class LibraryBrowserWidget(QWidget):
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.textChanged.connect(lambda _: self._change_filter())
         top_bar.addWidget(self.search_edit, 1)
+
+        self.installed_check = QCheckBox("Installed only")
+        self.installed_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.installed_check.toggled.connect(lambda _: self._change_filter())
+        # Only Linux installs create prefixes that can be linked to a game
+        self.installed_check.setVisible(sys.platform != "win32")
+        top_bar.addWidget(self.installed_check)
 
         self.refresh_button = QPushButton("Refresh")
         self.refresh_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -158,6 +175,8 @@ class LibraryBrowserWidget(QWidget):
         self.detail = GameDetailWidget(self.image_cache, self.settings, self)
         self.detail.back_requested.connect(self.show_grid)
         self.detail.download_requested.connect(self.download_requested.emit)
+        self.detail.play_requested.connect(self._play)
+        self.detail.script_selected.connect(self._remember_script)
         self.stack.addWidget(self.detail)
 
     # ------------------------------------------------------------------
@@ -190,6 +209,9 @@ class LibraryBrowserWidget(QWidget):
         """Pick up the theme's resolved colours once the widget is polished."""
         super().showEvent(event)
         self.refresh_theme_colors()
+        # Prefixes may have been installed or deleted while we were hidden
+        if self.games:
+            self.refresh_installed()
 
     def refresh_theme_colors(self) -> None:
         """Re-apply palette-derived colours after the theme changed."""
@@ -297,6 +319,7 @@ class LibraryBrowserWidget(QWidget):
         self.libraries, self.games, self.providers = result  # type: ignore[misc]
         self.detail.set_providers(self.providers)
         self._populate_library_combo()
+        self._scan_installed()
         self._apply_filter()
         self.library_loaded.emit()
 
@@ -313,6 +336,60 @@ class LibraryBrowserWidget(QWidget):
         self.library_combo.blockSignals(False)
 
     # ------------------------------------------------------------------
+    # Installed games
+    # ------------------------------------------------------------------
+
+    def _scan_installed(self) -> None:
+        """Re-read which games are installed locally."""
+        self.installed = self._installed_service.scan(self.games)
+
+    def refresh_installed(self) -> None:
+        """Rescan the installed games and update the grid and detail page."""
+        before = set(self.installed)
+        self._scan_installed()
+        if self.installed_check.isChecked() and set(self.installed) != before:
+            # The filtered result set changed: rebuild the page
+            self._apply_filter()
+        else:
+            # Only the badges change — keep the grid (and its selection) as is
+            for row in range(self.grid.count()):
+                item = self.grid.item(row)
+                item.setData(CoverTileDelegate.INSTALLED_ROLE,
+                             item.data(GAME_ID_ROLE) in self.installed)
+        game = self.detail.game
+        if self.stack.currentWidget() is self.detail and game is not None:
+            self.detail.set_installed(self.installed.get(game.id))
+
+    def _installed_for_script(self, script_path: str) -> InstalledGame | None:
+        for info in self.installed.values():
+            if script_path in info.scripts:
+                return info
+        return None
+
+    def _remember_script(self, script_path: str) -> None:
+        """Persist the launch script picked for an installed game."""
+        info = self._installed_for_script(script_path)
+        if info is None:
+            return
+        info.last_script = os.path.basename(script_path)
+        self._installed_service.set_last_script(info.game_name, script_path)
+
+    def _play(self, script_path: str) -> None:
+        """Launch an installed game's script."""
+        self._remember_script(script_path)
+        try:
+            process, dialog = launch_script(script_path, self)
+        except OSError as e:
+            logger.error("Failed to launch script %s: %s", script_path, e)
+            QMessageBox.critical(self, "Launch Error", f"Failed to launch: {e}")
+            return
+        refs = (process, dialog)
+        self._launch_refs.append(refs)
+        process.finished.connect(dialog.close)
+        process.finished.connect(lambda *_: self._launch_refs.remove(refs)
+                                 if refs in self._launch_refs else None)
+
+    # ------------------------------------------------------------------
     # Filtering / grid
     # ------------------------------------------------------------------
 
@@ -326,6 +403,8 @@ class LibraryBrowserWidget(QWidget):
             games = [g for g in games if g.library_id == library_id]
         if needle:
             games = [g for g in games if needle in g.title.lower()]
+        if self.installed_check.isChecked():
+            games = [g for g in games if g.id in self.installed]
         return sorted(games, key=lambda g: g.title.lower())
 
     def _change_filter(self) -> None:
@@ -366,6 +445,7 @@ class LibraryBrowserWidget(QWidget):
             if game.cover:
                 item.setData(IMAGE_ID_ROLE, game.cover.id)
             item.setData(CoverTileDelegate.META_ROLE, self._meta_for(game))
+            item.setData(CoverTileDelegate.INSTALLED_ROLE, game.id in self.installed)
             item.setSizeHint(tile_size_hint(self.grid.font()))
             item.setToolTip(self._tooltip_for(game))
             self.grid.addItem(item)
@@ -378,6 +458,8 @@ class LibraryBrowserWidget(QWidget):
         """Set the status line to describe what the current page holds."""
         if not self.games:
             self.status_label.setText("This server reports no games.")
+        elif filtered == 0 and self.installed_check.isChecked():
+            self.status_label.setText("No installed games match.")
         elif filtered == 0:
             self.status_label.setText("No games match your search.")
         else:
@@ -474,8 +556,11 @@ class LibraryBrowserWidget(QWidget):
         if game is None:
             return
         self.detail.show_game(game)
+        self.detail.set_installed(self.installed.get(game.id))
         self.stack.setCurrentWidget(self.detail)
-        self.detail.download_button.setFocus(Qt.FocusReason.OtherFocusReason)
+        target = (self.detail.play_button if self.detail.play_button.isEnabled()
+                  and self.detail.installed is not None else self.detail.download_button)
+        target.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def show_grid(self) -> None:
         """Return to the cover grid."""
