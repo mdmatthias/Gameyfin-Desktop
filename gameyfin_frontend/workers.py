@@ -407,11 +407,13 @@ class ApiCallWorker(QThread):
     ``result_ready`` carries ``(result, error_message)``; exactly one of the two
     is meaningful. The signal is deliberately not named ``finished`` so it does
     not shadow QThread's own signal. Authentication failures additionally emit
-    ``auth_required`` so callers can send the user back to the login view.
+    ``auth_required`` so callers can send the user back to the login view, and
+    an unreachable server emits ``unreachable`` so they can go offline.
     """
 
     result_ready = pyqtSignal(object, str)
     auth_required = pyqtSignal()
+    unreachable = pyqtSignal(str)
 
     def __init__(self, func: Any, *args: Any, **kwargs: Any) -> None:
         """Store the callable and arguments to invoke in the worker thread."""
@@ -422,12 +424,17 @@ class ApiCallWorker(QThread):
 
     def run(self) -> None:
         """Call the wrapped function, emitting its result or the error message."""
-        from .services.gameyfin_api import GameyfinApiError, GameyfinAuthError
+        from .services.gameyfin_api import (GameyfinApiError, GameyfinAuthError,
+                                            GameyfinConnectionError)
 
         try:
             result = self._func(*self._args, **self._kwargs)
         except GameyfinAuthError as e:
             self.auth_required.emit()
+            self.result_ready.emit(None, str(e))
+            return
+        except GameyfinConnectionError as e:
+            self.unreachable.emit(str(e))
             self.result_ready.emit(None, str(e))
             return
         except GameyfinApiError as e:

@@ -46,6 +46,10 @@ class InstalledGame:
     prefix_path: str
     scripts: list[str] = field(default_factory=list)
     last_script: str | None = None
+    # Title remembered in the link (falls back to the folder name)
+    title: str = ""
+    # The server's game data (``Game.to_dict()``), kept for offline use
+    details: dict[str, Any] | None = None
 
 
 class InstalledGamesService:
@@ -97,6 +101,13 @@ class InstalledGamesService:
         self._write_link(game_name, updates)
         logger.info("Linked '%s' to Gameyfin game %s", game_name, game_id)
 
+    def save_details(self, game_name: str, details: dict[str, Any]) -> None:
+        """Store the server's data for *game_name*, so it can be shown offline."""
+        updates: dict[str, Any] = {"game": details}
+        if details.get("title"):
+            updates["title"] = details["title"]
+        self._write_link(game_name, updates)
+
     def set_last_script(self, game_name: str, script: str) -> None:
         """Remember *script* (a basename) as the one Play should run."""
         try:
@@ -143,7 +154,7 @@ class InstalledGamesService:
                 if history_ids is None:
                     history_ids = self._history_ids(history)
                 game_id = history_ids.get(prefix_name)
-                title = ""
+                title = next((g.title for g in games or [] if g.id == game_id), "")
                 if game_id is None and game_name in titles:
                     game = titles[game_name]
                     game_id, title = game.id, game.title
@@ -153,6 +164,7 @@ class InstalledGamesService:
                     self.link(game_name, game_id, title)
                 except OSError as e:
                     logger.error("Could not link '%s': %s", game_name, e)
+                link = {**link, "title": title}
 
             installed[game_id] = InstalledGame(
                 game_id=game_id,
@@ -160,6 +172,8 @@ class InstalledGamesService:
                 prefix_path=prefix_path,
                 scripts=self.scripts_for(game_name),
                 last_script=link.get("last_script"),
+                title=link.get("title") or game_name,
+                details=link.get("game") if isinstance(link.get("game"), dict) else None,
             )
         return installed
 

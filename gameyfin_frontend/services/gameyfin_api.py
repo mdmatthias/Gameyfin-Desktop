@@ -28,7 +28,7 @@ Two transports are supported for the RPC calls:
 import json
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Callable
 from urllib.parse import quote
 
@@ -57,6 +57,14 @@ class GameyfinApiError(Exception):
 
 class GameyfinAuthError(GameyfinApiError):
     """Raised when the server rejects the call as unauthenticated."""
+
+
+class GameyfinConnectionError(GameyfinApiError):
+    """Raised when the server cannot be reached at all (offline, or proxy without upstream)."""
+
+
+# A reverse proxy answers these when Gameyfin itself is down
+_UNREACHABLE_STATUSES = (502, 503, 504)
 
 
 @dataclass(frozen=True)
@@ -163,6 +171,34 @@ class Game:
             images=[img for img in (GameImage.from_json(i) for i in (data.get("images") or [])) if img],
             video_urls=_str_list(data.get("videoUrls")),
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the game as plain JSON-ready data (see :meth:`from_dict`)."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Game":
+        """Rebuild a game stored with :meth:`to_dict`; unknown keys are ignored.
+
+        Raises:
+            TypeError, ValueError, AttributeError: *data* is not a stored game.
+        """
+        names = {f.name for f in fields(cls)}
+        values = {k: v for k, v in data.items() if k in names}
+
+        def image(value: Any) -> GameImage | None:
+            if not isinstance(value, dict) or value.get("id") is None:
+                return None
+            return GameImage(**{k: value[k] for k in ("id", "type", "blurhash") if k in value})
+
+        values["cover"] = image(values.get("cover"))
+        values["header"] = image(values.get("header"))
+        values["images"] = [img for img in map(image, values.get("images") or []) if img]
+        return cls(**values)
+
+    def artwork(self) -> list[GameImage]:
+        """Return every image of the game: cover, header and screenshots."""
+        return [img for img in (self.cover, self.header, *self.images) if img]
 
 
 def _to_int(value: Any) -> int | None:
@@ -351,7 +387,7 @@ class GameyfinApiClient:
                     timeout=API_TIMEOUT,
                 )
             except requests.RequestException as e:
-                raise GameyfinApiError(f"Could not reach {url}: {e}") from e
+                raise GameyfinConnectionError(f"Could not reach {url}: {e}") from e
 
             if response.status_code in (401, 403) and attempt == 1:
                 logger.debug(
@@ -368,7 +404,11 @@ class GameyfinApiClient:
     def _interpret(self, endpoint: str, method: str, status: int, body: str) -> Any:
         """Turn a transport-agnostic (status, body) pair into a result or an error."""
         if status == 0:
-            raise GameyfinApiError(f"{endpoint}.{method} did not reach the server")
+            raise GameyfinConnectionError(f"{endpoint}.{method} did not reach the server")
+        if status in _UNREACHABLE_STATUSES:
+            raise GameyfinConnectionError(
+                f"{endpoint}.{method} failed with HTTP {status}: the server is unavailable"
+            )
         if status in (401, 403):
             logger.debug("%s.%s rejected with HTTP %s (body: %.200s)",
                          endpoint, method, status, body)
@@ -404,6 +444,24 @@ class GameyfinApiClient:
         data = self.call("DownloadProviderEndpoint", "getProviders") or []
         providers = [DownloadProvider.from_json(item) for item in data]
         return sorted(providers, key=lambda p: p.priority, reverse=True)
+
+    def ping(self, timeout: float = API_TIMEOUT) -> None:
+        """Check that the server answers at all; authentication is not checked.
+
+        Raises:
+            GameyfinConnectionError: The server (or its proxy's upstream) is unreachable.
+        """
+        if not self.base_url:
+            raise GameyfinConnectionError("No Gameyfin URL configured")
+        try:
+            self._session.cookies.clear()
+            response = self._session.get(f"{self.base_url}/", timeout=timeout, allow_redirects=False)
+        except requests.RequestException as e:
+            raise GameyfinConnectionError(f"Could not reach {self.base_url}: {e}") from e
+        if response.status_code in _UNREACHABLE_STATUSES:
+            raise GameyfinConnectionError(
+                f"{self.base_url} answered HTTP {response.status_code}: the server is unavailable"
+            )
 
     # ------------------------------------------------------------------
     # REST routes

@@ -8,7 +8,9 @@ from PyQt6.QtCore import QObject, QProcess, pyqtSignal
 
 from gameyfin_frontend.services.gameyfin_api import (DownloadProvider, Game,
                                                      GameImage,
-                                                     GameyfinApiError, Library)
+                                                     GameyfinApiError,
+                                                     GameyfinConnectionError,
+                                                     Library)
 from gameyfin_frontend.services.image_cache import ImageCache
 from gameyfin_frontend.utils import format_size
 from gameyfin_frontend.widgets.cover_tile import CoverTileDelegate
@@ -72,6 +74,7 @@ def mock_api(sample_libraries, sample_games, sample_providers):
     client.get_games.return_value = sample_games
     client.get_download_providers.return_value = sample_providers
     client.download_url.side_effect = lambda gid, key: f"http://srv/download/{gid}?provider={key}"
+    client.base_url = "http://srv"
     return client
 
 
@@ -494,6 +497,194 @@ class TestInstalledGames:
 
         qtbot.waitUntil(lambda: len(calls) == 2, timeout=1000)
         assert calls[1] == (None, browser.installed[2].prefix_path, signal.SIGKILL)
+
+
+class TestImageCacheOffline:
+    def test_offline_serves_cached_artwork_without_fetching(self, cache_settings):
+        client = MagicMock()
+        cache = ImageCache(client, cache_settings)
+        cached = GameImage(id=1, type="COVER")
+        with open(cache.cache_path(cached), "wb") as f:
+            f.write(b"CACHED")
+        cache.offline = True
+
+        assert cache.request(cached) == b"CACHED"
+        assert cache.request(GameImage(id=2, type="COVER")) is None
+        cache.shutdown()
+        client.fetch_image.assert_not_called()
+
+
+class TestStoredGameDetails:
+    def test_round_trip_keeps_artwork_and_details(self, sample_games):
+        import json
+
+        for game in sample_games:
+            assert Game.from_dict(json.loads(json.dumps(game.to_dict()))) == game
+
+    def test_unknown_keys_are_ignored(self):
+        assert Game.from_dict({"id": 3, "title": "G", "library_id": 1, "new_field": 1}) == \
+            Game(id=3, title="G", library_id=1)
+
+    def test_artwork_lists_cover_header_and_screenshots(self, sample_games):
+        assert [img.id for img in sample_games[1].artwork()] == [22, 23]
+
+
+class TestOfflineMode:
+    """With the server unreachable, the installed games can still be launched."""
+
+    @pytest.fixture()
+    def browser(self, qtbot, mock_api, mock_cache, fresh_settings):
+        mock_cache.offline = False
+        widget = LibraryBrowserWidget(mock_api, mock_cache, fresh_settings)
+        qtbot.addWidget(widget)
+        return widget
+
+    @staticmethod
+    def _unreachable(mock_api):
+        mock_api.get_libraries.side_effect = GameyfinConnectionError("unreachable")
+
+    def _titles(self, browser):
+        return [browser.grid.item(i).text() for i in range(browser.grid.count())]
+
+    @pytest.mark.parametrize("in_page", [True, False], ids=["in-page", "worker-thread"])
+    def test_unreachable_server_shows_only_installed_games(self, qtbot, browser, mock_api,
+                                                            mock_cache, fresh_settings, in_page):
+        TestInstalledGames._install(fresh_settings, "beta", 2)
+        browser.refresh()
+        qtbot.waitUntil(lambda: browser.grid.count() == 2, timeout=5000)
+        self._unreachable(mock_api)
+        if not in_page:
+            mock_api.rpc_transport = None
+
+        with qtbot.waitSignal(browser.offline_changed, timeout=5000) as blocker:
+            browser.refresh()
+
+        assert blocker.args == [True]
+        assert browser.offline and mock_cache.offline
+        assert self._titles(browser) == ["Beta"]
+        assert browser.status_label.text().startswith("Offline")
+        assert browser.installed_check.isHidden()
+        assert not browser.detail.download_button.isEnabled()
+
+    def test_offline_start_uses_the_stored_details(self, qtbot, mock_api, mock_cache,
+                                                   fresh_settings, sample_games):
+        TestInstalledGames._install(fresh_settings, "beta", 2)
+        first = LibraryBrowserWidget(mock_api, mock_cache, fresh_settings)
+        qtbot.addWidget(first)
+        first.refresh()
+        qtbot.waitUntil(lambda: first.grid.count() == 2, timeout=5000)
+
+        # Next start: the server is gone
+        browser = LibraryBrowserWidget(mock_api, mock_cache, fresh_settings)
+        qtbot.addWidget(browser)
+        browser.go_offline("unreachable")
+
+        assert self._titles(browser) == ["Beta"]
+        assert browser.game_by_id(2) == sample_games[1]
+
+    def test_loading_stores_details_and_fetches_artwork_of_installed_games(
+            self, qtbot, browser, mock_cache, fresh_settings, sample_games):
+        from gameyfin_frontend.services.installed_games import InstalledGamesService
+
+        TestInstalledGames._install(fresh_settings, "beta", 2)  # linked without a title
+        browser.refresh()
+        qtbot.waitUntil(lambda: browser.grid.count() == 2, timeout=5000)
+
+        link = InstalledGamesService(fresh_settings).read_link("beta")
+        assert link["title"] == "Beta"
+        assert link["game"] == sample_games[1].to_dict()
+        requested = {call.args[0].id for call in mock_cache.request.call_args_list}
+        assert {22, 23} <= requested  # header and screenshot, never opened
+
+    def test_unchanged_details_are_not_rewritten(self, qtbot, browser, fresh_settings):
+        TestInstalledGames._install(fresh_settings, "beta", 2)
+        browser.refresh()
+        qtbot.waitUntil(lambda: browser.grid.count() == 2, timeout=5000)
+
+        with pytest.MonkeyPatch.context() as mp:
+            save = MagicMock()
+            mp.setattr(browser._installed_service, "save_details", save)
+            browser.refresh()
+            qtbot.waitUntil(lambda: browser.grid.count() == 2, timeout=5000)
+            save.assert_not_called()
+
+    def test_damaged_details_fall_back_to_the_title(self, qtbot, browser, fresh_settings):
+        from gameyfin_frontend.services.installed_games import InstalledGamesService
+
+        TestInstalledGames._install(fresh_settings, "beta", 2)
+        InstalledGamesService(fresh_settings).save_details("beta", {"title": "Beta", "id": "x"})
+
+        browser.go_offline("unreachable")
+
+        assert self._titles(browser) == ["Beta"]
+
+    def test_installed_game_unknown_to_the_cache_is_listed_by_its_link_title(
+            self, qtbot, browser, fresh_settings):
+        from gameyfin_frontend.services.installed_games import InstalledGamesService
+
+        TestInstalledGames._install(fresh_settings, "gamma", 9)
+        InstalledGamesService(fresh_settings).link("gamma", 9, "Gamma: Deluxe")
+
+        browser.go_offline("unreachable")
+
+        assert self._titles(browser) == ["Gamma: Deluxe"]
+        browser._open_item(browser.grid.item(0))
+        assert browser.detail.play_button.isEnabled()
+
+    def test_staying_offline_keeps_the_grid(self, qtbot, browser, fresh_settings):
+        TestInstalledGames._install(fresh_settings, "beta", 2)
+        browser.go_offline("unreachable")
+        item = browser.grid.item(0)
+
+        with qtbot.assertNotEmitted(browser.offline_changed):
+            browser.go_offline("still unreachable")
+
+        assert browser.grid.item(0) is item
+
+    def test_refresh_while_offline_asks_for_a_background_check(self, qtbot, browser, mock_api):
+        browser.go_offline("unreachable")
+        mock_api.get_libraries.reset_mock()
+
+        with qtbot.waitSignal(browser.reconnect_requested, timeout=1000):
+            browser.refresh()
+
+        mock_api.get_libraries.assert_not_called()
+
+    def test_set_online_restores_downloads_and_the_full_library(
+            self, qtbot, browser, mock_api, mock_cache, fresh_settings):
+        TestInstalledGames._install(fresh_settings, "beta", 2)
+        browser.refresh()
+        qtbot.waitUntil(lambda: browser.grid.count() == 2, timeout=5000)
+        browser.go_offline("unreachable")
+
+        with qtbot.waitSignal(browser.offline_changed, timeout=1000) as blocker:
+            browser.set_online()
+
+        assert blocker.args == [False]
+        assert not browser.offline and not mock_cache.offline
+        assert self._titles(browser) == ["Alpha", "Beta"]
+        assert browser.detail.download_button.isEnabled()
+
+    def test_successful_load_leaves_offline_mode(self, qtbot, browser):
+        browser.go_offline("unreachable")
+        browser.offline = False  # as after set_online, without its signal
+
+        with qtbot.waitSignal(browser.library_loaded, timeout=5000):
+            browser.refresh()
+
+        assert browser.grid.count() == 2
+
+    def test_auth_failure_means_the_server_is_back(self, qtbot, browser, mock_api):
+        from gameyfin_frontend.services.gameyfin_api import GameyfinAuthError
+
+        browser.go_offline("unreachable")
+        mock_api.get_libraries.side_effect = GameyfinAuthError("login")
+
+        # Offline refresh only asks for a check, so drive the fetch directly
+        with qtbot.waitSignal(browser.login_required, timeout=5000):
+            browser._refresh_in_page()
+
+        assert not browser.offline
 
 
 class TestLibraryBrowserPaging:

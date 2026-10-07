@@ -47,6 +47,8 @@ class ImageCache(QObject):
         )
         self._pending: set[int] = set()
         self._lock = threading.Lock()
+        # While offline only cached artwork is served; nothing is fetched
+        self.offline = False
 
     @property
     def cache_dir(self) -> str:
@@ -74,11 +76,11 @@ class ImageCache(QObject):
     def request(self, image: GameImage) -> bytes | None:
         """Return cached bytes for *image*, or schedule a fetch and return None.
 
-        When a fetch is scheduled, ``ready`` or ``failed`` fires later with the
-        same image id.
+        Nothing is fetched while :attr:`offline` is set. When a fetch is
+        scheduled, ``ready`` or ``failed`` fires later with the same image id.
         """
         data = self.cached_bytes(image)
-        if data is not None:
+        if data is not None or self.offline:
             return data
 
         with self._lock:

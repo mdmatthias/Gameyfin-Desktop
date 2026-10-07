@@ -10,7 +10,8 @@ from gameyfin_frontend.services.gameyfin_api import (DownloadProvider, Game,
                                                      GameImage,
                                                      GameyfinApiClient,
                                                      GameyfinApiError,
-                                                     GameyfinAuthError, Library)
+                                                     GameyfinAuthError,
+                                                     GameyfinConnectionError, Library)
 
 
 class FakeResponse:
@@ -222,6 +223,26 @@ class TestCall:
         with pytest.raises(GameyfinApiError):
             client.call("GameEndpoint", "getAll")
 
+    def test_transport_failure_is_a_connection_error(self, client, session):
+        session.post.side_effect = requests.ConnectionError("refused")
+
+        with pytest.raises(GameyfinConnectionError):
+            client.call("GameEndpoint", "getAll")
+
+    @pytest.mark.parametrize("status", [502, 503, 504])
+    def test_proxy_without_upstream_is_a_connection_error(self, client, session, status):
+        session.post.return_value = FakeResponse(status_code=status)
+
+        with pytest.raises(GameyfinConnectionError):
+            client.call("GameEndpoint", "getAll")
+
+    def test_server_error_is_not_a_connection_error(self, client, session):
+        session.post.return_value = FakeResponse(status_code=500)
+
+        with pytest.raises(GameyfinApiError) as excinfo:
+            client.call("GameEndpoint", "getAll")
+        assert not isinstance(excinfo.value, GameyfinConnectionError)
+
     def test_missing_url_raises_api_error(self, session):
         settings = MagicMock()
         settings.get.return_value = ""
@@ -311,3 +332,24 @@ class TestFetchImage:
 
         with pytest.raises(GameyfinApiError):
             client.fetch_image(GameImage(id=1, type="COVER"))
+
+
+class TestPing:
+    def test_answering_server_passes(self, client, session):
+        session.get.return_value = FakeResponse(status_code=302)
+
+        client.ping()
+
+        assert session.get.call_args.args[0] == "http://gameyfin.test:8080/"
+
+    def test_unreachable_server_raises(self, client, session):
+        session.get.side_effect = requests.ConnectTimeout("timed out")
+
+        with pytest.raises(GameyfinConnectionError):
+            client.ping(timeout=1)
+
+    def test_proxy_without_upstream_raises(self, client, session):
+        session.get.return_value = FakeResponse(status_code=502)
+
+        with pytest.raises(GameyfinConnectionError):
+            client.ping()

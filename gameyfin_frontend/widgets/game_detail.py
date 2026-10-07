@@ -112,6 +112,8 @@ class GameDetailWidget(QWidget):
         self.game: Game | None = None
         self.installed: InstalledGame | None = None
         self.running = False
+        # Set while the server is unreachable: nothing can be downloaded
+        self.offline = False
         self.providers: list[DownloadProvider] = []
         # image id -> (label, width, height) for artwork still being fetched
         self._pending_images: dict[int, tuple[QLabel, int, int]] = {}
@@ -297,9 +299,20 @@ class GameDetailWidget(QWidget):
         self.provider_combo.clear()
         for provider in providers:
             self.provider_combo.addItem(provider.name, provider.key)
-        self.provider_combo.setVisible(len(providers) > 1)
-        self.download_button.setEnabled(bool(providers))
-        if not providers:
+        self._update_download_state()
+
+    def set_offline(self, offline: bool) -> None:
+        """Disable downloading while the server cannot be reached."""
+        self.offline = offline
+        self._update_download_state()
+
+    def _update_download_state(self) -> None:
+        providers = self.providers
+        self.provider_combo.setVisible(len(providers) > 1 and not self.offline)
+        self.download_button.setEnabled(bool(providers) and not self.offline)
+        if self.offline:
+            self.download_button.setToolTip("Offline: the server can't be reached")
+        elif not providers:
             self.download_button.setToolTip("The server reported no download providers")
         else:
             self.download_button.setToolTip("")

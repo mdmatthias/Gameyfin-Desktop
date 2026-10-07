@@ -21,7 +21,7 @@ from gameyfin_frontend.widgets.loading_overlay import LoadingOverlay
 from gameyfin_frontend.widgets.gamepad_hud import GamepadHintBar
 from gameyfin_frontend.widgets.system_tab import SystemTabWidget
 from gameyfin_frontend.dialogs import Gl32DriverDialog, UpdateDialog
-from gameyfin_frontend.workers import StreamDownloadWorker, UpdateCheckWorker
+from gameyfin_frontend.workers import ApiCallWorker, StreamDownloadWorker, UpdateCheckWorker
 from gameyfin_frontend.services.gl32_service import missing_gl32_drivers
 from gameyfin_frontend.services.update_service import compare_versions, get_current_version
 from gameyfin_frontend.services.installed_games import game_id_from_url
@@ -34,13 +34,22 @@ from gameyfin_frontend.utils import sanitize_name
 from .gamepad import GamepadManager
 from .gamepad_navigator import GamepadNavigator
 from .gamepad_webnav import build_nav_script
+from .web_view_toggle import NATIVE_UI_MESSAGE, build_toggle_script
 from .settings_widget import SettingsWidget
 from .settings import SettingsManager
 from .utils import get_effective_icon, parse_size
 from .config import (FIXED_TAB_COUNT, LIBRARY_PAGE_SIZE,
-                     NATIVE_UI_COOKIE_DEBOUNCE_MS, NATIVE_UI_PROBE_INTERVAL_MS)
+                     NATIVE_UI_COOKIE_DEBOUNCE_MS, NATIVE_UI_PROBE_INTERVAL_MS,
+                     OFFLINE_PING_TIMEOUT, OFFLINE_RETRY_INTERVAL_MS)
 
 logger = logging.getLogger(__name__)
+
+
+def is_native_ui_request(message: str, page_host: str, main_host: str | None,
+                         restricted_host: str | None) -> bool:
+    """Return True for the "Native view" button's console message on the main Gameyfin page."""
+    return (message == NATIVE_UI_MESSAGE and bool(restricted_host)
+            and bool(main_host) and page_host == main_host)
 
 
 class CustomWebEnginePage(QWebEnginePage):
@@ -50,6 +59,8 @@ class CustomWebEnginePage(QWebEnginePage):
     main_tab_redirect_requested = pyqtSignal(QUrl)
     # Signal when logout is detected
     logout_detected = pyqtSignal(QUrl)
+    # The injected "Native view" button was clicked (see web_view_toggle)
+    native_ui_requested = pyqtSignal()
 
     def __init__(self, profile: Any, parent: QWebEnginePage | None = None, restricted_host: str | None = None, main_host: str | None = None):
         super().__init__(profile, parent)
@@ -68,6 +79,13 @@ class CustomWebEnginePage(QWebEnginePage):
         if self.create_window_callback:
             return self.create_window_callback(_type)
         return None
+
+    def javaScriptConsoleMessage(self, level, message, line, source):
+        """Turn the injected button's console message into a signal."""
+        if is_native_ui_request(message, self.url().host(), self.main_host, self.restricted_host):
+            self.native_ui_requested.emit()
+            return
+        super().javaScriptConsoleMessage(level, message, line, source)
 
     def acceptNavigationRequest(self, url, nav_type, is_main_frame):
         if is_main_frame:
@@ -160,6 +178,10 @@ class GameyfinWindow(QMainWindow):
         self.custom_page = CustomWebEnginePage(self.profile, self.browser, restricted_host=base_url.host(), main_host=base_url.host())
         self.custom_page.new_tab_requested.connect(self.add_new_browser_tab)
         self.custom_page.logout_detected.connect(self.handle_logout)
+        # Deferred: switching runs API calls inside this page, which must not
+        # happen from within the page's own console-message callback
+        self.custom_page.native_ui_requested.connect(
+            lambda: QTimer.singleShot(0, lambda: self.set_native_ui(True)))
         self.custom_page.create_window_callback = self.create_new_window_for_page
 
         self.browser.setPage(self.custom_page)
@@ -237,6 +259,9 @@ class GameyfinWindow(QMainWindow):
         self.library_browser.download_requested.connect(self._on_native_download_requested)
         self.library_browser.login_required.connect(self._on_native_login_required)
         self.library_browser.library_loaded.connect(self._on_native_library_loaded)
+        self.library_browser.offline_changed.connect(self._on_native_offline_changed)
+        self.library_browser.reconnect_requested.connect(self._check_server_reachable)
+        self.library_browser.web_view_requested.connect(lambda: self.set_native_ui(False))
         self.download_manager.installation_finished.connect(
             lambda _name: self.library_browser.refresh_installed())
 
@@ -261,6 +286,13 @@ class GameyfinWindow(QMainWindow):
         self._native_cookie_timer.setInterval(NATIVE_UI_COOKIE_DEBOUNCE_MS)
         self._native_cookie_timer.timeout.connect(self._probe_native_ui)
         self.browser.urlChanged.connect(lambda _: self._probe_native_ui())
+
+        # Offline mode: while the server is unreachable, check now and then
+        # whether it is back (see _check_server_reachable)
+        self._offline_retry_timer = QTimer(self)
+        self._offline_retry_timer.setInterval(OFFLINE_RETRY_INTERVAL_MS)
+        self._offline_retry_timer.timeout.connect(self._check_server_reachable)
+        self._reachability_worker: ApiCallWorker | None = None
 
     def _setup_tabs(self) -> None:
         """Initialize the tab widget and add all tabs."""
@@ -353,6 +385,9 @@ class GameyfinWindow(QMainWindow):
         script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         script.setRunsOnSubFrames(True)
         self.browser.page().scripts().insert(script)
+
+        # "Native view" button — main page only, external tabs don't get it
+        self.browser.page().scripts().insert(build_toggle_script())
 
         # Gamepad navigation inside the page — installed on the profile so
         # every tab (including externally opened ones) gets it.
@@ -567,6 +602,9 @@ class GameyfinWindow(QMainWindow):
 
         if success:
             self._maybe_activate_native_ui()
+        else:
+            # Also fires for an aborted navigation, so check before going offline
+            self._check_server_reachable()
 
     # ------------------------------------------------------------------
     # Native library UI
@@ -634,7 +672,10 @@ class GameyfinWindow(QMainWindow):
             if self.library_browser is not None:
                 self._native_probe_timer.stop()
                 self._native_cookie_timer.stop()
-                self.show_login_view()
+                # Offline, the installed games stay up: the web view would only
+                # show an error page. It comes back once the server does.
+                if not self.library_browser.offline:
+                    self.show_login_view()
             return
 
         if self.library_browser is None:
@@ -642,6 +683,69 @@ class GameyfinWindow(QMainWindow):
 
         self._probe_native_ui()
         if not self._native_ui_active():
+            self._native_probe_timer.start()
+
+    def set_native_ui(self, enabled: bool) -> None:
+        """Switch between the native library and the web view, remembering the choice."""
+        self.settings.set("GF_NATIVE_UI", 1 if enabled else 0)
+        self.settings_widget.native_ui_check.setChecked(enabled)
+        self._apply_native_ui_setting()
+
+    # ------------------------------------------------------------------
+    # Offline mode
+    # ------------------------------------------------------------------
+
+    def _check_server_reachable(self) -> None:
+        """Ping the server in the background, going offline or back online.
+
+        Runs when the page failed to load, and periodically while offline.
+        Offline mode works with the web view too: the native library is then
+        built just to show the installed games until the server is back.
+        """
+        if self.library_browser is None:
+            self._build_native_ui()
+        if self._reachability_worker is not None:
+            return  # A check is already running
+        worker = ApiCallWorker(self.api_client.ping, OFFLINE_PING_TIMEOUT)
+        worker.unreachable.connect(self.library_browser.go_offline)
+        worker.result_ready.connect(self._on_reachability_checked)
+        worker.finished.connect(self._release_reachability_worker)
+        self._reachability_worker = worker
+        worker.start()
+
+    def _on_reachability_checked(self, _result: Any, error: str) -> None:
+        """The server answers again: start over the way the app starts up."""
+        if error or self.library_browser is None or not self.library_browser.offline:
+            return
+        self.library_browser.set_online()
+
+    def _release_reachability_worker(self) -> None:
+        """Drop the finished reachability check thread."""
+        worker = self._reachability_worker
+        self._reachability_worker = None
+        if worker is None:
+            return
+        if not worker.wait(3000):
+            logger.warning("Server check thread did not stop; keeping it alive")
+            self._retired_workers.append(worker)
+            return
+        worker.deleteLater()
+
+    def _on_native_offline_changed(self, offline: bool) -> None:
+        """Show the installed games while offline, and reconnect once the server is back."""
+        if offline:
+            self._native_probe_timer.stop()
+            self._native_cookie_timer.stop()
+            self.main_stack.setCurrentWidget(self.library_browser)
+            self._offline_retry_timer.start()
+            return
+
+        self._offline_retry_timer.stop()
+        # The same path as at startup: the web view stays in front until the
+        # probe proves the session works (or shows the login page if it doesn't)
+        self.show_login_view()
+        self.browser.setUrl(QUrl(self.settings.get("GF_URL")))
+        if self._native_ui_requested():
             self._native_probe_timer.start()
 
     def show_login_view(self) -> None:
@@ -820,6 +924,8 @@ class GameyfinWindow(QMainWindow):
             if self.library_browser is not None:
                 self._native_probe_timer.stop()
                 self._native_cookie_timer.stop()
+                self._offline_retry_timer.stop()
+                self._release_reachability_worker()
                 self.library_browser.close()
             if self.image_cache is not None:
                 self.image_cache.shutdown()

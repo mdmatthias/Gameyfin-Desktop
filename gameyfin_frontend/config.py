@@ -93,5 +93,10 @@ IMAGE_FETCH_THREADS = 6
 # signal to hook — the API answer itself is the only reliable authentication test.
 NATIVE_UI_PROBE_INTERVAL_MS = 3000
 
+# Offline mode: how often to check whether an unreachable server is back, and
+# how long that check may take. The check is a plain GET of the server's index.
+OFFLINE_RETRY_INTERVAL_MS = 30000
+OFFLINE_PING_TIMEOUT = 5
+
 # Debounce for the cookie-driven probe: a login writes several cookies at once
 NATIVE_UI_COOKIE_DEBOUNCE_MS = 700

@@ -3,6 +3,11 @@
 Fetches libraries, games and download providers from the Gameyfin server and
 shows them as a cover grid with a detail page, so the desktop client only
 renders what a game library actually needs. Enabled by ``GF_NATIVE_UI``.
+
+When the server cannot be reached the browser goes offline: it shows only the
+installed games, so they can still be launched. Their details are stored in
+each game's prefix link and their artwork in the image cache whenever the
+library loads, so the offline view looks the same as the online one.
 """
 
 import logging
@@ -21,7 +26,8 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel,
 from ..config import (COVER_TILE_HEIGHT, COVER_TILE_WIDTH, LIBRARY_PAGE_SIZE,
                       STOP_GAME_GRACE_MS)
 from ..services.gameyfin_api import (DownloadProvider, Game, GameyfinApiClient,
-                                     GameyfinApiError, GameyfinAuthError, Library)
+                                     GameyfinApiError, GameyfinAuthError,
+                                     GameyfinConnectionError, Library)
 from ..services.game_launcher import launch_script, stop_game
 from ..services.image_cache import ImageCache
 from ..services.installed_games import InstalledGame, InstalledGamesService
@@ -46,6 +52,12 @@ class LibraryBrowserWidget(QWidget):
     login_required = pyqtSignal()
     # Emitted when a fetch came back authorized — the session works
     library_loaded = pyqtSignal()
+    # True when the server became unreachable, False once it answers again
+    offline_changed = pyqtSignal(bool)
+    # Refresh pressed while offline: check in the background whether the server is back
+    reconnect_requested = pyqtSignal()
+    # The user wants the Gameyfin web app instead of this native library
+    web_view_requested = pyqtSignal()
 
     def __init__(self, api_client: GameyfinApiClient, image_cache: ImageCache,
                  settings: SettingsManager, parent: QWidget | None = None) -> None:
@@ -71,6 +83,8 @@ class LibraryBrowserWidget(QWidget):
         self._launch_refs: list[tuple[object, object]] = []
         # Gameyfin game id -> launch script process of the games running now
         self._running: dict[int, QProcess] = {}
+        # Set while the server is unreachable (see go_offline)
+        self.offline = False
 
         # Client-side paging. The server returns every game in one call, so the
         # grid slices the filtered result set into pages of this size.
@@ -126,6 +140,12 @@ class LibraryBrowserWidget(QWidget):
         self.refresh_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.refresh_button.clicked.connect(self.refresh)
         top_bar.addWidget(self.refresh_button)
+
+        self.web_view_button = QPushButton("Web view")
+        self.web_view_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.web_view_button.setToolTip("Switch to the Gameyfin web app")
+        self.web_view_button.clicked.connect(self.web_view_requested.emit)
+        top_bar.addWidget(self.web_view_button)
 
         self.prev_button = QPushButton("‹ Prev")
         self.prev_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -242,6 +262,12 @@ class LibraryBrowserWidget(QWidget):
             self._refresh_pending = True
             return
 
+        if self.offline:
+            # A fetch here would block the GUI thread until it times out
+            self.status_label.setText("Offline: checking whether the server is back…")
+            self.reconnect_requested.emit()
+            return
+
         self.status_label.setText("Loading library…")
         self.refresh_button.setEnabled(False)
 
@@ -252,7 +278,9 @@ class LibraryBrowserWidget(QWidget):
 
         self._worker = ApiCallWorker(self._fetch_bundle)
         self._worker.result_ready.connect(self._on_bundle_loaded)
+        self._worker.auth_required.connect(self.set_online)
         self._worker.auth_required.connect(self.login_required.emit)
+        self._worker.unreachable.connect(self.go_offline)
         self._worker.finished.connect(self._release_worker)
         self._worker.start()
 
@@ -296,8 +324,13 @@ class LibraryBrowserWidget(QWidget):
         except GameyfinAuthError as e:
             logger.debug("Library fetch not authorized: %s", e)
             self.refresh_button.setEnabled(True)
+            self.set_online()
             self.status_label.setText("Waiting for login…")
             self.login_required.emit()
+            return
+        except GameyfinConnectionError as e:
+            self.refresh_button.setEnabled(True)
+            self.go_offline(str(e))
             return
         except GameyfinApiError as e:
             self.refresh_button.setEnabled(True)
@@ -318,15 +351,82 @@ class LibraryBrowserWidget(QWidget):
         self.refresh_button.setEnabled(True)
 
         if error or result is None:
-            self.status_label.setText(error or "Could not load the library.")
+            if not self.offline:  # go_offline already set the status line
+                self.status_label.setText(error or "Could not load the library.")
             return
 
         self.libraries, self.games, self.providers = result  # type: ignore[misc]
+        self.set_online()
         self.detail.set_providers(self.providers)
         self._populate_library_combo()
         self._scan_installed()
+        self._remember_installed_games()
         self._apply_filter()
         self.library_loaded.emit()
+
+    # ------------------------------------------------------------------
+    # Offline mode
+    # ------------------------------------------------------------------
+
+    def go_offline(self, reason: str = "") -> None:
+        """Show the installed games without the server.
+
+        The games come from the library loaded this session, else from the
+        details stored with each installed game. A game installed before those
+        were stored is listed by the title remembered in its prefix link.
+        """
+        if self.offline:
+            # Still offline: keep the grid (and the gamepad focus) as it is
+            self._update_status(len(self.visible_games()), 0, 0)
+            return
+
+        logger.info("Server unreachable, showing installed games offline: %s", reason)
+        self._scan_installed()
+        self._add_unknown_installed_games()
+
+        self.offline = True
+        self.image_cache.offline = True
+        self.detail.set_offline(True)
+        self.installed_check.setVisible(False)
+        self.web_view_button.setEnabled(False)
+        self.web_view_button.setToolTip("The web app needs the server, which can't be reached")
+        self._page = 0
+        self._apply_filter()
+        self.offline_changed.emit(True)
+
+    def _add_unknown_installed_games(self) -> None:
+        """Add the installed games the loaded library doesn't know, from their stored details."""
+        known = {game.id for game in self.games}
+        self.games = self.games + [
+            self._stored_game(info)
+            for info in self.installed.values() if info.game_id not in known
+        ]
+
+    @staticmethod
+    def _stored_game(info: InstalledGame) -> Game:
+        """Return the game stored with an install, or a bare entry when there is none."""
+        if info.details:
+            try:
+                game = Game.from_dict(info.details)
+                if game.id == info.game_id:
+                    return game
+            except (AttributeError, TypeError, ValueError) as e:
+                logger.warning("Stored details of '%s' are unusable: %s", info.game_name, e)
+        return Game(id=info.game_id, title=info.title, library_id=0)
+
+    def set_online(self) -> None:
+        """Leave offline mode: the server answered again."""
+        if not self.offline:
+            return
+        logger.info("Server reachable again, leaving offline mode")
+        self.offline = False
+        self.image_cache.offline = False
+        self.detail.set_offline(False)
+        self.installed_check.setVisible(sys.platform != "win32")
+        self.web_view_button.setEnabled(True)
+        self.web_view_button.setToolTip("Switch to the Gameyfin web app")
+        self._apply_filter()
+        self.offline_changed.emit(False)
 
     def _populate_library_combo(self) -> None:
         """Rebuild the library selector, keeping the current selection if possible."""
@@ -348,11 +448,37 @@ class LibraryBrowserWidget(QWidget):
         """Re-read which games are installed locally."""
         self.installed = self._installed_service.scan(self.games)
 
+    def _remember_installed_games(self) -> None:
+        """Store each installed game's details and artwork, for offline use.
+
+        Details are only rewritten when the server's data changed. Artwork
+        already on disk is not fetched again.
+        """
+        for info in self.installed.values():
+            game = self.game_by_id(info.game_id)
+            if game is None:
+                continue
+            details = game.to_dict()
+            if info.details != details:
+                try:
+                    self._installed_service.save_details(info.game_name, details)
+                    info.details, info.title = details, game.title
+                except OSError as e:
+                    logger.error("Could not store the details of '%s': %s", info.game_name, e)
+            for image in game.artwork():
+                self.image_cache.request(image)
+
     def refresh_installed(self) -> None:
         """Rescan the installed games and update the grid and detail page."""
         before = set(self.installed)
         self._scan_installed()
-        if self.installed_check.isChecked() and set(self.installed) != before:
+        if self.offline:
+            # A game installed while offline (from a local archive) needs an entry
+            self._add_unknown_installed_games()
+        else:
+            self._remember_installed_games()
+        if ((self.offline or self.installed_check.isChecked())
+                and set(self.installed) != before):
             # The filtered result set changed: rebuild the page
             self._apply_filter()
         else:
@@ -459,7 +585,7 @@ class LibraryBrowserWidget(QWidget):
             games = [g for g in games if g.library_id == library_id]
         if needle:
             games = [g for g in games if needle in g.title.lower()]
-        if self.installed_check.isChecked():
+        if self.offline or self.installed_check.isChecked():
             games = [g for g in games if g.id in self.installed]
         return sorted(games, key=lambda g: g.title.lower())
 
@@ -512,7 +638,14 @@ class LibraryBrowserWidget(QWidget):
 
     def _update_status(self, filtered: int, start: int, shown: int) -> None:
         """Set the status line to describe what the current page holds."""
-        if not self.games:
+        if self.offline:
+            self.status_label.setText(
+                "Offline: can't reach the server. Showing installed games; "
+                "retrying in the background."
+                if filtered else
+                "Offline: can't reach the server, and no installed games match."
+            )
+        elif not self.games:
             self.status_label.setText("This server reports no games.")
         elif filtered == 0 and self.installed_check.isChecked():
             self.status_label.setText("No installed games match.")

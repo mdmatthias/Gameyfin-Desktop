@@ -72,6 +72,17 @@ class TestCustomWebEnginePage:
         assert page.restricted_host == "localhost"
         assert page.main_host == "localhost"
 
+    @pytest.mark.parametrize("message,host,restricted,expected", [
+        ("gameyfin-desktop:native-ui", "localhost", "localhost", True),
+        ("gameyfin-desktop:native-ui", "sso.example", "localhost", False),  # login provider
+        ("gameyfin-desktop:native-ui", "localhost", None, False),  # external tab
+        ("something else", "localhost", "localhost", False),
+    ])
+    def test_native_view_button_message(self, message, host, restricted, expected):
+        from gameyfin_frontend.gameyfin_window import is_native_ui_request
+
+        assert is_native_ui_request(message, host, "localhost", restricted) is expected
+
     def test_page_initializes_without_hosts(self, webengine_page_patch):
         from gameyfin_frontend.gameyfin_window import CustomWebEnginePage
         page = CustomWebEnginePage(None)
@@ -728,6 +739,185 @@ class TestNativeLibraryUI:
         window.show_login_view()
 
         assert window.main_stack.currentWidget() is window.browser
+
+    def _ping_window(self, qtbot, mock_umu_database, native_settings, ping, monkeypatch,
+                     native=True):
+        """A window whose server check runs *ping* at once, without a thread."""
+        from gameyfin_frontend.services.gameyfin_api import GameyfinApiClient
+        from PyQt6.QtCore import QObject, pyqtSignal
+
+        class SyncWorker(QObject):
+            unreachable = pyqtSignal(str)
+            result_ready = pyqtSignal(object, str)
+            finished = pyqtSignal()
+
+            def __init__(self, func, *args):
+                super().__init__()
+                self._call = lambda: func(*args)
+
+            def start(self):
+                from gameyfin_frontend.services.gameyfin_api import GameyfinConnectionError
+                try:
+                    result, error = self._call(), ""
+                except GameyfinConnectionError as e:
+                    self.unreachable.emit(str(e))
+                    result, error = None, str(e)
+                self.result_ready.emit(result, error)
+                self.finished.emit()
+
+            def wait(self, *_args):
+                return True
+
+        monkeypatch.setattr("gameyfin_frontend.gameyfin_window.ApiCallWorker", SyncWorker)
+        monkeypatch.setattr(GameyfinApiClient, "ping", lambda _self, timeout: ping(timeout))
+        native_settings.get_prefixes_dirs.return_value = []
+        native_settings.get_shortcuts_dirs.return_value = []
+        if not native:
+            values = native_settings.get.side_effect
+            native_settings.get.side_effect = lambda key, default=None: (
+                0 if key == "GF_NATIVE_UI" else values(key, default))
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+        window._initial_load_complete = True
+        return window
+
+    def test_failed_load_with_unreachable_server_goes_offline(self, qtbot, mock_umu_database, native_settings, monkeypatch):
+        from gameyfin_frontend.services.gameyfin_api import GameyfinConnectionError
+
+        def ping(_timeout):
+            raise GameyfinConnectionError("unreachable")
+
+        window = self._ping_window(qtbot, mock_umu_database, native_settings, ping, monkeypatch)
+        window._native_probe_timer.start()
+
+        window._on_load_finished(False)
+
+        assert window.library_browser.offline
+        assert window.main_stack.currentWidget() is window.library_browser
+        assert window._offline_retry_timer.isActive()
+        assert not window._native_probe_timer.isActive()
+        assert window._reachability_worker is None
+
+    def test_failed_load_with_reachable_server_stays_online(self, qtbot, mock_umu_database, native_settings, monkeypatch):
+        window = self._ping_window(qtbot, mock_umu_database, native_settings, lambda _timeout: None,
+                                   monkeypatch)
+
+        window._on_load_finished(False)
+
+        assert not window.library_browser.offline
+        assert window.main_stack.currentWidget() is window.browser
+
+    def test_server_coming_back_reloads_and_probes(self, qtbot, mock_umu_database, native_settings, monkeypatch):
+        window = self._ping_window(qtbot, mock_umu_database, native_settings, lambda _timeout: None,
+                                   monkeypatch)
+        window.library_browser.go_offline("unreachable")
+        assert window._offline_retry_timer.isActive()
+
+        with patch.object(window.browser, "setUrl") as set_url:
+            window._check_server_reachable()
+
+        assert not window.library_browser.offline
+
+        set_url.assert_called_once()
+        assert not window._offline_retry_timer.isActive()
+        assert window._native_probe_timer.isActive()
+        # The web view is in front until the probe proves the session works
+        assert window.main_stack.currentWidget() is window.browser
+        window._native_probe_timer.stop()
+
+    def test_offline_refresh_button_checks_the_server(self, qtbot, mock_umu_database, native_settings, monkeypatch):
+        window = self._ping_window(qtbot, mock_umu_database, native_settings, lambda _timeout: None,
+                                   monkeypatch)
+        window.library_browser.go_offline("unreachable")
+
+        with patch.object(window.browser, "setUrl"):
+            window.library_browser.refresh()
+
+        assert not window.library_browser.offline
+        window._native_probe_timer.stop()
+
+    def test_turning_the_native_ui_off_keeps_the_offline_library(self, qtbot, mock_umu_database, native_settings, monkeypatch):
+        window = self._ping_window(qtbot, mock_umu_database, native_settings, lambda _timeout: None,
+                                   monkeypatch)
+        window.library_browser.go_offline("unreachable")
+        native_settings.get.side_effect = lambda key, default=None: (
+            0 if key == "GF_NATIVE_UI" else default)
+
+        window._apply_native_ui_setting()
+
+        assert window.library_browser.offline
+        assert window._offline_retry_timer.isActive()
+        assert not window._native_probe_timer.isActive()
+        assert window.main_stack.currentWidget() is window.library_browser
+
+    def test_web_view_user_gets_the_offline_library(self, qtbot, mock_umu_database, native_settings, monkeypatch):
+        from gameyfin_frontend.services.gameyfin_api import GameyfinConnectionError
+
+        def ping(_timeout):
+            raise GameyfinConnectionError("unreachable")
+
+        window = self._ping_window(qtbot, mock_umu_database, native_settings, ping, monkeypatch,
+                                   native=False)
+        assert window.library_browser is None
+
+        window._on_load_finished(False)
+
+        assert window.library_browser.offline
+        assert window.main_stack.currentWidget() is window.library_browser
+
+    def test_web_view_user_returns_to_the_web_view_when_the_server_is_back(self, qtbot, mock_umu_database, native_settings, monkeypatch):
+        state = {"up": False}
+
+        def ping(_timeout):
+            from gameyfin_frontend.services.gameyfin_api import GameyfinConnectionError
+            if not state["up"]:
+                raise GameyfinConnectionError("unreachable")
+
+        window = self._ping_window(qtbot, mock_umu_database, native_settings, ping, monkeypatch,
+                                   native=False)
+        window._on_load_finished(False)
+        state["up"] = True
+
+        with patch.object(window.browser, "setUrl") as set_url:
+            window._check_server_reachable()
+
+        set_url.assert_called_once()
+        assert window.main_stack.currentWidget() is window.browser
+        assert not window._native_probe_timer.isActive()
+        assert not window._offline_retry_timer.isActive()
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_set_native_ui_saves_and_applies_the_choice(self, qtbot, mock_umu_database, native_settings, enabled):
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+
+        with patch.object(window, "_apply_native_ui_setting") as apply:
+            window.set_native_ui(enabled)
+
+        native_settings.set.assert_any_call("GF_NATIVE_UI", 1 if enabled else 0)
+        assert window.settings_widget.native_ui_check.isChecked() is enabled
+        apply.assert_called_once()
+
+    def test_web_view_button_switches_to_the_web_view(self, qtbot, mock_umu_database, native_settings):
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+
+        with patch.object(window, "set_native_ui") as set_native_ui:
+            # Connected through a lambda, so the patched method is the one called
+            window.library_browser.web_view_button.click()
+
+        set_native_ui.assert_called_once_with(False)
+
+    def test_injected_button_switches_to_the_native_ui(self, qtbot, mock_umu_database, mock_settings):
+        window = TestGameyfinWindow()._make_window(qtbot, mock_umu_database, mock_settings)
+
+        handler = window.custom_page.native_ui_requested.connect.call_args.args[0]
+        with patch.object(window, "set_native_ui") as set_native_ui, \
+             patch("gameyfin_frontend.gameyfin_window.QTimer.singleShot") as single_shot:
+            handler()
+            set_native_ui.assert_not_called()  # not from inside the page callback
+            delay, deferred = single_shot.call_args.args
+            assert delay == 0
+            deferred()
+
+        set_native_ui.assert_called_once_with(True)
 
     def test_native_download_uses_api_url_and_reported_size(self, qtbot, mock_umu_database, native_settings):
         from gameyfin_frontend.services.gameyfin_api import Game
