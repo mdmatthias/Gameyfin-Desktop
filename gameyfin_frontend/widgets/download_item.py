@@ -182,6 +182,11 @@ class DownloadItemWidget(QWidget):
         Called at construction and again by the download manager whenever
         the active theme changes at runtime.
         """
+        # A freshly built row isn't polished yet, so fontMetrics() would still
+        # report the bare app font instead of the stylesheet's (qt-material's
+        # is larger) and the fixed status column would come out too narrow,
+        # shifting this row's progress bar right of the others'.
+        self.ensurePolished()
         segment_buttons = (self.cancel_button, self.install_button, self._install_arrow,
                             self.open_folder_button, self.remove_button)
         button_height = max(btn.sizeHint().height() for btn in segment_buttons)
