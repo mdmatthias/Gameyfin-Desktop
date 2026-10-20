@@ -3,7 +3,7 @@
 import sys
 
 # Application version — bump on each release
-APP_VERSION = "2.12.1"
+APP_VERSION = "2.13.0"
 
 # GitHub repository used for update checks
 GITHUB_REPO = "mdmatthias/Gameyfin-Desktop"

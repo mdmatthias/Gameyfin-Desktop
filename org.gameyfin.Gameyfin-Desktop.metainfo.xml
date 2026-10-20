@@ -122,6 +122,20 @@
     <url type="bugtracker">https://github.com/mdmatthias/Gameyfin-Desktop/issues</url>
     <content_rating type="oars-1.1"/>
     <releases>
+         <release version="2.13.0" date="2026-10-21">
+            <description>
+                <ul>
+                    <li>(Linux) Proton version manager: download and manage Proton builds from a new Proton tab</li>
+                    <li>(Linux) Native library shows which games are installed, with a Play button and a launch script picker</li>
+                    <li>(Linux) Stop button to end a running game</li>
+                    <li>(Linux) Offline mode: installed games stay available while the server is unreachable, and the app reconnects when it is back</li>
+                    <li>Quick switch between views: a "Native view" button in the Gameyfin web app and a "Web view" button in the native library, instead of only the Settings checkbox</li>
+                    <li>(Linux) Fix GOG DOSBox games and tools starting without their arguments (empty DOSBox prompt): launch scripts now use the arguments stored in the Windows shortcut</li>
+                    <li>(Linux) Fix launch scripts pointing at the wrong file when the executable name has uppercase letters</li>
+                    <li>Fix download rows misaligning after switching themes</li>
+                </ul>
+            </description>
+        </release>
          <release version="2.12.1" date="2026-09-29">
             <description>
                 <ul>
