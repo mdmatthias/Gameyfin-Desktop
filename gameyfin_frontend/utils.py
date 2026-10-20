@@ -631,12 +631,14 @@ def resolve_wine_path(win_path: str, wine_prefix: str) -> str | None:
     return None
 
 
-def parse_lnk_target(lnk_path: str) -> str | None:
-    """Return the Windows target path recorded in a Windows .lnk file.
+def parse_lnk(lnk_path: str) -> tuple[str | None, str] | None:
+    """Return the (target, arguments) recorded in a Windows .lnk file.
 
-    Reads LinkInfo's LocalBasePath (the field Proton itself resolves against),
-    falling back to the RelativePath string when LinkInfo is absent.
-    Returns None if the file is not a readable shell link.
+    The target is LinkInfo's LocalBasePath (the field Proton itself resolves
+    against), falling back to the RelativePath string when LinkInfo is absent.
+    The arguments are the raw Windows command-line string stored with the
+    link, or "" when there are none.  Returns None if the file is not a
+    readable shell link.
     """
     try:
         with open(lnk_path, "rb") as handle:
@@ -649,6 +651,8 @@ def parse_lnk_target(lnk_path: str) -> str | None:
     if len(data) < 0x4C or data[4:20] != b"\x01\x14\x02\x00\x00\x00\x00\x00\xc0\x00\x00\x00\x00\x00\x00\x46":
         return None
 
+    target: str | None = None
+    arguments = ""
     try:
         flags = struct.unpack_from("<I", data, 20)[0]
         offset = 0x4C
@@ -665,14 +669,12 @@ def parse_lnk_target(lnk_path: str) -> str | None:
                 suffix = b""
                 if suffix_offset:
                     suffix = data[offset + suffix_offset:data.index(b"\0", offset + suffix_offset)]
-                target = (base + suffix).decode("latin-1")
-                if target:
-                    return target
+                target = (base + suffix).decode("latin-1") or None
             offset += info_size
 
-        # StringData: length-prefixed UTF-16 strings, in flag-bit order.
+        # StringData: length-prefixed strings, in flag-bit order.
         unicode_strings = bool(flags & 0x80)
-        for bit in (0x4, 0x8):  # Name, RelativePath
+        for bit in (0x4, 0x8, 0x10, 0x20):  # Name, RelativePath, WorkingDir, Arguments
             if not flags & bit:
                 continue
             count = struct.unpack_from("<H", data, offset)[0]
@@ -680,12 +682,109 @@ def parse_lnk_target(lnk_path: str) -> str | None:
             size = count * 2 if unicode_strings else count
             raw = data[offset:offset + size]
             offset += size
-            if bit == 0x8:
-                return raw.decode("utf-16-le" if unicode_strings else "latin-1")
+            # Some writers (GOG's installer) count a trailing NUL in the length.
+            value = raw.decode("utf-16-le" if unicode_strings else "latin-1").split("\0", 1)[0]
+            if bit == 0x8 and not target:
+                target = value
+            elif bit == 0x20:
+                arguments = value
     except (struct.error, ValueError) as exc:
         logger.warning("Malformed shortcut %s: %s", lnk_path, exc)
 
+    return target, arguments
+
+
+def parse_lnk_target(lnk_path: str) -> str | None:
+    """Return the Windows target path recorded in a Windows .lnk file, or None."""
+    parsed = parse_lnk(lnk_path)
+    return parsed[0] if parsed else None
+
+
+def split_windows_args(command_line: str) -> list[str]:
+    """Split a Windows argument string the way CommandLineToArgvW does.
+
+    Backslashes are literal unless they precede a quote: 2n of them before a
+    quote give n backslashes and toggle quoting, 2n+1 give n backslashes and a
+    literal quote.  Inside quotes, ``""`` is a literal quote.
+    """
+    args: list[str] = []
+    current: list[str] = []
+    in_token = in_quotes = False
+    i, n = 0, len(command_line)
+    while i < n:
+        char = command_line[i]
+        if char == "\\":
+            run = 0
+            while i < n and command_line[i] == "\\":
+                run += 1
+                i += 1
+            if i < n and command_line[i] == '"':
+                current.append("\\" * (run // 2))
+                if run % 2:
+                    current.append('"')
+                    i += 1
+            else:
+                current.append("\\" * run)
+            in_token = True
+            continue
+        if char == '"':
+            if in_quotes and i + 1 < n and command_line[i + 1] == '"':
+                current.append('"')
+                i += 2
+                continue
+            in_quotes = not in_quotes
+            in_token = True
+        elif char in " \t" and not in_quotes:
+            if in_token:
+                args.append("".join(current))
+                current, in_token = [], False
+        else:
+            current.append(char)
+            in_token = True
+        i += 1
+    if in_token:
+        args.append("".join(current))
+    return args
+
+
+def windows_args_to_shell(command_line: str) -> str:
+    """Turn a Windows argument string into shell text for a generated script.
+
+    Each argument is passed through as one word; Wine rebuilds the Windows
+    command line from them, so the program sees what the shortcut recorded.
+    """
+    return " ".join(
+        arg if re.fullmatch(r"[A-Za-z0-9_\-+=.,/:@%]+", arg) else shell_dquote(arg)
+        for arg in split_windows_args(command_line)
+    )
+
+
+def _exec_lnk_path(exec_value: str, wine_prefix: str) -> str | None:
+    """Return the host path of the .lnk a Proton .desktop Exec line points at, if any."""
+    win_path = _unescape_desktop_exec(exec_value.split('" "')[0])
+    host_path = resolve_wine_path(win_path, wine_prefix)
+    if host_path and host_path.lower().endswith(".lnk"):
+        return host_path
     return None
+
+
+def resolve_lnk_launch(exec_value: str, wine_prefix: str) -> tuple[str | None, str]:
+    """Return (host exe path, shell-quoted arguments) from the .lnk an Exec line points at.
+
+    Proton's .desktop files for GOG and similar installers only reference the
+    Windows shortcut; its target and arguments (e.g. DOSBox's ``-conf``
+    options) live in the .lnk itself.  Returns ``(None, "")`` when Exec does
+    not point at a readable .lnk.
+    """
+    lnk_path = _exec_lnk_path(exec_value, wine_prefix)
+    parsed = parse_lnk(lnk_path) if lnk_path else None
+    if not parsed:
+        return None, ""
+    target, arguments = parsed
+    exe_path = resolve_wine_path(target, wine_prefix) if target else None
+    if exe_path and not exe_path.lower().endswith(".exe"):
+        exe_path = None
+    return exe_path, windows_args_to_shell(arguments)
 
 
 def resolve_target_from_exec(exec_value: str, wine_prefix: str) -> tuple[str, str] | None:
@@ -711,6 +810,28 @@ def resolve_target_from_exec(exec_value: str, wine_prefix: str) -> tuple[str, st
     if not host_path.lower().endswith(".exe"):
         return None
     return os.path.dirname(host_path), os.path.basename(host_path)
+
+
+def lnk_args_for_script(script_name: str, wine_prefix: str) -> str:
+    """Return the shell-quoted .lnk arguments of the Proton shortcut a script was made from.
+
+    Matches *script_name* (e.g. ``"Game.sh"``) against the .desktop files in
+    the prefix's ``drive_c/proton_shortcuts``, the same way
+    :func:`create_shortcuts` names scripts.  Returns "" when there is no such
+    shortcut or it records no arguments.
+    """
+    shortcuts_dir = os.path.join(wine_prefix, "drive_c", "proton_shortcuts")
+    if not os.path.isdir(shortcuts_dir):
+        return ""
+    for name in sorted(os.listdir(shortcuts_dir)):
+        stem, ext = os.path.splitext(name)
+        if ext != ".desktop" or sanitize_name(stem) + ".sh" != script_name:
+            continue
+        config_parser = parse_desktop_file(os.path.join(shortcuts_dir, name))
+        if config_parser is None or "Desktop Entry" not in config_parser:
+            return ""
+        return resolve_lnk_launch(config_parser["Desktop Entry"].get("Exec", ""), wine_prefix)[1]
+    return ""
 
 
 def create_shortcuts(
@@ -767,11 +888,16 @@ def create_shortcuts(
                 logger.info("Resolved %s to %s in %s", original_path, exe_name, working_dir)
 
             exe_path = os.path.join(working_dir, exe_name)
+            lnk_exe, lnk_args = resolve_lnk_launch(entry.get("Exec", ""), wine_prefix)
+            if lnk_exe and not os.path.exists(exe_path) and os.path.exists(lnk_exe):
+                # Wine lowercases StartupWMClass; the .lnk keeps the real file name.
+                exe_path = lnk_exe
             script_name = sanitize_name(os.path.splitext(os.path.basename(original_path))[0]) + ".sh"
 
             script_config = resolve_script_config(install_config, script_name)
             exe_part = f'umu-run {shell_dquote(exe_path)}'
-            game_args = script_config.get("GAME_ARGS", "")
+            # The shortcut's own arguments apply unless the user set some.
+            game_args = script_config.get("GAME_ARGS", "") or lnk_args
             if game_args:
                 exe_part = f'{exe_part} {game_args}'
             command_to_run = build_umu_command(

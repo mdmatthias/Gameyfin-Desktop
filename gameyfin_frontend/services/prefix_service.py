@@ -13,8 +13,8 @@ from typing import Any
 from gameyfin_frontend.config import DEFAULT_PROTON, SCRIPT_PERMISSION
 from gameyfin_frontend.services.exe_icon import extract_exe_icon
 from gameyfin_frontend.utils import (
-    build_umu_env_prefix, create_shortcuts, is_per_script_config, resolve_script_config,
-    sanitize_name, script_settings, shell_dquote,
+    build_umu_env_prefix, create_shortcuts, is_per_script_config, lnk_args_for_script,
+    resolve_script_config, sanitize_name, script_settings, shell_dquote,
 )
 
 logger = logging.getLogger(__name__)
@@ -242,7 +242,9 @@ class PrefixService:
                             exe_args = rest
 
                         script_config = resolve_script_config(config, os.path.basename(script_path))
-                        game_args = script_config.get("GAME_ARGS", "")
+                        game_args = script_config.get("GAME_ARGS", "") or lnk_args_for_script(
+                            os.path.basename(script_path), prefix_path,
+                        )
                         if game_args:
                             exe_args = f"{exe_args} {game_args}"
                         proton_path = script_config.get("PROTONPATH") or self.settings.get("PROTONPATH") or DEFAULT_PROTON
