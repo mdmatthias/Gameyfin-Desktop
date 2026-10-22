@@ -257,42 +257,67 @@ class TestCall:
         assert client.call("GameEndpoint", "getAll") is None
 
 
+def route(session, **responses):
+    """Answer session.post per Hilla method name (``sync``, ``getByIds``, ...).
+
+    Values are payloads, FakeResponses, or callables taking the JSON body.
+    Unrouted methods answer with Hilla's empty 403.
+    """
+    def post(url, json=None, **_kwargs):
+        method = url.rsplit("/", 1)[-1]
+        if method not in responses:
+            return FakeResponse(status_code=403, text="")
+        value = responses[method]
+        if callable(value):
+            value = value(json)
+        return value if isinstance(value, FakeResponse) else FakeResponse(payload=value)
+
+    session.post.side_effect = post
+
+
+def called_methods(session):
+    return [c.args[0].rsplit("/", 1)[-1] for c in session.post.call_args_list]
+
+
 class TestTypedCalls:
     def test_get_libraries(self, client, session):
-        session.post.return_value = FakeResponse(payload=[
-            {"id": 1, "name": "PC", "gameIds": [10, 11]},
+        route(session, sync={"serverTime": "now", "full": True, "allIds": [], "libraries": [
+            {"id": 1, "name": "PC", "metadata": {}},
             {"id": 2, "name": None},
-        ])
+        ]})
 
         libraries = client.get_libraries()
 
         assert libraries == [
-            Library(id=1, name="PC", game_ids=[10, 11]),
-            Library(id=2, name="Library 2", game_ids=[]),
+            Library(id=1, name="PC"),
+            Library(id=2, name="Library 2"),
         ]
+        assert json.loads(json.dumps(session.post.call_args.kwargs["json"])) == {"since": None}
 
     def test_get_games_flattens_dto(self, client, session):
-        session.post.return_value = FakeResponse(payload=[{
-            "id": 42,
-            "libraryId": 1,
-            "title": "Half-Life",
-            "summary": "Ride the tram.",
-            "release": "1998-11-19",
-            "userRating": 96,
-            "criticRating": None,
-            "platforms": ["WINDOWS"],
-            "genres": [{"name": "SHOOTER", "displayName": "Shooter"}],
-            "developers": ["Valve"],
-            "cover": {"id": 5, "type": "COVER", "blurhash": "abc"},
-            "header": None,
-            "images": [{"id": 6, "type": "SCREENSHOT"}, None],
-            "metadata": {"fileSize": 2048},
-        }])
+        route(session, sync={"games": [{"id": 42, "title": "Half-Life", "fileSize": 2048}]},
+              getByIds=[{
+                  "id": 42,
+                  "libraryId": 1,
+                  "title": "Half-Life",
+                  "summary": "Ride the tram.",
+                  "release": "1998-11-19",
+                  "userRating": 96,
+                  "criticRating": None,
+                  "platforms": ["WINDOWS"],
+                  "genres": [{"name": "SHOOTER", "displayName": "Shooter"}],
+                  "developers": ["Valve"],
+                  "cover": {"id": 5, "type": "COVER", "blurhash": "abc"},
+                  "header": None,
+                  "images": [{"id": 6, "type": "SCREENSHOT"}, None],
+                  "metadata": {"fileSize": 2048},
+              }])
 
         game = client.get_games()[0]
 
         assert game.id == 42
         assert game.title == "Half-Life"
+        assert game.summary == "Ride the tram."
         assert game.file_size == 2048
         assert game.release == "1998-11-19"
         assert game.user_rating == 96
@@ -303,11 +328,61 @@ class TestTypedCalls:
         assert game.images == [GameImage(id=6, type="SCREENSHOT")]
 
     def test_get_games_tolerates_sparse_dto(self, client, session):
-        session.post.return_value = FakeResponse(payload=[{"id": 1}])
+        route(session, sync={"games": [{"id": 1}]}, getByIds=[{"id": 1}])
 
         game = client.get_games()[0]
 
         assert game == Game(id=1, title="Unknown", library_id=0)
+
+    def test_get_games_fetches_details_in_batches_and_keeps_order(
+            self, client, session, monkeypatch):
+        monkeypatch.setattr("gameyfin_frontend.services.gameyfin_api.GAME_DETAILS_BATCH_SIZE", 2)
+        batches = []
+
+        def get_by_ids(body):
+            batches.append(body["ids"])
+            # The server does not promise any order
+            return [{"id": i, "title": f"Full {i}"} for i in reversed(body["ids"])]
+
+        route(session, sync={"games": [{"id": i, "title": f"Summary {i}"} for i in (3, 1, 2)]},
+              getByIds=get_by_ids)
+
+        games = client.get_games()
+
+        assert batches == [[3, 1], [2]]
+        assert [g.title for g in games] == ["Full 3", "Full 1", "Full 2"]
+
+    def test_get_games_keeps_summary_of_game_without_details(self, client, session):
+        route(session, sync={"games": [{"id": 1, "title": "Gone", "fileSize": 10}]},
+              getByIds=[])
+
+        assert client.get_games() == [Game(id=1, title="Gone", library_id=0, file_size=10)]
+
+    def test_falls_back_to_get_all_on_servers_before_2_5_1(self, client, session):
+        route(session, getAll=[{"id": 1, "name": "PC", "gameIds": [10]}])
+
+        assert client.get_libraries() == [Library(id=1, name="PC", game_ids=[10])]
+        assert called_methods(session) == ["sync", "sync", "getAll"]  # sync retried for CSRF
+
+        session.post.reset_mock()
+        client.get_libraries()
+        assert called_methods(session) == ["getAll"]
+
+    def test_auth_error_when_both_apis_are_rejected(self, client, session):
+        route(session)
+
+        with pytest.raises(GameyfinAuthError):
+            client.get_libraries()
+
+    def test_no_legacy_retry_once_the_new_api_worked(self, client, session):
+        route(session, sync={"libraries": []})
+        client.get_libraries()
+        route(session)
+        session.post.reset_mock()
+
+        with pytest.raises(GameyfinAuthError):
+            client.get_libraries()
+        assert "getAll" not in called_methods(session)
 
     def test_get_download_providers_sorted_by_priority(self, client, session):
         session.post.return_value = FakeResponse(payload=[

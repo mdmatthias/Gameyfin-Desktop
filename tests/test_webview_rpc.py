@@ -139,7 +139,8 @@ class TestWebViewRpc:
 class TestClientWithTransport:
     def test_transport_is_used_instead_of_http(self, qtbot, settings):
         session = MagicMock()
-        page = FakePage({"status": 200, "body": json.dumps([{"id": 1, "name": "PC"}])})
+        page = FakePage({"status": 200,
+                         "body": json.dumps({"libraries": [{"id": 1, "name": "PC"}]})})
         client = GameyfinApiClient(settings, session=session,
                                    rpc_transport=WebViewRpc(lambda: page))
 

@@ -34,8 +34,8 @@ from urllib.parse import quote
 
 import requests
 
-from ..config import (API_TIMEOUT, DOWNLOAD_PATH, HILLA_PREFIX, IMAGE_PATHS,
-                      SPRING_CSRF_COOKIE, SPRING_CSRF_HEADER,
+from ..config import (API_TIMEOUT, DOWNLOAD_PATH, GAME_DETAILS_BATCH_SIZE,
+                      HILLA_PREFIX, IMAGE_PATHS, SPRING_CSRF_COOKIE, SPRING_CSRF_HEADER,
                       VAADIN_CSRF_COOKIE, VAADIN_CSRF_HEADER)
 from ..settings import SettingsManager
 from .webview_rpc import WebViewRpcError
@@ -155,7 +155,8 @@ class Game:
             library_id=int(data.get("libraryId") or 0),
             summary=data.get("summary"),
             release=data.get("release"),
-            file_size=int(metadata.get("fileSize") or 0),
+            # Summaries (2.5.1+) carry it at the top level, full DTOs in metadata
+            file_size=int(data.get("fileSize") or metadata.get("fileSize") or 0),
             user_rating=_to_int(data.get("userRating")),
             critic_rating=_to_int(data.get("criticRating")),
             platforms=_str_list(data.get("platforms")),
@@ -250,6 +251,8 @@ class GameyfinApiClient:
         self.rpc_transport = rpc_transport
         self._spring_csrf_header: str | None = None
         self._page_csrf: dict[str, str] | None = None
+        # None until a list call succeeds; True for servers before 2.5.1 (getAll)
+        self._legacy_list_api: bool | None = None
 
     @property
     def base_url(self) -> str:
@@ -429,15 +432,56 @@ class GameyfinApiClient:
                 raise GameyfinAuthError(f"{endpoint}.{method} returned a login page") from e
             raise GameyfinApiError(f"{endpoint}.{method} returned invalid JSON: {e}") from e
 
+    def _list_call(self, endpoint: str, fetch: Callable[[], list[Any]]) -> list[Any]:
+        """Run *fetch* (2.5.1+ API) or fall back to ``<endpoint>.getAll`` (older servers).
+
+        Hilla answers a call to a method the server does not have with an empty
+        403, which is indistinguishable from a missing login. So a rejected call
+        on an unknown server version retries with the other API before the auth
+        error is reported, and the API that worked is remembered.
+        """
+        if self._legacy_list_api:
+            return self.call(endpoint, "getAll") or []
+        try:
+            result = fetch()
+        except GameyfinAuthError:
+            if self._legacy_list_api is False:
+                raise
+            # Still rejected: a genuine auth error, reported as such
+            result = self.call(endpoint, "getAll") or []
+            logger.info("Server predates Gameyfin 2.5.1; using %s.getAll", endpoint)
+            self._legacy_list_api = True
+            return result
+        self._legacy_list_api = False
+        return result
+
     def get_libraries(self) -> list[Library]:
         """Return all libraries visible to the logged-in user."""
-        data = self.call("LibraryEndpoint", "getAll") or []
-        return [Library.from_json(item) for item in data]
+        def fetch() -> list[Any]:
+            data = self.call("LibraryEndpoint", "sync", {"since": None}) or {}
+            return data.get("libraries") or []
+
+        return [Library.from_json(item) for item in self._list_call("LibraryEndpoint", fetch)]
 
     def get_games(self) -> list[Game]:
-        """Return all games visible to the logged-in user."""
-        data = self.call("GameEndpoint", "getAll") or []
-        return [Game.from_json(item) for item in data]
+        """Return all games visible to the logged-in user, with full details.
+
+        Since 2.5.1 the server only lists lightweight summaries (no description,
+        screenshots or videos); the full DTOs are then fetched by ID in batches.
+        """
+        def fetch() -> list[Any]:
+            data = self.call("GameEndpoint", "sync", {"since": None}) or {}
+            summaries = data.get("games") or []
+            ids = [item["id"] for item in summaries]
+            details: dict[int, Any] = {}
+            for start in range(0, len(ids), GAME_DETAILS_BATCH_SIZE):
+                batch = ids[start:start + GAME_DETAILS_BATCH_SIZE]
+                for item in self.call("GameEndpoint", "getByIds", {"ids": batch}) or []:
+                    details[item["id"]] = item
+            # Keep the summary when a game vanished between the two calls
+            return [details.get(item["id"], item) for item in summaries]
+
+        return [Game.from_json(item) for item in self._list_call("GameEndpoint", fetch)]
 
     def get_download_providers(self) -> list[DownloadProvider]:
         """Return the server's download providers, highest priority first."""

@@ -49,6 +49,9 @@ COLOR_STATUS_INSTALLING = "#E67E22"
 # Vaadin Hilla RPC prefix: POST <prefix>/<Endpoint>/<method>
 HILLA_PREFIX = "/connect"
 
+# Game IDs per GameEndpoint.getByIds request when loading full game details
+GAME_DETAILS_BATCH_SIZE = 200
+
 # REST artwork paths keyed by ImageDto.type as returned by the server
 IMAGE_PATHS = {
     "COVER": "/images/cover",

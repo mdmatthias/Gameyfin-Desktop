@@ -15,7 +15,7 @@ from gameyfin_frontend.services.gameyfin_api import GameyfinApiClient
 from gameyfin_frontend.services.image_cache import ImageCache
 from gameyfin_frontend.widgets.library_browser import LibraryBrowserWidget
 
-LIBRARIES = [{"id": 1, "name": "PC Games", "gameIds": [1, 2]}]
+LIBRARIES = [{"id": 1, "name": "PC Games", "metadata": {}}]
 GAMES = [
     {
         "id": 1, "libraryId": 1, "title": "Alpha", "summary": "First",
@@ -79,17 +79,23 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_error(403)
             return
 
-        routes = {
-            "/connect/LibraryEndpoint/getAll": LIBRARIES,
-            "/connect/GameEndpoint/getAll": GAMES,
-            "/connect/DownloadProviderEndpoint/getProviders": PROVIDERS,
-        }
-        if self.path in routes:
-            assert json.loads(raw) == {}
-            self._send_json(routes[self.path])
-            return
-
-        self.send_error(404)
+        body = json.loads(raw)
+        sync = {"serverTime": "2026-01-01T00:00:00Z", "full": True, "allIds": []}
+        if self.path == "/connect/LibraryEndpoint/sync":
+            assert body == {"since": None}
+            self._send_json({**sync, "libraries": LIBRARIES})
+        elif self.path == "/connect/GameEndpoint/sync":
+            assert body == {"since": None}
+            summaries = [{"id": g["id"], "title": g["title"]} for g in GAMES]
+            self._send_json({**sync, "games": summaries})
+        elif self.path == "/connect/GameEndpoint/getByIds":
+            self._send_json([g for g in GAMES if g["id"] in body["ids"]])
+        elif self.path == "/connect/DownloadProviderEndpoint/getProviders":
+            assert body == {}
+            self._send_json(PROVIDERS)
+        else:
+            # Hilla rejects methods it does not know with an empty 403
+            self.send_error(403)
 
 
 @pytest.fixture()
@@ -135,11 +141,12 @@ def test_library_loads_over_http(qtbot, api_settings):
     assert browser.games[0].genres == ["Shooter"]
     assert [p.key for p in browser.providers] == ["fs"]
 
-    # All three endpoints were reached with the Hilla POST convention
+    # All endpoints were reached with the Hilla POST convention
     paths = [path for path, _ in _Handler.calls]
     assert paths == [
-        "/connect/LibraryEndpoint/getAll",
-        "/connect/GameEndpoint/getAll",
+        "/connect/LibraryEndpoint/sync",
+        "/connect/GameEndpoint/sync",
+        "/connect/GameEndpoint/getByIds",
         "/connect/DownloadProviderEndpoint/getProviders",
     ]
 
