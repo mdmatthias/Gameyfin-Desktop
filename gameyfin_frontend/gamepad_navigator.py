@@ -1117,6 +1117,12 @@ class GamepadNavigator(QObject):
         tab_widget.setCurrentIndex(index)
 
     def _page_scroll(self, direction: int) -> None:
+        # Custom-painted widgets with their own scrollable content (the open
+        # game box) opt in through a ``gamepad_page_scroll(direction)`` hook
+        hook = getattr(self._focus_widget(), "gamepad_page_scroll", None)
+        if hook is not None and hook(direction):
+            return
+
         web_view = self._current_web_view()
         if web_view is not None:
             self._send_wheel_scroll(web_view, 0, web_view.height() * 0.85 * direction)
@@ -1150,6 +1156,10 @@ class GamepadNavigator(QObject):
         return None
 
     def _scroll_pixels(self, dx: float, dy: float) -> None:
+        hook = getattr(self._focus_widget(), "gamepad_scroll", None)
+        if hook is not None and hook(dx, dy):
+            return
+
         web_view = self._current_web_view()
         if web_view is not None:
             self._send_wheel_scroll(web_view, dx, dy)

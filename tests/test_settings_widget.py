@@ -52,6 +52,9 @@ class TestSettingsWidgetSections:
         library = _section_by_title(settings_widget, "Library")
         assert library.isAncestorOf(settings_widget.native_ui_check)
         assert library.isAncestorOf(settings_widget.page_size_spin)
+        assert library.isAncestorOf(settings_widget.shelf_view_check)
+        assert library.isAncestorOf(settings_widget.shelf_scale_spin)
+        assert library.isAncestorOf(settings_widget.box_view_check)
 
     def test_downloads_section_contains_download_controls(self, settings_widget):
         downloads = _section_by_title(settings_widget, "Downloads")

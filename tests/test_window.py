@@ -896,6 +896,20 @@ class TestNativeLibraryUI:
         assert window.settings_widget.native_ui_check.isChecked() is enabled
         apply.assert_called_once()
 
+    def test_apply_settings_switches_the_library_views(self, qtbot, mock_umu_database, native_settings):
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+        assert window.library_browser.shelf_mode
+        assert window.library_browser.detail.box_mode
+
+        get = native_settings.get.side_effect
+        native_settings.get.side_effect = lambda key, default=None: (
+            0 if key in ("GF_LIBRARY_SHELF_VIEW", "GF_DETAIL_BOX_VIEW") else get(key, default))
+        with patch.object(window, "_apply_native_ui_setting"):
+            window.apply_settings()
+
+        assert not window.library_browser.shelf_mode
+        assert not window.library_browser.detail.box_mode
+
     def test_web_view_button_switches_to_the_web_view(self, qtbot, mock_umu_database, native_settings):
         window = self._make_native_window(qtbot, mock_umu_database, native_settings)
 
@@ -933,6 +947,33 @@ class TestNativeLibraryUI:
         assert kwargs["filename"] == "Some Game: Deluxe.zip"
         # The extraction folder name is sanitized, the display name is not
         assert ":" not in os.path.basename(kwargs["target_dir"])
+
+    def test_native_download_waits_for_the_box_animation(self, qtbot, mock_umu_database, native_settings):
+        from gameyfin_frontend.services.gameyfin_api import Game
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+        game = Game(id=7, title="Boxed", library_id=1)
+        detail = window.library_browser.detail
+
+        with patch.object(detail, "is_playing_download_animation", return_value=True), \
+             patch.object(window, "_start_download") as mock_start:
+            window._on_native_download_requested(game, "fs")
+
+        assert mock_start.call_args.kwargs["switch_tab"] is False
+        window.library_browser.download_animation_finished.emit()
+        assert window.tab_widget.currentWidget() is window.download_manager
+
+    def test_native_download_without_animation_switches_at_once(self, qtbot, mock_umu_database, native_settings):
+        from gameyfin_frontend.services.gameyfin_api import Game
+        window = self._make_native_window(qtbot, mock_umu_database, native_settings)
+
+        with patch.object(window, "_start_download") as mock_start:
+            window._on_native_download_requested(Game(id=7, title="Flat", library_id=1), "fs")
+
+        assert mock_start.call_args.kwargs["switch_tab"] is True
+        # A later animation ending (e.g. a skipped one) must not pull focus
+        current = window.tab_widget.currentWidget()
+        window.library_browser.download_animation_finished.emit()
+        assert window.tab_widget.currentWidget() is current
 
     def test_download_record_carries_the_game_id(self, qtbot, mock_umu_database, native_settings):
         window = self._make_native_window(qtbot, mock_umu_database, native_settings)

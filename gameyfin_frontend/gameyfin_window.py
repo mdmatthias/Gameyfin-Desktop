@@ -40,7 +40,7 @@ from .settings import SettingsManager
 from .utils import get_effective_icon, parse_size
 from .config import (FIXED_TAB_COUNT, LIBRARY_PAGE_SIZE,
                      NATIVE_UI_COOKIE_DEBOUNCE_MS, NATIVE_UI_PROBE_INTERVAL_MS,
-                     OFFLINE_PING_TIMEOUT, OFFLINE_RETRY_INTERVAL_MS)
+                     OFFLINE_PING_TIMEOUT, OFFLINE_RETRY_INTERVAL_MS, SHELF_SCALE_DEFAULT)
 
 logger = logging.getLogger(__name__)
 
@@ -211,6 +211,9 @@ class GameyfinWindow(QMainWindow):
         self.api_client: GameyfinApiClient | None = None
         self.image_cache: ImageCache | None = None
         self.library_browser: LibraryBrowserWidget | None = None
+        # A native download started during the box view's disc animation:
+        # switch to the Downloads tab once it has played
+        self._show_downloads_after_animation = False
         if self._native_ui_requested():
             self._build_native_ui()
 
@@ -257,6 +260,7 @@ class GameyfinWindow(QMainWindow):
             self.api_client, self.image_cache, self.settings, self
         )
         self.library_browser.download_requested.connect(self._on_native_download_requested)
+        self.library_browser.download_animation_finished.connect(self._on_download_animation_finished)
         self.library_browser.login_required.connect(self._on_native_login_required)
         self.library_browser.library_loaded.connect(self._on_native_library_loaded)
         self.library_browser.offline_changed.connect(self._on_native_offline_changed)
@@ -759,16 +763,28 @@ class GameyfinWindow(QMainWindow):
 
         url = self.api_client.download_url(game.id, provider_key)
         basename = sanitize_name(game.title)
+        detail = self.library_browser.detail
         target_dir = self._resolve_download_target(basename)
         if target_dir is None:
+            detail.cancel_download_animation()
             return
 
+        # The box view plays a "disc into the drive" animation: let it be seen
+        # before switching to the Downloads tab (the download starts right away)
+        animating = detail.is_playing_download_animation()
+        self._show_downloads_after_animation = animating
         self._start_download(
             url=url,
             target_dir=target_dir,
             filename=f"{game.title}.zip",
             total_bytes=game.file_size,
+            switch_tab=not animating,
         )
+
+    def _on_download_animation_finished(self) -> None:
+        if self._show_downloads_after_animation:
+            self._show_downloads_after_animation = False
+            self.tab_widget.setCurrentWidget(self.download_manager)
 
     def _check_for_updates_on_startup(self) -> None:
         """Check GitHub for a newer release once the initial load is done.
@@ -999,7 +1015,8 @@ class GameyfinWindow(QMainWindow):
         return os.path.join(selected, zip_basename)
 
     def _start_download(self, url: str, target_dir: str, filename: str,
-                        total_bytes: int = 0) -> tuple[StreamDownloadWorker, dict[str, Any]]:
+                        total_bytes: int = 0, switch_tab: bool = True
+                        ) -> tuple[StreamDownloadWorker, dict[str, Any]]:
         """Queue a streaming download in the Downloads tab and switch to it.
 
         Args:
@@ -1007,6 +1024,8 @@ class GameyfinWindow(QMainWindow):
             target_dir: Directory to extract into.
             filename: Display name for the download row.
             total_bytes: Known total size, or 0 when unknown.
+            switch_tab: Show the Downloads tab now (False when the caller
+                switches later itself).
 
         Returns:
             The worker driving the download and its history record.
@@ -1028,7 +1047,8 @@ class GameyfinWindow(QMainWindow):
             estimated_total=total_bytes, bandwidth_limit=bandwidth_limit
         )
         self.download_manager.add_download(worker, record)
-        self.tab_widget.setCurrentWidget(self.download_manager)
+        if switch_tab:
+            self.tab_widget.setCurrentWidget(self.download_manager)
         return worker, record
 
     def on_download_requested(self, download: QWebEngineDownloadRequest) -> None:
@@ -1114,11 +1134,22 @@ class GameyfinWindow(QMainWindow):
         # 4. Apply the native library UI flag without a restart
         self._apply_native_ui_setting()
 
-        # 4b. Push the configured page size to the native grid (if present)
+        # 4b. Push the configured page size and views to the native UI (if present)
         if self.library_browser is not None:
             self.library_browser.set_page_size(
                 self.settings.get("GF_LIBRARY_PAGE_SIZE", LIBRARY_PAGE_SIZE)
             )
+            try:
+                self.library_browser.set_shelf_scale(
+                    int(self.settings.get("GF_LIBRARY_SHELF_SCALE", SHELF_SCALE_DEFAULT)))
+            except (TypeError, ValueError):
+                pass
+            shelf = bool(int(self.settings.get("GF_LIBRARY_SHELF_VIEW", 1) or 0))
+            if shelf != self.library_browser.shelf_mode:
+                self.library_browser.set_shelf_mode(shelf)
+            box = bool(int(self.settings.get("GF_DETAIL_BOX_VIEW", 1) or 0))
+            if box != self.library_browser.detail.box_mode:
+                self.library_browser.detail.set_box_mode(box)
 
         # 5. Refresh UMU Database (background, non-blocking)
         if sys.platform != "win32" and self.umu_database:

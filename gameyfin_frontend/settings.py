@@ -58,6 +58,12 @@ class SettingsManager:
             "GF_NATIVE_UI": 0,
             # Games per page in the native library grid (client-side paging)
             "GF_LIBRARY_PAGE_SIZE": 100,
+            # Native detail page shows the game as a 3D box (0 = classic metadata page)
+            "GF_DETAIL_BOX_VIEW": 1,
+            # Native library shows games as boxes on a bookshelf (0 = classic cover grid)
+            "GF_LIBRARY_SHELF_VIEW": 1,
+            # Size of the shelf view in percent (bigger boxes for e.g. 4K screens)
+            "GF_LIBRARY_SHELF_SCALE": 100,
             "GF_GAMEPAD_ENABLED": 1,
             "GF_GAMEPAD_HINTS": 1,
             # Stick deadzone in percent of full deflection

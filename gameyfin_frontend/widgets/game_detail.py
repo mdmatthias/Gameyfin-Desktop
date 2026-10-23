@@ -3,7 +3,9 @@
 Shows everything the server reports for a game — header art, cover, summary,
 release date, ratings, genres/themes, platforms, developers/publishers, file
 size and screenshots — plus the download button and, for installed games,
-a Play button. Nothing here talks to the
+a Play button. Two presentations share those controls: the game as a 3D box
+you can turn over (:mod:`.game_box`, the default) and the classic metadata
+page; the ``GF_DETAIL_BOX_VIEW`` setting picks which one. Nothing here talks to the
 network directly: metadata arrives as a :class:`Game` and artwork through the
 shared :class:`ImageCache`.
 """
@@ -11,19 +13,22 @@ shared :class:`ImageCache`.
 import logging
 import os
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QKeyEvent, QMouseEvent, QPixmap
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QImage, QKeyEvent, QMouseEvent, QPixmap
 from PyQt6.QtWidgets import (QComboBox, QDialog, QFrame, QHBoxLayout, QLabel,
                              QPushButton, QScrollArea, QSizePolicy,
-                             QVBoxLayout, QWidget)
+                             QStackedWidget, QVBoxLayout, QWidget)
 
-from ..config import (COVER_TILE_HEIGHT, COVER_TILE_WIDTH,
+from ..config import (BOX_DISC_TEXTURE_SIZE, BOX_SIDE_PANEL_WIDTH, COVER_TILE_HEIGHT, COVER_TILE_WIDTH,
                       HEADER_BANNER_HEIGHT, SCREENSHOT_THUMB_HEIGHT)
 from ..services.gameyfin_api import DownloadProvider, Game, GameImage
 from ..services.image_cache import ImageCache
 from ..services.installed_games import InstalledGame
 from ..settings import SettingsManager
-from ..utils import format_size, muted_text_color
+from ..utils import accent_color, contrasting_text_color, format_size, muted_text_color
+from .game_box import (DescriptionPage, GameBoxView, _format_release, edge_color, render_back_cover,
+                       render_front_placeholder, render_inner_flap, render_spine)
+from .game_disc import render_disc
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +108,8 @@ class GameDetailWidget(QWidget):
     stop_requested = pyqtSignal()  # stop the running installed game
     # The user picked another launch script (path), so it can be remembered
     script_selected = pyqtSignal(str)
+    # The box view's download animation ended (played out or skipped)
+    download_animation_finished = pyqtSignal()
 
     def __init__(self, image_cache: ImageCache, settings: SettingsManager,
                  parent: QWidget | None = None) -> None:
@@ -125,6 +132,17 @@ class GameDetailWidget(QWidget):
         self._viewer_dialog: ScreenshotViewerDialog | None = None
         # Image id the user clicked while its bytes were still being fetched
         self._awaited_screenshot: int | None = None
+        # Screenshots of the shown game, in strip / box-back order
+        self._screenshots: list[GameImage] = []
+        # The screenshots actually laid out on the box back, in slot order
+        self._box_shot_order: list[GameImage] = []
+        # Bytes of every artwork the 3D box is painted from, by image id
+        self._box_images: dict[int, bytes] = {}
+        # Artwork arrives one image at a time: repaint the box once per burst
+        self._box_refresh = QTimer(self)
+        self._box_refresh.setSingleShot(True)
+        self._box_refresh.setInterval(80)
+        self._box_refresh.timeout.connect(self._refresh_box)
 
         self.image_cache.ready.connect(self._on_image_ready)
         self.image_cache.failed.connect(self._on_image_failed)
@@ -150,10 +168,13 @@ class GameDetailWidget(QWidget):
         top_bar.addStretch()
         outer.addLayout(top_bar)
 
+        self.pages = QStackedWidget()
+        outer.addWidget(self.pages)
+
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
-        outer.addWidget(self.scroll)
+        self.pages.addWidget(self.scroll)
 
         content = QWidget()
         self.scroll.setWidget(content)
@@ -214,7 +235,11 @@ class GameDetailWidget(QWidget):
             self.detail_labels[key] = value
             self._muted_labels.append(name)
 
-        download_row = QHBoxLayout()
+        # Play/Download controls; moved between the two pages by set_box_mode
+        self.actions_widget = QWidget()
+        download_row = QHBoxLayout(self.actions_widget)
+        self._actions_row = download_row
+        download_row.setContentsMargins(0, 0, 0, 0)
         self.play_button = QPushButton("Play")
         self.play_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.play_button.clicked.connect(self._emit_play)
@@ -244,7 +269,8 @@ class GameDetailWidget(QWidget):
         self.provider_combo.hide()
         download_row.addWidget(self.provider_combo)
         download_row.addStretch()
-        info_column.addLayout(download_row)
+        self._classic_actions_slot = info_column
+        info_column.addWidget(self.actions_widget)
 
         info_column.addStretch()
         upper.addLayout(info_column, 1)
@@ -279,6 +305,96 @@ class GameDetailWidget(QWidget):
 
         layout.addStretch()
 
+        self._build_box_page()
+        self.set_box_mode(bool(int(self.settings.get("GF_DETAIL_BOX_VIEW", 1) or 0)))
+
+    def _build_box_page(self) -> None:
+        """The 3D box with a slim column for the title and the actions."""
+        page = QWidget()
+        row = QHBoxLayout(page)
+        row.setContentsMargins(16, 0, 16, 16)
+        row.setSpacing(16)
+
+        self.box_view = GameBoxView()
+        self.box_view.side_changed.connect(self._on_box_side_changed)
+        self.box_view.screenshot_clicked.connect(self._on_box_screenshot_clicked)
+        self.box_view.cover_changed.connect(self._on_box_cover_changed)
+        self.box_view.disc_finished.connect(self.download_animation_finished.emit)
+        row.addWidget(self.box_view, 1)
+
+        side = QWidget()
+        side.setFixedWidth(BOX_SIDE_PANEL_WIDTH)
+        column = QVBoxLayout(side)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(8)
+        column.addStretch()
+
+        self.box_title_label = QLabel()
+        self.box_title_label.setWordWrap(True)
+        self.box_title_label.setStyleSheet("font-size: 26px; font-weight: bold;")
+        column.addWidget(self.box_title_label)
+
+        self.box_subtitle_label = QLabel()
+        self.box_subtitle_label.setWordWrap(True)
+        column.addWidget(self.box_subtitle_label)
+        self._muted_labels.append(self.box_subtitle_label)
+
+        self.box_rating_label = QLabel()
+        self.box_rating_label.setStyleSheet("font-size: 12px;")
+        column.addWidget(self.box_rating_label)
+
+        # Title block, then the actions as one aligned block of full-width rows
+        self._box_actions_slot = column
+        column.addSpacing(12)
+
+        self.flip_button = QPushButton("Turn box over")
+        self.flip_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.flip_button.clicked.connect(lambda: self.box_view.flip())
+        # Inserted below the actions; kept as the last row before the hint
+        self._flip_row = QHBoxLayout()
+        self._flip_row.addWidget(self.flip_button, 1)
+
+        # Opens the front cover like a book to read the full description
+        self.cover_button = QPushButton("Open the box")
+        self.cover_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.cover_button.clicked.connect(lambda: self.box_view.toggle_cover())
+        self._flip_row.addWidget(self.cover_button, 1)
+
+        # One short line per gesture rather than a sentence that wraps mid-phrase
+        self.box_hint_label = QLabel("Drag to turn the box<br>"
+                                     "Click the cover to open it<br>"
+                                     "Click the back to turn it over")
+        self.box_hint_label.setTextFormat(Qt.TextFormat.RichText)
+        self._muted_labels.append(self.box_hint_label)
+
+        column.addLayout(self._flip_row)
+        column.addSpacing(8)
+        column.addWidget(self.box_hint_label)
+        column.addStretch()
+        row.addWidget(side)
+
+        self.box_page = page
+        self.pages.addWidget(page)
+
+    def set_box_mode(self, enabled: bool) -> None:
+        """Switch between the 3D box and the classic metadata page."""
+        self.box_mode = enabled
+        self._box_actions_slot.removeWidget(self.actions_widget)
+        self._classic_actions_slot.removeWidget(self.actions_widget)
+        if enabled:
+            # Right under the rating line, above the flip button
+            index = self._box_actions_slot.indexOf(self.box_rating_label) + 1
+            self._box_actions_slot.insertWidget(index, self.actions_widget)
+        else:
+            index = self._classic_actions_slot.count() - 1  # before the stretch
+            self._classic_actions_slot.insertWidget(index, self.actions_widget)
+        # In the narrow side column the buttons fill its width so their edges line
+        # up; on the classic page they keep their natural size
+        for button in (self.play_button, self.download_button):
+            self._actions_row.setStretchFactor(button, 1 if enabled else 0)
+        self._actions_row.setStretch(self._actions_row.count() - 1, 0 if enabled else 1)
+        self.pages.setCurrentWidget(self.box_page if enabled else self.scroll)
+
     # ------------------------------------------------------------------
     # Population
     # ------------------------------------------------------------------
@@ -292,6 +408,41 @@ class GameDetailWidget(QWidget):
         """Re-apply palette-derived colours after the theme changed."""
         for label in self._muted_labels:
             label.setStyleSheet(f"font-size: 12px; color: {muted_text_color(self)};")
+        self._style_primary_action()
+        self.box_view.update()
+
+    def _style_primary_action(self) -> None:
+        """Fill the main action with the theme's accent so it stands out.
+
+        That is Play once the game is installed, Download otherwise; every other
+        button keeps the theme's own (secondary) look.
+        """
+        primary = self.play_button if self.installed is not None else self.download_button
+        accent = accent_color(self)
+        text = contrasting_text_color(accent)
+
+        def rgba(colour, alpha):
+            return f"rgba({colour.red()}, {colour.green()}, {colour.blue()}, {alpha})"
+
+        style = (
+            f"QPushButton {{ background-color: {accent.name()}; color: {text.name()};"
+            f" border: 1px solid {accent.name()}; border-radius: 4px;"
+            # Only the sides: the height stays the theme's, so a row lines up
+            f" padding-left: 20px; padding-right: 20px; font-weight: bold; }}"
+            f"QPushButton:hover {{ background-color: {accent.lighter(112).name()};"
+            f" border-color: {accent.lighter(112).name()}; }}"
+            f"QPushButton:pressed {{ background-color: {accent.darker(115).name()}; }}"
+            f"QPushButton:focus {{ border: 2px solid {rgba(text, 160)}; }}"
+            f"QPushButton:disabled {{ background-color: {rgba(accent, 70)};"
+            f" color: {rgba(text, 130)}; border-color: transparent; }}"
+        )
+        for button in (self.play_button, self.download_button):
+            button.setStyleSheet(style if button is primary else "")
+        # Themes draw outlined buttons with different border widths; borrow the
+        # height of a plain one so the filled button lines up beside it
+        self.download_button.setMinimumHeight(0)
+        self.play_button.setMinimumHeight(0)
+        primary.setMinimumHeight(self.cover_button.sizeHint().height())
 
     def set_providers(self, providers: list[DownloadProvider]) -> None:
         """Set the available download providers, showing the picker when >1."""
@@ -326,6 +477,15 @@ class GameDetailWidget(QWidget):
         self.title_label.setText(game.title)
         self.subtitle_label.setText(" · ".join(self._subtitle_parts(game)))
         self.rating_label.setText(self._rating_text(game))
+        self.box_title_label.setText(game.title)
+        # The box prints the date in the locale's format; match it beside the box
+        box_parts = self._subtitle_parts(game)
+        if game.release and box_parts:
+            box_parts[0] = _format_release(game.release)
+        self.box_subtitle_label.setText(" · ".join(box_parts))
+        self.box_rating_label.setText(self.rating_label.text())
+        self.box_rating_label.setVisible(bool(self.rating_label.text()))
+        self._box_images.clear()
         self.summary_label.setText(game.summary or "No description available.")
 
         self.detail_labels["Platforms"].setText(", ".join(game.platforms) or "—")
@@ -348,6 +508,10 @@ class GameDetailWidget(QWidget):
             self._load_image(game.header, self.header_label, 0, HEADER_BANNER_HEIGHT)
 
         self._rebuild_screenshots(game)
+
+        self._box_refresh.stop()
+        self._refresh_box()
+        self.box_view.reset_pose(intro=self.isVisible() and self.box_mode)
 
     def _subtitle_parts(self, game: Game) -> list[str]:
         """Return the small grey line under the title (release year, library)."""
@@ -381,6 +545,7 @@ class GameDetailWidget(QWidget):
         screenshots = [img for img in game.images if img.type.upper() == "SCREENSHOT"]
         if not screenshots:
             screenshots = list(game.images)
+        self._screenshots = screenshots
 
         self.screenshot_heading.setVisible(bool(screenshots))
         self.screenshot_scroll.setVisible(bool(screenshots))
@@ -405,6 +570,7 @@ class GameDetailWidget(QWidget):
         """Show *image* in *label*, fetching it in the background when uncached."""
         data = self.image_cache.request(image)
         if data is not None:
+            self._box_images[image.id] = data
             if label is self.header_label:
                 self._apply_header(data)
             elif isinstance(label, ClickableLabel):
@@ -420,6 +586,8 @@ class GameDetailWidget(QWidget):
         """Apply a background-fetched image to the label that asked for it."""
         target = self._pending_images.pop(image_id, None)
         if target is not None:
+            self._box_images[image_id] = data
+            self._box_refresh.start()
             label, width, height = target
             if label is self.header_label:
                 self._apply_header(data)
@@ -437,6 +605,56 @@ class GameDetailWidget(QWidget):
         self._pending_images.pop(image_id, None)
         if image_id == self._awaited_screenshot:
             self._awaited_screenshot = None
+
+    # ------------------------------------------------------------------
+    # 3D box
+    # ------------------------------------------------------------------
+
+    def _box_image(self, image: GameImage | None) -> QImage | None:
+        if image is None or image.id not in self._box_images:
+            return None
+        decoded = QImage()
+        return decoded if decoded.loadFromData(self._box_images[image.id]) else None
+
+    def _refresh_box(self) -> None:
+        """Repaint the box's faces from whatever artwork has arrived so far."""
+        game = self.game
+        if game is None:
+            return
+        cover = self._box_image(game.cover)
+        side_color = edge_color(cover)
+        view = self.box_view
+        if cover is not None:
+            view.set_front(cover, side_color)
+        else:
+            width, height = view.back_texture_size()
+            view.set_front(render_front_placeholder(game, width, height, side_color), side_color)
+
+        width, height = view.back_texture_size()
+        shots = [self._box_image(image) for image in self._screenshots[:4]]
+        loaded = [shot for shot in shots if shot is not None]
+        hero = self._box_image(game.header) or (loaded[0] if loaded else cover)
+        # Only screenshots that already arrived are laid out, so keep a map
+        # from the back cover's slots back to the game's screenshots
+        self._box_shot_order = [image for image, shot in zip(self._screenshots[:4], shots)
+                                if shot is not None]
+        view.set_back(render_back_cover(game, width, height, side_color, hero, loaded))
+        view.set_spine(render_spine(game, *view.spine_texture_size(), side_color))
+        # Different art inside than on the back, when there is any
+        inside_art = (loaded[0] if loaded else None) or self._box_image(game.header) or cover
+        view.set_inside(render_inner_flap(game, width, height, side_color, inside_art),
+                        DescriptionPage(game.title, game.summary, width, height, side_color))
+        view.set_disc(render_disc(game, cover, BOX_DISC_TEXTURE_SIZE, side_color))
+
+    def _on_box_cover_changed(self, opened: bool) -> None:
+        self.cover_button.setText("Close the box" if opened else "Open the box")
+
+    def _on_box_side_changed(self, showing_back: bool) -> None:
+        self.flip_button.setText("Show the front" if showing_back else "Turn box over")
+
+    def _on_box_screenshot_clicked(self, index: int) -> None:
+        if 0 <= index < len(self._box_shot_order):
+            self._open_screenshot(self._box_shot_order[index])
 
     def _apply_header(self, data: bytes) -> None:
         """Fill the banner across the full view width, cropping the overflow."""
@@ -490,12 +708,26 @@ class GameDetailWidget(QWidget):
         if not provider_key:
             logger.warning("Download requested but no provider is available")
             return
+        if self.box_mode and self.box_view.isVisible():
+            # Purely decorative, but started first so whoever handles the
+            # request can tell it is playing (and wait with switching tabs)
+            self.box_view.insert_disc()
         self.download_requested.emit(self.game, provider_key)
+
+    def is_playing_download_animation(self) -> bool:
+        return self.box_view.is_inserting_disc()
+
+    def cancel_download_animation(self) -> None:
+        """Stop the animation for a download that didn't start after all."""
+        self.box_view.blockSignals(True)
+        self.box_view.skip_disc()
+        self.box_view.blockSignals(False)
 
     def set_installed(self, info: InstalledGame | None) -> None:
         """Show the Play button (and script picker) for an installed game."""
         self.installed = info
         self.running = False
+        self._style_primary_action()
         self.script_combo.clear()
         if info is None:
             self.play_button.hide()

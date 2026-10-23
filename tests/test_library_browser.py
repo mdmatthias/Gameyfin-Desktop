@@ -13,7 +13,9 @@ from gameyfin_frontend.services.gameyfin_api import (DownloadProvider, Game,
                                                      Library)
 from gameyfin_frontend.services.image_cache import ImageCache
 from gameyfin_frontend.utils import format_size
-from gameyfin_frontend.widgets.cover_tile import CoverTileDelegate
+from gameyfin_frontend.widgets.cover_tile import CoverTileDelegate, tile_size_hint
+from gameyfin_frontend.config import SHELF_SPINE_MAX, SHELF_SPINE_MIN
+from gameyfin_frontend.widgets.shelf import ShelfDelegate, shelf_item_size, spine_thickness
 from gameyfin_frontend.widgets.game_detail import GameDetailWidget
 from gameyfin_frontend.widgets.library_browser import (ALL_LIBRARIES,
                                                        GAME_ID_ROLE,
@@ -308,6 +310,204 @@ class _FakeProcess(QObject):
 
     def exit(self):
         self.finished.emit(0, QProcess.ExitStatus.NormalExit)
+
+
+class TestShelfView:
+    @pytest.fixture()
+    def browser(self, qtbot, mock_api, mock_cache, fresh_settings):
+        widget = LibraryBrowserWidget(mock_api, mock_cache, fresh_settings)
+        qtbot.addWidget(widget)
+        return widget
+
+    def _loaded(self, qtbot, browser):
+        browser.refresh()
+        qtbot.waitUntil(lambda: browser.grid.count() == 2, timeout=5000)
+
+    def test_shelf_is_the_default(self, browser):
+        assert browser.shelf_mode
+        assert isinstance(browser.grid.itemDelegate(), ShelfDelegate)
+
+    def test_switches_to_the_classic_grid(self, qtbot, browser):
+        self._loaded(qtbot, browser)
+
+        browser.set_shelf_mode(False)
+
+        assert not browser.shelf_mode
+        assert type(browser.grid.itemDelegate()) is CoverTileDelegate
+        assert browser.grid.item(0).sizeHint() == tile_size_hint(browser.grid.font())
+
+    def test_saved_choice_is_restored(self, qtbot, mock_api, mock_cache, fresh_settings):
+        fresh_settings.set("GF_LIBRARY_SHELF_VIEW", 0)
+        widget = LibraryBrowserWidget(mock_api, mock_cache, fresh_settings)
+        qtbot.addWidget(widget)
+
+        assert not widget.shelf_mode
+
+    def test_scale_resizes_the_shelf(self, qtbot, browser):
+        from gameyfin_frontend.widgets.shelf import box_front_size, shelf_scale
+        self._loaded(qtbot, browser)
+        normal_slot = browser.grid.item(0).sizeHint()
+        normal_front = box_front_size(1.4)
+        try:
+            browser.set_shelf_scale(200)
+
+            assert shelf_scale() == 2.0
+            assert browser.grid.count() == 2
+            slot = browser.grid.item(0).sizeHint()
+            assert slot.height() == pytest.approx(normal_slot.height() * 2, abs=2)
+            assert slot.width() == pytest.approx(normal_slot.width() * 2, abs=2)
+            assert box_front_size(1.4) == pytest.approx(tuple(v * 2 for v in normal_front))
+        finally:
+            browser.set_shelf_scale(100)
+
+    def test_scale_is_clamped(self):
+        from gameyfin_frontend.config import SHELF_SCALE_MAX, SHELF_SCALE_MIN
+        from gameyfin_frontend.widgets.shelf import set_shelf_scale, shelf_scale
+        try:
+            set_shelf_scale(10_000)
+            assert shelf_scale() == SHELF_SCALE_MAX / 100
+            set_shelf_scale(1)
+            assert shelf_scale() == SHELF_SCALE_MIN / 100
+        finally:
+            set_shelf_scale(100)
+
+    def test_boxes_vary_in_thickness_but_keep_theirs(self, qtbot, browser):
+        self._loaded(qtbot, browser)
+        widths = {browser.grid.item(row).sizeHint().width() for row in range(browser.grid.count())}
+        assert all(SHELF_SPINE_MIN < width <= SHELF_SPINE_MAX + 1 for width in widths)
+        assert spine_thickness(42) == spine_thickness(42)
+        assert len({spine_thickness(game_id) for game_id in range(50)}) > 5
+
+    def test_cover_colours_the_spine(self, qtbot, browser, png_bytes):
+        self._loaded(qtbot, browser)
+        item = browser.grid.item(0)
+
+        browser._apply_cover(item, png_bytes)
+
+        assert item.data(ShelfDelegate.SPINE_ROLE) is not None
+
+    def test_every_game_gets_a_spine(self, qtbot, browser):
+        self._loaded(qtbot, browser)
+        for row in range(browser.grid.count()):
+            art = browser.grid.item(row).data(ShelfDelegate.SPINE_IMAGE_ROLE)
+            assert art is not None and not art.isNull()
+
+    def test_click_on_a_spine_opens_the_game(self, qtbot, browser):
+        from PyQt6.QtCore import Qt
+        self._loaded(qtbot, browser)
+        browser.resize(900, 700)
+        browser.show()
+        qtbot.waitExposed(browser)
+        spine = browser.grid.visualItemRect(browser.grid.item(1)).center()
+
+        qtbot.mouseClick(browser.grid.viewport(), Qt.MouseButton.LeftButton, pos=spine)
+
+        assert browser.stack.currentWidget() is browser.detail
+        assert browser.detail.game.title == browser.grid.item(1).text()
+
+    def test_hover_slides_the_box_out_without_moving_it_from_under_the_mouse(self, qtbot,
+                                                                             browser):
+        from PyQt6.QtCore import QPointF
+        self._loaded(qtbot, browser)
+        browser.resize(900, 700)
+        browser.show()
+        grid = browser.grid
+        spot = grid.visualItemRect(grid.item(0)).center()
+
+        grid._set_hover(grid.indexAt(spot).row())
+        grid.finish_slide()
+
+        assert grid.active_row() == 0
+        assert grid.row_layout()[0].contains(QPointF(spot))
+        assert grid.indexAt(spot).row() == 0
+
+    def test_hover_waits_for_the_mouse_to_rest(self, qtbot, browser):
+        self._loaded(qtbot, browser)
+        browser.resize(900, 700)
+        browser.show()
+        qtbot.waitExposed(browser)
+        grid = browser.grid
+        spine = grid.visualItemRect(grid.item(1)).center()
+
+        qtbot.mouseMove(grid.viewport(), spine)
+        # Lit up at once, but not slid out yet: the mouse only just arrived
+        assert grid._highlight_row == 1
+        assert grid.active_row() != 1
+
+        qtbot.waitUntil(lambda: grid.active_row() == 1, timeout=2000)
+
+    def test_neighbours_make_room_for_the_slid_out_box(self, qtbot, browser):
+        self._loaded(qtbot, browser)
+        browser.resize(900, 700)
+        browser.show()
+        browser.grid.setCurrentRow(0)
+        browser.grid.finish_slide()
+
+        layout = browser.grid.row_layout()
+        rects = [layout[row] for row in sorted(layout)]
+
+        assert rects[0].width() > shelf_item_size(SHELF_SPINE_MAX).width() * 3
+        # Side by side without overlapping, and still inside the view
+        for left, right in zip(rects, rects[1:]):
+            assert right.left() == pytest.approx(left.right())
+        assert rects[-1].right() <= browser.grid.viewport().width()
+
+    def test_clicked_box_goes_back_when_the_mouse_leaves(self, qtbot, browser):
+        from PyQt6.QtCore import QEvent, QPointF, Qt
+        from PyQt6.QtGui import QKeyEvent, QMouseEvent
+        self._loaded(qtbot, browser)
+        grid = browser.grid
+        grid.setCurrentRow(1)
+        assert grid.active_row() == 1  # picked by code/keyboard: stays out
+
+        pos = QPointF(grid.visualItemRect(grid.item(0)).center())
+        grid.mousePressEvent(QMouseEvent(
+            QEvent.Type.MouseButtonPress, pos, grid.viewport().mapToGlobal(pos),
+            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+        assert grid.currentRow() == 0
+        grid.viewportEvent(QEvent(QEvent.Type.Leave))
+        assert grid.active_row() == -1
+
+        grid.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Right,
+                                     Qt.KeyboardModifier.NoModifier))
+        assert grid.active_row() == grid.currentRow() >= 0
+
+    @pytest.mark.parametrize("shelf", [True, False])
+    def test_tooltip_only_in_the_classic_grid(self, qtbot, browser, shelf):
+        from PyQt6.QtCore import QPoint
+        from PyQt6.QtGui import QHelpEvent
+        self._loaded(qtbot, browser)
+        browser.set_shelf_mode(shelf)
+        pos = browser.grid.visualItemRect(browser.grid.item(0)).center()
+        event = QHelpEvent(QHelpEvent.Type.ToolTip, pos, browser.grid.viewport().mapToGlobal(pos))
+
+        browser.grid.viewportEvent(event)
+
+        assert event.isAccepted() is not shelf
+
+    def test_classic_view_opens_on_the_first_click(self, qtbot, browser):
+        from PyQt6.QtCore import Qt
+        self._loaded(qtbot, browser)
+        browser.set_shelf_mode(False)
+        browser.resize(900, 700)
+        browser.show()
+        qtbot.waitExposed(browser)
+        tile = browser.grid.visualItemRect(browser.grid.item(0)).center()
+
+        qtbot.mouseClick(browser.grid.viewport(), Qt.MouseButton.LeftButton, pos=tile)
+        assert browser.stack.currentWidget() is browser.detail
+
+    @pytest.mark.parametrize("shelf", [True, False])
+    def test_both_views_paint(self, qtbot, browser, png_bytes, shelf):
+        self._loaded(qtbot, browser)
+        browser.set_shelf_mode(shelf)
+        browser._apply_cover(browser.grid.item(0), png_bytes)
+        browser.grid.item(0).setData(CoverTileDelegate.INSTALLED_ROLE, True)
+        browser.grid.setCurrentRow(1)
+        browser.resize(900, 700)
+        browser.show()
+
+        assert not browser.grid.grab().isNull()
 
 
 class TestInstalledGames:

@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QFormLayout, QL
 from PyQt6.QtCore import Qt
 from gameyfin_frontend.theming import list_all_themes
 from .settings import SettingsManager
-from .config import DEFAULT_PROTON
+from .config import DEFAULT_PROTON, SHELF_SCALE_DEFAULT, SHELF_SCALE_MAX, SHELF_SCALE_MIN
 from .proton_combo import ProtonComboBox
 from .utils import muted_text_color
 
@@ -157,7 +157,8 @@ class SettingsWidget(QWidget):
 
         self.page_size_spin = QSpinBox()
         self.page_size_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.page_size_spin.setRange(10, 200)
+        # No real upper limit: the largest value a QSpinBox can hold
+        self.page_size_spin.setRange(10, 2**31 - 1)
         self.page_size_spin.setSingleStep(10)
         self.page_size_spin.setToolTip(
             "Games shown per page in the native library grid. The server returns "
@@ -166,6 +167,35 @@ class SettingsWidget(QWidget):
         )
         self.page_size_spin.setValue(self._int_setting("GF_LIBRARY_PAGE_SIZE", 100))
         form.addRow("Games per Page:", self.page_size_spin)
+
+        self.shelf_view_check = QCheckBox()
+        self.shelf_view_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.shelf_view_check.setToolTip(
+            "Show the native library as game boxes on a bookshelf instead of a plain cover grid."
+        )
+        self.shelf_view_check.setChecked(bool(self._int_setting("GF_LIBRARY_SHELF_VIEW", 1)))
+        form.addRow("Shelf View:", self.shelf_view_check)
+
+        self.shelf_scale_spin = QSpinBox()
+        self.shelf_scale_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.shelf_scale_spin.setRange(SHELF_SCALE_MIN, SHELF_SCALE_MAX)
+        self.shelf_scale_spin.setSingleStep(10)
+        self.shelf_scale_spin.setSuffix(" %")
+        self.shelf_scale_spin.setToolTip(
+            "Size of the boxes in the shelf view. Raise it for large or high-resolution "
+            "(e.g. 4K) screens."
+        )
+        self.shelf_scale_spin.setValue(self._int_setting("GF_LIBRARY_SHELF_SCALE", SHELF_SCALE_DEFAULT))
+        form.addRow("Shelf Size:", self.shelf_scale_spin)
+
+        self.box_view_check = QCheckBox()
+        self.box_view_check.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.box_view_check.setToolTip(
+            "Show a game's page in the native library as a 3D box you can turn over "
+            "instead of the classic metadata page."
+        )
+        self.box_view_check.setChecked(bool(self._int_setting("GF_DETAIL_BOX_VIEW", 1)))
+        form.addRow("Box View:", self.box_view_check)
 
         return box
 
@@ -327,6 +357,9 @@ class SettingsWidget(QWidget):
             self.settings.set("GF_START_MINIMIZED", 1 if self.minimized_check.isChecked() else 0)
             self.settings.set("GF_NATIVE_UI", 1 if self.native_ui_check.isChecked() else 0)
             self.settings.set("GF_LIBRARY_PAGE_SIZE", self.page_size_spin.value())
+            self.settings.set("GF_LIBRARY_SHELF_VIEW", 1 if self.shelf_view_check.isChecked() else 0)
+            self.settings.set("GF_LIBRARY_SHELF_SCALE", self.shelf_scale_spin.value())
+            self.settings.set("GF_DETAIL_BOX_VIEW", 1 if self.box_view_check.isChecked() else 0)
             self.settings.set("GF_THEME", self.theme_combo.currentText())
             self.settings.set("GF_ICON_PATH", self.icon_path_edit.text())
             self.settings.set("GF_DEFAULT_DOWNLOAD_DIR", self.download_dir_edit.text())

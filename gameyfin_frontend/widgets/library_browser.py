@@ -17,14 +17,14 @@ import signal
 import sys
 
 from PyQt6.QtCore import QProcess, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QFontMetrics, QIcon, QKeyEvent, QPixmap
+from PyQt6.QtGui import QColor, QFont, QFontMetrics, QIcon, QImage, QKeyEvent, QPixmap
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel,
                              QLineEdit, QListWidget, QListWidgetItem,
                              QMessageBox, QPushButton, QStackedWidget,
                              QVBoxLayout, QWidget)
 
 from ..config import (COVER_TILE_HEIGHT, COVER_TILE_WIDTH, LIBRARY_PAGE_SIZE,
-                      STOP_GAME_GRACE_MS)
+                      SHELF_SCALE_DEFAULT, STOP_GAME_GRACE_MS)
 from ..services.gameyfin_api import (DownloadProvider, Game, GameyfinApiClient,
                                      GameyfinApiError, GameyfinAuthError,
                                      GameyfinConnectionError, Library)
@@ -35,7 +35,11 @@ from ..settings import SettingsManager
 from ..utils import format_size, muted_text_color, release_year
 from ..workers import ApiCallWorker
 from .cover_tile import CoverTileDelegate, tile_size_hint
+from .game_box import edge_color
 from .game_detail import GameDetailWidget
+from .shelf import (DEFAULT_ASPECT, BookcaseFrame, LibraryGrid, ShelfDelegate,
+                    box_front_size, cover_aspect, render_shelf_spine, set_shelf_scale,
+                    shelf_item_size, shelf_scale, spine_thickness)
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +48,16 @@ IMAGE_ID_ROLE = Qt.ItemDataRole.UserRole + 1
 
 ALL_LIBRARIES = -1
 
+# Spine colour of a box until its cover has loaded (or when it has none)
+_UNKNOWN_SPINE = QColor(52, 56, 64)
+
 
 class LibraryBrowserWidget(QWidget):
     """Cover grid plus detail page, backed by the Gameyfin server API."""
 
     download_requested = pyqtSignal(object, str)  # (Game, provider key)
+    # The detail page's download animation ended (see GameDetailWidget)
+    download_animation_finished = pyqtSignal()
     login_required = pyqtSignal()
     # Emitted when a fetch came back authorized — the session works
     library_loaded = pyqtSignal()
@@ -76,6 +85,8 @@ class LibraryBrowserWidget(QWidget):
         self._in_page_refresh = False
         # image id -> grid item still waiting for its cover
         self._pending_covers: dict[int, QListWidgetItem] = {}
+        # Rendered shelf spines, so filtering and paging don't redraw them
+        self._spines: dict[int, tuple[tuple, QImage]] = {}
         # Gameyfin game id -> local install, refreshed from the prefixes on disk
         self.installed: dict[int, InstalledGame] = {}
         self._installed_service = InstalledGamesService(settings)
@@ -175,7 +186,7 @@ class LibraryBrowserWidget(QWidget):
         self.status_label.setStyleSheet(f"font-size: 11px; color: {muted_text_color(self)};")
         grid_layout.addWidget(self.status_label)
 
-        self.grid = QListWidget()
+        self.grid = LibraryGrid()
         self.grid.setViewMode(QListWidget.ViewMode.IconMode)
         self.grid.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.grid.setMovement(QListWidget.Movement.Static)
@@ -186,23 +197,60 @@ class LibraryBrowserWidget(QWidget):
         # The tiles are painted by the delegate, so the view only has to hand
         # it a flat surface — no frame, no style-drawn selection background.
         self.grid.setFrameShape(QListWidget.Shape.NoFrame)
-        self.grid.setItemDelegate(CoverTileDelegate(self.grid))
+        self._tile_delegate = CoverTileDelegate(self.grid)
+        self._shelf_delegate = ShelfDelegate(self.grid)
         self.grid.setMouseTracking(True)  # so tiles can react to hover
         self.grid.viewport().setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.grid.itemActivated.connect(self._open_item)
         self.grid.itemClicked.connect(self._open_item)
         self.grid.verticalScrollBar().valueChanged.connect(lambda _: self._load_visible_covers())
-        grid_layout.addWidget(self.grid, 1)
+        self.bookcase = BookcaseFrame(self.grid)
+        grid_layout.addWidget(self.bookcase, 1)
+        self.shelf_mode = False
+        try:
+            set_shelf_scale(int(self.settings.get("GF_LIBRARY_SHELF_SCALE", SHELF_SCALE_DEFAULT)))
+        except (TypeError, ValueError):
+            set_shelf_scale(SHELF_SCALE_DEFAULT)
+        # Bookshelf of boxed games, or the plain cover grid (chosen in Settings)
+        self.set_shelf_mode(bool(int(self.settings.get("GF_LIBRARY_SHELF_VIEW", 1) or 0)))
 
         self.stack.addWidget(grid_page)
 
         self.detail = GameDetailWidget(self.image_cache, self.settings, self)
         self.detail.back_requested.connect(self.show_grid)
         self.detail.download_requested.connect(self.download_requested.emit)
+        self.detail.download_animation_finished.connect(self.download_animation_finished.emit)
         self.detail.play_requested.connect(self._play)
         self.detail.stop_requested.connect(self._stop_shown_game)
         self.detail.script_selected.connect(self._remember_script)
         self.stack.addWidget(self.detail)
+
+    def set_shelf_mode(self, enabled: bool) -> None:
+        """Show the games as boxes on a bookshelf, or as the classic cover grid."""
+        self.shelf_mode = enabled
+        self.grid.setItemDelegate(self._shelf_delegate if enabled else self._tile_delegate)
+        # Shelf slots carry their own gaps, so neighbouring planks join up
+        self.grid.setSpacing(0 if enabled else 6)
+        self.grid.set_shelf_mode(enabled)
+        self.bookcase.set_shelf_mode(enabled)
+        for row in range(self.grid.count()):
+            item = self.grid.item(row)
+            item.setSizeHint(self._item_size(self.game_by_id(item.data(GAME_ID_ROLE))))
+        self._load_visible_covers()
+
+    def set_shelf_scale(self, percent: int) -> None:
+        """Resize the shelf view to *percent* of its normal size."""
+        before = shelf_scale()
+        set_shelf_scale(percent)
+        if shelf_scale() != before:
+            # New slot sizes, spines and sharper (or smaller) covers
+            self.bookcase.set_shelf_mode(self.shelf_mode)
+            self._apply_filter()
+
+    def _item_size(self, game: Game | None) -> QSize:
+        if not self.shelf_mode:
+            return tile_size_hint(self.grid.font())
+        return shelf_item_size(spine_thickness(game.id)) if game is not None else shelf_item_size()
 
     # ------------------------------------------------------------------
     # Paging
@@ -628,7 +676,8 @@ class LibraryBrowserWidget(QWidget):
                 item.setData(IMAGE_ID_ROLE, game.cover.id)
             item.setData(CoverTileDelegate.META_ROLE, self._meta_for(game))
             item.setData(CoverTileDelegate.INSTALLED_ROLE, game.id in self.installed)
-            item.setSizeHint(tile_size_hint(self.grid.font()))
+            item.setSizeHint(self._item_size(game))
+            self._set_spine(item, game, None, DEFAULT_ASPECT, None)
             item.setToolTip(self._tooltip_for(game))
             self.grid.addItem(item)
 
@@ -723,17 +772,45 @@ class LibraryBrowserWidget(QWidget):
         """Drop a failed fetch from the pending set so it can be retried later."""
         self._pending_covers.pop(image_id, None)
 
-    @staticmethod
-    def _apply_cover(item: QListWidgetItem, data: bytes) -> None:
-        """Scale *data* into the tile icon."""
+    def _apply_cover(self, item: QListWidgetItem, data: bytes) -> None:
+        """Scale *data* into the tile icon; the shelf box takes its colour and shape from it."""
         pixmap = QPixmap()
         if not pixmap.loadFromData(data):
             return
-        item.setIcon(QIcon(pixmap.scaled(
-            COVER_TILE_WIDTH, COVER_TILE_HEIGHT,
+        # Big enough for an enlarged shelf box too
+        factor = max(1.0, shelf_scale())
+        scaled = pixmap.scaled(
+            round(COVER_TILE_WIDTH * factor), round(COVER_TILE_HEIGHT * factor),
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
-        )))
+        )
+        item.setIcon(QIcon(scaled))
+        game = self.game_by_id(item.data(GAME_ID_ROLE))
+        if game is not None:
+            image = scaled.toImage()
+            self._set_spine(item, game, edge_color(image),
+                            cover_aspect(scaled.width(), scaled.height()), image)
+
+    def _set_spine(self, item: QListWidgetItem, game: Game, colour: QColor | None,
+                   aspect: float, cover: QImage | None) -> None:
+        """Give a shelf item its spine: a strip of its cover with the title, cached."""
+        colour = colour or _UNKNOWN_SPINE
+        ratio = max(1.0, self.devicePixelRatioF())
+        signature = (game.title, colour.rgb(), round(aspect, 3), ratio, shelf_scale(),
+                     cover is not None)
+        cached = self._spines.get(game.id)
+        if cached is not None and cached[0] == signature:
+            art = cached[1]
+        else:
+            _, height = box_front_size(aspect)
+            # At the screen's pixel density, so the title stays crisp on HiDPI
+            art = render_shelf_spine(game, int(ratio * spine_thickness(game.id)),
+                                     int(ratio * height), colour, cover)
+            # One spine per game: a cover arriving replaces the placeholder colours
+            self._spines[game.id] = (signature, art)
+        item.setData(ShelfDelegate.SPINE_ROLE, colour)
+        item.setData(ShelfDelegate.ASPECT_ROLE, aspect)
+        item.setData(ShelfDelegate.SPINE_IMAGE_ROLE, art)
 
     # ------------------------------------------------------------------
     # Navigation
